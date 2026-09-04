@@ -53,19 +53,24 @@ function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Requ
   }
 }
 
+function withSignal(init: RequestInit, signal?: AbortSignal): RequestInit {
+  return signal ? { ...init, signal } : init
+}
+
 export function createQueryPlan(
   userInput: string,
   userKey: string,
   requirements: RequirementSummary | null,
   audience?: Audience,
+  signal?: AbortSignal,
 ) {
-  return request<QueryPlanResponse>('/api/query-plans', json('POST', {
+  return request<QueryPlanResponse>('/api/query-plans', withSignal(json('POST', {
     user_input: userInput,
     user_key: userKey,
     audience: audience || null,
     requirements,
     include_debug: true,
-  }))
+  }), signal))
 }
 
 export function clarifyRequirements(
@@ -73,13 +78,14 @@ export function clarifyRequirements(
   userKey: string,
   previousRequirements: RequirementSummary | null,
   audience?: Audience,
+  signal?: AbortSignal,
 ) {
-  return request<ClarificationResponse>('/api/query-plans/clarify', json('POST', {
+  return request<ClarificationResponse>('/api/query-plans/clarify', withSignal(json('POST', {
     messages,
     user_key: userKey,
     audience: audience || null,
     previous_requirements: previousRequirements,
-  }))
+  }), signal))
 }
 
 export function refineQueryPlan(
@@ -90,8 +96,9 @@ export function refineQueryPlan(
   requirements: RequirementSummary | null,
   fashionIntent: FashionIntent | null,
   audience?: Audience,
+  signal?: AbortSignal,
 ) {
-  return request<QueryPlanResponse>('/api/query-plans/refine', json('POST', {
+  return request<QueryPlanResponse>('/api/query-plans/refine', withSignal(json('POST', {
     user_input: userInput,
     user_key: userKey,
     existing_queries: existingQueries,
@@ -100,7 +107,7 @@ export function refineQueryPlan(
     requirements,
     fashion_intent: fashionIntent,
     include_debug: true,
-  }))
+  }), signal))
 }
 
 export function getRecommendations(
@@ -110,8 +117,9 @@ export function getRecommendations(
   requirements: RequirementSummary | null,
   stylingGuide: StylingGuide | null,
   audience?: Audience,
+  signal?: AbortSignal,
 ) {
-  return request<RecommendationResponse>('/api/recommendations', json('POST', {
+  return request<RecommendationResponse>('/api/recommendations', withSignal(json('POST', {
     queries,
     top_k: 10,
     user_key: userKey,
@@ -123,7 +131,7 @@ export function getRecommendations(
     final_count: 5,
     use_aesthetic_review: true,
     include_debug: true,
-  }))
+  }), signal))
 }
 
 export function getSimilarClothes(image: File, garmentType: GarmentZone, results = 24) {

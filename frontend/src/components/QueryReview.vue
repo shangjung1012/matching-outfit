@@ -39,11 +39,12 @@ const zoneLabels: Record<QueryDraft['garment_zone'], string> = {
           <input
             :value="query.text"
             aria-label="搜尋 query"
+            :disabled="loading"
             @input="$emit('updateText', query.id, ($event.target as HTMLInputElement).value)"
           />
           <p>中文：{{ query.rationale }}</p>
         </div>
-        <button class="icon-button" title="移除 query" @click="$emit('select', query.id, false)">
+        <button class="icon-button" title="移除 query" :disabled="loading" @click="$emit('select', query.id, false)">
           <X :size="18" />
         </button>
       </article>
@@ -51,7 +52,7 @@ const zoneLabels: Record<QueryDraft['garment_zone'], string> = {
 
     <div v-if="removed.length" class="removed-queries">
       <span>已移除</span>
-      <button v-for="query in removed" :key="query.id" @click="$emit('select', query.id, true)">
+      <button v-for="query in removed" :key="query.id" :disabled="loading" @click="$emit('select', query.id, true)">
         <RotateCcw :size="14" />{{ zoneLabels[query.garment_zone] }}
       </button>
     </div>

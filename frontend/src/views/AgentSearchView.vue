@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef } from 'vue'
 import {
-  ArrowLeft, BookOpenText, Check, ChevronDown, ChevronUp, MessageSquare,
-  MessageSquarePlus, Send, Sparkles,
+  AlertCircle, ArrowLeft, BookOpenText, Check, ChevronDown, ChevronUp,
+  MessageSquare, MessageSquarePlus, RotateCcw, Send, Sparkles, Square,
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
@@ -17,15 +17,15 @@ import QueryReview from '../components/QueryReview.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
   Audience,
-  OutfitRecommendation,
-  QueryDraft,
-  RequirementSummary,
-  StylingGuide,
   FashionIntent,
+  OutfitRecommendation,
   PipelineDebugSession,
+  QueryDraft,
   QueryPlanDebug,
   RecommendationDebug,
+  RequirementSummary,
   StylePreferenceProposal,
+  StylingGuide,
 } from '../types'
 
 const props = defineProps<{ userKey: string }>()
@@ -50,6 +50,20 @@ interface ChatMessage {
   text: string
 }
 
+type AgentActivityKind = 'clarifying' | 'planning' | 'refining' | 'searching'
+
+interface AgentRequestError {
+  message: string
+  retry: () => Promise<void>
+}
+
+const activityLabels: Record<AgentActivityKind, string> = {
+  clarifying: '正在理解你的需求',
+  planning: '正在整理需求並產生搜尋 query',
+  refining: '正在依照補充條件調整 query',
+  searching: '正在搜尋並評估搭配',
+}
+
 const messages = ref<ChatMessage[]>([
   { id: 1, role: 'agent', text: '今天想找什麼樣的穿搭？告訴我場合、風格、顏色或預算。' },
 ])
@@ -62,8 +76,15 @@ const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceStatus = ref('')
 const proposalArea = ref<HTMLElement | null>(null)
-const loading = ref(false)
-const error = ref('')
+const messageList = ref<HTMLElement | null>(null)
+const agentActivity = ref<AgentActivityKind | null>(null)
+const typingVisible = ref(false)
+const actionLoading = ref(false)
+const actionError = ref('')
+const requestError = shallowRef<AgentRequestError | null>(null)
+const stoppedNotice = ref('')
+const isNearMessageBottom = ref(true)
+const hasUnreadMessage = ref(false)
 const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
 const audience = ref<Audience | ''>('')
@@ -77,9 +98,23 @@ const knowledgeNote = ref('')
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
 let messageId = 2
+let typingTimer: ReturnType<typeof setTimeout> | null = null
+let activeController: AbortController | null = null
+let requestSequence = 0
 
 const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
 const hasUserDetails = computed(() => messages.value.some((message) => message.role === 'user'))
+const agentBusy = computed(() => agentActivity.value !== null)
+const activityLabel = computed(() => (
+  agentActivity.value ? activityLabels[agentActivity.value] : ''
+))
+const showQuerySkeleton = computed(() => (
+  typingVisible.value
+  && (agentActivity.value === 'planning' || agentActivity.value === 'refining')
+))
+const showOutfitSkeleton = computed(() => (
+  typingVisible.value && agentActivity.value === 'searching'
+))
 const composerPlaceholder = computed(() => {
   if (stage.value === 'start') return '回答 Agent 的問題，或補充你的穿搭需求'
   if (stage.value === 'review') return '補充調整，例如：不要裙子、再正式一點'
@@ -103,6 +138,12 @@ const requirementLabels: Record<RequirementDisplayField, string> = {
   additional_notes: '其他補充',
 }
 
+const quickPrompts = [
+  '適合上班的簡約藍色穿搭，預算 3000 元',
+  '週末休閒穿搭，不要裙子',
+  '想找粉色的夏季洋裝',
+]
+
 function requirementValue(field: RequirementDisplayField): string {
   const value = requirements.value?.[field]
   if (Array.isArray(value)) {
@@ -113,14 +154,38 @@ function requirementValue(field: RequirementDisplayField): string {
   return value?.trim() || '尚未提供'
 }
 
-const quickPrompts = [
-  '適合上班的簡約藍色穿搭，預算 3000 元',
-  '週末休閒穿搭，不要裙子',
-  '想找粉色的夏季洋裝',
-]
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
-function addMessage(role: 'agent' | 'user', text: string) {
+function handleMessageScroll() {
+  const element = messageList.value
+  if (!element) return
+  isNearMessageBottom.value = element.scrollHeight - element.scrollTop - element.clientHeight < 64
+  if (isNearMessageBottom.value) hasUnreadMessage.value = false
+}
+
+function scrollConversation(force = false) {
+  void nextTick(() => {
+    const element = messageList.value
+    if (!element) return
+    if (force || isNearMessageBottom.value) {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      })
+      isNearMessageBottom.value = true
+      hasUnreadMessage.value = false
+    } else {
+      hasUnreadMessage.value = true
+    }
+  })
+}
+
+function addMessage(role: 'agent' | 'user', text: string, forceScroll = false) {
   messages.value.push({ id: messageId++, role, text })
+  scrollConversation(forceScroll)
 }
 
 function publishDebug() {
@@ -141,102 +206,289 @@ function publishDebug() {
   })
 }
 
-async function run(task: () => Promise<void>) {
-  loading.value = true
-  error.value = ''
+function clearTypingTimer() {
+  if (typingTimer !== null) {
+    clearTimeout(typingTimer)
+    typingTimer = null
+  }
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof Error && reason.name === 'AbortError'
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : '發生未知錯誤，請稍後再試。'
+}
+
+function cancelAgentRequest(showNotice: boolean) {
+  requestSequence += 1
+  activeController?.abort()
+  activeController = null
+  clearTypingTimer()
+  agentActivity.value = null
+  typingVisible.value = false
+  requestError.value = null
+  if (showNotice) {
+    stoppedNotice.value = '已停止目前操作。你的草稿仍保留，可以修改後再送出。'
+    scrollConversation()
+  }
+}
+
+function stopAgentRequest() {
+  if (agentBusy.value) cancelAgentRequest(true)
+}
+
+async function runAgentRequest<T>(
+  kind: AgentActivityKind,
+  request: (signal: AbortSignal) => Promise<T>,
+  onSuccess: (response: T) => void,
+  retry: () => Promise<void>,
+) {
+  if (agentBusy.value) return
+  const sequence = ++requestSequence
+  const controller = new AbortController()
+  activeController = controller
+  agentActivity.value = kind
+  requestError.value = null
+  stoppedNotice.value = ''
+  actionError.value = ''
+  typingVisible.value = false
+  clearTypingTimer()
+  typingTimer = setTimeout(() => {
+    if (sequence !== requestSequence) return
+    typingVisible.value = true
+    scrollConversation()
+  }, 250)
+
+  try {
+    const response = await request(controller.signal)
+    if (sequence !== requestSequence) return
+    onSuccess(response)
+  } catch (reason) {
+    if (sequence !== requestSequence || isAbortError(reason)) return
+    requestError.value = { message: errorMessage(reason), retry }
+    scrollConversation()
+  } finally {
+    if (sequence === requestSequence) {
+      clearTypingTimer()
+      activeController = null
+      agentActivity.value = null
+      typingVisible.value = false
+    }
+  }
+}
+
+async function retryAgentRequest() {
+  const retry = requestError.value?.retry
+  if (retry && !agentBusy.value) await retry()
+}
+
+async function runAction(task: () => Promise<void>) {
+  if (actionLoading.value) return
+  actionLoading.value = true
+  actionError.value = ''
   try {
     await task()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '發生未知錯誤'
+    actionError.value = errorMessage(reason)
   } finally {
-    loading.value = false
+    actionLoading.value = false
   }
+}
+
+async function requestClarification(
+  chatMessages: Array<{ role: 'agent' | 'user'; text: string }>,
+  previousRequirements: RequirementSummary | null,
+  selectedAudience: Audience | undefined,
+) {
+  const retry = () => requestClarification(chatMessages, previousRequirements, selectedAudience)
+  await runAgentRequest(
+    'clarifying',
+    (signal) => clarifyRequirements(
+      chatMessages,
+      props.userKey,
+      previousRequirements,
+      selectedAudience,
+      signal,
+    ),
+    (response) => {
+      requirements.value = response.requirements
+      missingFields.value = response.missing_fields
+      readyToPlan.value = response.ready_to_plan
+      addMessage('agent', response.reply)
+      publishDebug()
+    },
+    retry,
+  )
+}
+
+async function requestRefinement(
+  text: string,
+  existingQueries: QueryDraft[],
+  previousRequest: string,
+  currentRequirements: RequirementSummary | null,
+  currentFashionIntent: FashionIntent | null,
+  selectedAudience: Audience | undefined,
+) {
+  const retry = () => requestRefinement(
+    text,
+    existingQueries,
+    previousRequest,
+    currentRequirements,
+    currentFashionIntent,
+    selectedAudience,
+  )
+  await runAgentRequest(
+    'refining',
+    (signal) => refineQueryPlan(
+      text,
+      props.userKey,
+      existingQueries,
+      previousRequest,
+      currentRequirements,
+      currentFashionIntent,
+      selectedAudience,
+      signal,
+    ),
+    (response) => {
+      queries.value = response.queries
+      stylingGuide.value = response.styling_guide
+      fashionIntent.value = response.fashion_intent
+      planDebug.value = response.debug
+      recommendationDebug.value = null
+      audience.value = response.audience ?? audience.value
+      originalRequest.value = `${previousRequest} ${text}`.trim()
+      addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
+      publishDebug()
+    },
+    retry,
+  )
+}
+
+async function requestPlanning(
+  planningInput: string,
+  currentRequirements: RequirementSummary | null,
+  selectedAudience: Audience | undefined,
+) {
+  const retry = () => requestPlanning(planningInput, currentRequirements, selectedAudience)
+  await runAgentRequest(
+    'planning',
+    (signal) => createQueryPlan(
+      planningInput,
+      props.userKey,
+      currentRequirements,
+      selectedAudience,
+      signal,
+    ),
+    (response) => {
+      originalRequest.value = planningInput
+      queries.value = response.queries
+      stylingGuide.value = response.styling_guide
+      fashionIntent.value = response.fashion_intent
+      planDebug.value = response.debug
+      recommendationDebug.value = null
+      audience.value = response.audience ?? audience.value
+      recommendations.value = []
+      discardedRecommendations.value = []
+      showDiscarded.value = false
+      stage.value = 'review'
+      addMessage(
+        'agent',
+        `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+      )
+      publishDebug()
+    },
+    retry,
+  )
+}
+
+async function requestRecommendations(
+  selectedQueries: QueryDraft[],
+  userInput: string,
+  currentRequirements: RequirementSummary | null,
+  currentStylingGuide: StylingGuide | null,
+  selectedAudience: Audience | undefined,
+) {
+  const retry = () => requestRecommendations(
+    selectedQueries,
+    userInput,
+    currentRequirements,
+    currentStylingGuide,
+    selectedAudience,
+  )
+  await runAgentRequest(
+    'searching',
+    (signal) => getRecommendations(
+      selectedQueries,
+      props.userKey,
+      userInput,
+      currentRequirements,
+      currentStylingGuide,
+      selectedAudience,
+      signal,
+    ),
+    (response) => {
+      recommendations.value = response.recommendations
+      discardedRecommendations.value = response.discarded_recommendations
+      recommendationDebug.value = response.debug
+      reviewNote.value = response.review_note
+      knowledgeNote.value = response.knowledge_note
+      showDiscarded.value = false
+      likedOutfitIds.value = new Set()
+      proposal.value = null
+      preferenceStatus.value = ''
+      stage.value = 'results'
+      addMessage(
+        'agent',
+        `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.aesthetic_reviewed ? '已完成圖片美感審查。' : response.review_note}`,
+      )
+      publishDebug()
+    },
+    retry,
+  )
 }
 
 async function sendRequest(text = draft.value) {
   const content = text.trim()
-  if (!content || loading.value) return
-  if (stage.value === 'results') return
+  if (!content || agentBusy.value || stage.value === 'results') return
   draft.value = ''
-  addMessage('user', content)
+  addMessage('user', content, true)
   if (stage.value === 'review') {
-    await refine(content)
-    return
-  }
-  await run(async () => {
-    const response = await clarifyRequirements(
-      messages.value.map(({ role, text }) => ({ role, text })),
-      props.userKey,
-      requirements.value,
-      audience.value || undefined,
-    )
-    requirements.value = response.requirements
-    missingFields.value = response.missing_fields
-    readyToPlan.value = response.ready_to_plan
-    addMessage('agent', response.reply)
-    publishDebug()
-  })
-}
-
-async function refine(text: string) {
-  const previousRequest = originalRequest.value
-  await run(async () => {
-    const response = await refineQueryPlan(
-      text,
-      props.userKey,
-      queries.value,
-      previousRequest,
+    await requestRefinement(
+      content,
+      queries.value.map((query) => ({ ...query })),
+      originalRequest.value,
       requirements.value,
       fashionIntent.value,
       audience.value || undefined,
     )
-    queries.value = response.queries
-    stylingGuide.value = response.styling_guide
-    fashionIntent.value = response.fashion_intent
-    planDebug.value = response.debug
-    recommendationDebug.value = null
-    audience.value = response.audience ?? audience.value
-    originalRequest.value = `${previousRequest} ${text}`.trim()
-    addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
-    publishDebug()
-  })
+    return
+  }
+  await requestClarification(
+    messages.value.map(({ role, text: messageText }) => ({ role, text: messageText })),
+    requirements.value,
+    audience.value || undefined,
+  )
 }
 
 async function confirmRequirements() {
-  if (!hasUserDetails.value || loading.value) return
+  if (!hasUserDetails.value || agentBusy.value) return
   const rawUserRequest = messages.value
     .filter((message) => message.role === 'user')
     .map((message) => message.text)
     .join('；')
     .trim()
   const planningInput = rawUserRequest || requirements.value?.search_brief.trim() || ''
-  originalRequest.value = planningInput
-  await run(async () => {
-    const response = await createQueryPlan(
-      planningInput,
-      props.userKey,
-      requirements.value,
-      audience.value || undefined,
-    )
-    queries.value = response.queries
-    stylingGuide.value = response.styling_guide
-    fashionIntent.value = response.fashion_intent
-    planDebug.value = response.debug
-    recommendationDebug.value = null
-    audience.value = response.audience ?? audience.value
-    recommendations.value = []
-    discardedRecommendations.value = []
-    showDiscarded.value = false
-    stage.value = 'review'
-    addMessage(
-      'agent',
-      `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
-    )
-    publishDebug()
-  })
+  await requestPlanning(
+    planningInput,
+    requirements.value,
+    audience.value || undefined,
+  )
 }
 
 function startNewConversation() {
+  cancelAgentRequest(false)
   messages.value = [
     { id: messageId++, role: 'agent', text: '今天想找什麼樣的穿搭？我會先和你確認場合、時間與其他重要需求。' },
   ]
@@ -258,36 +510,23 @@ function startNewConversation() {
   likedOutfitIds.value = new Set()
   proposal.value = null
   preferenceStatus.value = ''
-  error.value = ''
+  actionError.value = ''
+  stoppedNotice.value = ''
+  hasUnreadMessage.value = false
+  isNearMessageBottom.value = true
   stage.value = 'start'
+  scrollConversation(true)
 }
 
 async function searchOutfits() {
-  await run(async () => {
-    const response = await getRecommendations(
-      queries.value,
-      props.userKey,
-      originalRequest.value,
-      requirements.value,
-      stylingGuide.value,
-      audience.value || undefined,
-    )
-    recommendations.value = response.recommendations
-    discardedRecommendations.value = response.discarded_recommendations
-    recommendationDebug.value = response.debug
-    reviewNote.value = response.review_note
-    knowledgeNote.value = response.knowledge_note
-    showDiscarded.value = false
-    likedOutfitIds.value = new Set()
-    proposal.value = null
-    preferenceStatus.value = ''
-    stage.value = 'results'
-    addMessage(
-      'agent',
-      `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.aesthetic_reviewed ? '已完成圖片美感審查。' : response.review_note}`,
-    )
-    publishDebug()
-  })
+  if (agentBusy.value) return
+  await requestRecommendations(
+    queries.value.map((query) => ({ ...query })),
+    originalRequest.value,
+    requirements.value,
+    stylingGuide.value,
+    audience.value || undefined,
+  )
 }
 
 function setSelected(id: string, selected: boolean) {
@@ -318,10 +557,10 @@ function outfitIsFavorited(outfit: OutfitRecommendation): boolean {
 }
 
 async function togglePreference(outfit: OutfitRecommendation) {
-  if (loading.value) return
+  if (actionLoading.value) return
   const itemIds = outfitItemIds(outfit)
   if (isPreferred(itemIds)) {
-    await run(async () => {
+    await runAction(async () => {
       await deactivatePreferenceOrigin(itemIds)
       preferenceStatus.value = '這套搭配的偏好已停用，可在「我的偏好」重新啟用。'
       emit('preferenceUpdated')
@@ -339,9 +578,9 @@ async function togglePreference(outfit: OutfitRecommendation) {
 }
 
 async function toggleFavorite(outfit: OutfitRecommendation) {
-  if (loading.value) return
+  if (actionLoading.value) return
   const itemIds = outfitItemIds(outfit)
-  await run(async () => {
+  await runAction(async () => {
     const favorited = !outfitIsFavorited(outfit)
     if (itemIds.length === 1) {
       await setFavoriteItems(itemIds, favorited)
@@ -352,7 +591,7 @@ async function toggleFavorite(outfit: OutfitRecommendation) {
 }
 
 async function buildProposal(selectedIds = likedOutfitIds.value) {
-  await run(async () => {
+  await runAction(async () => {
     const likedOutfits = [
       ...recommendations.value,
       ...discardedRecommendations.value,
@@ -364,7 +603,10 @@ async function buildProposal(selectedIds = likedOutfitIds.value) {
       requirements.value,
     )
     await nextTick()
-    proposalArea.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    proposalArea.value?.scrollIntoView({
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      block: 'start',
+    })
   })
 }
 
@@ -375,7 +617,7 @@ function dismissProposal() {
 
 async function confirmProposal() {
   if (!proposal.value) return
-  await run(async () => {
+  await runAction(async () => {
     await confirmPreferences(proposal.value!.proposals)
     proposal.value = null
     likedOutfitIds.value = new Set()
@@ -383,6 +625,8 @@ async function confirmProposal() {
     emit('preferenceUpdated')
   })
 }
+
+onBeforeUnmount(() => cancelAgentRequest(false))
 </script>
 
 <template>
@@ -390,24 +634,82 @@ async function confirmProposal() {
     <aside class="chat-panel">
       <header class="chat-header">
         <div class="agent-avatar"><Sparkles :size="18" /></div>
-        <div><strong>Outfit Agent</strong><span>Online</span></div>
-        <button class="new-chat-button" title="開啟新對話" @click="startNewConversation">
+        <div class="agent-heading">
+          <strong>Outfit Agent</strong>
+          <span :class="{ thinking: agentBusy }" aria-live="polite">
+            {{ agentBusy ? '正在思考' : 'Online' }}
+          </span>
+        </div>
+        <button
+          class="new-chat-button"
+          type="button"
+          title="開啟新對話"
+          aria-label="開啟新對話"
+          :disabled="actionLoading"
+          @click="startNewConversation"
+        >
           <MessageSquarePlus :size="18" />
         </button>
       </header>
 
-      <div class="message-list">
-        <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
-          <span v-if="message.role === 'agent'" class="message-avatar"><Sparkles :size="13" /></span>
-          <p>{{ message.text }}</p>
+      <div class="message-list-wrap">
+        <div
+          ref="messageList"
+          class="message-list"
+          aria-live="polite"
+          aria-relevant="additions text"
+          @scroll="handleMessageScroll"
+        >
+          <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
+            <span v-if="message.role === 'agent'" class="message-avatar"><Sparkles :size="13" /></span>
+            <p>{{ message.text }}</p>
+          </div>
+
+          <div
+            v-if="typingVisible"
+            class="message agent typing-message"
+            role="status"
+            :aria-label="activityLabel"
+          >
+            <span class="message-avatar"><Sparkles :size="13" /></span>
+            <div class="typing-bubble">
+              <span class="typing-label">{{ activityLabel }}</span>
+              <span class="typing-dots" aria-hidden="true">
+                <i></i><i></i><i></i>
+              </span>
+            </div>
+          </div>
+
+          <div v-if="requestError" class="message agent error-message" role="alert">
+            <span class="message-avatar error-avatar"><AlertCircle :size="13" /></span>
+            <div>
+              <strong>這次沒有完成</strong>
+              <p>{{ requestError.message }}</p>
+              <button type="button" :disabled="agentBusy" @click="retryAgentRequest">
+                <RotateCcw :size="14" />重試
+              </button>
+            </div>
+          </div>
+
+          <p v-if="stoppedNotice" class="chat-system-notice" role="status">
+            {{ stoppedNotice }}
+          </p>
         </div>
 
+        <button
+          v-if="hasUnreadMessage"
+          class="new-message-button"
+          type="button"
+          @click="scrollConversation(true)"
+        >
+          <ChevronDown :size="14" />有新訊息
+        </button>
       </div>
 
       <div class="chat-composer" :class="{ 'has-confirm': stage === 'start' && hasUserDetails }">
         <div class="audience-control">
           <label for="outfit-audience">服裝受眾</label>
-          <select id="outfit-audience" v-model="audience">
+          <select id="outfit-audience" v-model="audience" :disabled="agentBusy">
             <option value="">依需求判斷</option>
             <option value="women">女裝</option>
             <option value="men">男裝</option>
@@ -419,21 +721,41 @@ async function confirmProposal() {
           rows="3"
           :placeholder="composerPlaceholder"
           :disabled="stage === 'results'"
+          aria-label="輸入穿搭需求"
           @keydown.ctrl.enter="sendRequest()"
         />
-        <button class="send-button" title="送出" :disabled="loading || !draft.trim() || stage === 'results'" @click="sendRequest()">
+        <button
+          v-if="agentBusy"
+          class="send-button stop-button"
+          type="button"
+          title="停止目前操作"
+          aria-label="停止目前操作"
+          @click="stopAgentRequest"
+        >
+          <Square :size="14" fill="currentColor" />
+        </button>
+        <button
+          v-else
+          class="send-button"
+          type="button"
+          title="送出"
+          aria-label="送出訊息"
+          :disabled="!draft.trim() || stage === 'results'"
+          @click="sendRequest()"
+        >
           <Send :size="18" />
         </button>
         <button
           v-if="stage === 'start' && hasUserDetails"
           class="confirm-requirements-button"
-          :disabled="loading"
+          type="button"
+          :disabled="agentBusy"
           @click="confirmRequirements"
         >
           <Check :size="16" />{{ readyToPlan ? '產生搜尋 query' : '不再補充，產生 query' }}
         </button>
       </div>
-      <p v-if="error" class="chat-error">{{ error }}</p>
+      <p v-if="actionError" class="chat-error" role="alert">{{ actionError }}</p>
     </aside>
 
     <main class="agent-workspace">
@@ -441,11 +763,59 @@ async function confirmProposal() {
         <BookOpenText :size="16" />知識來源
       </button>
 
-      <section v-if="stage === 'start' && !requirements" class="agent-start">
+      <section v-if="showQuerySkeleton" class="agent-workspace-loading query-loading" aria-hidden="true">
+        <header class="view-heading compact-heading">
+          <div>
+            <span class="section-kicker">搜尋規劃</span>
+            <h2>{{ agentActivity === 'refining' ? '正在調整搜尋條件' : '正在建立搜尋條件' }}</h2>
+            <p>Agent 正在把需求整理成可搜尋的商品條件。</p>
+          </div>
+          <span class="skeleton-count"></span>
+        </header>
+        <div class="skeleton-query-stack">
+          <article v-for="index in 4" :key="index" class="skeleton-query-row">
+            <span class="skeleton-block skeleton-zone"></span>
+            <div>
+              <span class="skeleton-block skeleton-query-line"></span>
+              <span class="skeleton-block skeleton-query-caption"></span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="showOutfitSkeleton" class="agent-workspace-loading outfit-loading" aria-hidden="true">
+        <header class="view-heading compact-heading">
+          <div>
+            <span class="section-kicker">Recommendations</span>
+            <h2>正在搜尋適合的搭配</h2>
+            <p>Agent 正在比對商品、穿搭規則與偏好。</p>
+          </div>
+        </header>
+        <div class="skeleton-outfit-grid">
+          <article v-for="index in 3" :key="index" class="skeleton-outfit-card" :class="{ featured: index === 1 }">
+            <div class="skeleton-outfit-image skeleton-block"></div>
+            <div class="skeleton-outfit-copy">
+              <span class="skeleton-block skeleton-short-line"></span>
+              <span class="skeleton-block skeleton-title-line"></span>
+              <span class="skeleton-block skeleton-copy-line"></span>
+              <span class="skeleton-block skeleton-copy-line narrow"></span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="stage === 'start' && !requirements" class="agent-start">
         <div class="start-icon"><MessageSquare :size="26" /></div>
         <h2>開始新的穿搭搜尋</h2>
         <div class="quick-prompts">
-          <button v-for="prompt in quickPrompts" :key="prompt" @click="sendRequest(prompt)">{{ prompt }}</button>
+          <button
+            v-for="prompt in quickPrompts"
+            :key="prompt"
+            :disabled="agentBusy"
+            @click="sendRequest(prompt)"
+          >
+            {{ prompt }}
+          </button>
         </div>
       </section>
 
@@ -467,7 +837,7 @@ async function confirmProposal() {
             <dd>{{ requirementValue(field) }}</dd>
           </div>
         </dl>
-        <button class="primary-button requirement-confirm" :disabled="loading" @click="confirmRequirements">
+        <button class="primary-button requirement-confirm" :disabled="agentBusy" @click="confirmRequirements">
           <Check :size="17" />{{ readyToPlan ? '確認並產生搜尋 query' : '不再補充，直接產生 query' }}
         </button>
       </section>
@@ -475,7 +845,7 @@ async function confirmProposal() {
       <QueryReview
         v-else-if="stage === 'review'"
         :queries="queries"
-        :loading="loading"
+        :loading="agentBusy"
         @select="setSelected"
         @update-text="updateQueryText"
         @search="searchOutfits"
@@ -495,7 +865,7 @@ async function confirmProposal() {
           <PreferenceProposalPanel
             v-if="proposal"
             :proposal="proposal"
-            :loading="loading"
+            :loading="actionLoading"
             @confirm="confirmProposal"
             @dismiss="dismissProposal"
           />
@@ -513,7 +883,7 @@ async function confirmProposal() {
             :rank="index + 1"
             :preferred="outfitIsPreferred(outfit)"
             :favorited="outfitIsFavorited(outfit)"
-            :action-loading="loading"
+            :action-loading="actionLoading"
             :featured="index === 0"
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
@@ -552,7 +922,7 @@ async function confirmProposal() {
               :queries="queries"
               :preferred="outfitIsPreferred(outfit)"
               :favorited="outfitIsFavorited(outfit)"
-              :action-loading="loading"
+              :action-loading="actionLoading"
               @toggle-preference="togglePreference(outfit)"
               @toggle-favorite="toggleFavorite(outfit)"
             />
