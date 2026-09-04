@@ -56,9 +56,9 @@ def build_planner_preference_context(
             "avoid_colours": hard.avoid_colours or [],
             "avoid_article_types": hard.avoid_article_types or [],
             "avoid_master_categories": hard.avoid_master_categories or [],
-            "price_min": hard.price_min,
-            "price_max": hard.price_max,
-            "notes": hard.notes,
+            # Per single catalog item, not a total-outfit budget (see outfit_budget_max).
+            "item_price_min": hard.price_min,
+            "item_price_max": hard.price_max,
         }
 
     for row in style_preferences or []:

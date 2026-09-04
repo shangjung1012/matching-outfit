@@ -201,7 +201,7 @@ onMounted(load)
 
         <div class="settings-list">
           <div class="settings-row price-settings-row">
-            <div class="settings-label"><strong>價格範圍</strong></div>
+            <div class="settings-label"><strong>單件商品價格範圍</strong></div>
             <div class="price-inputs">
               <label>最低價格<input v-model.number="hard.price_min" type="number" min="0" /></label>
               <label>最高價格<input v-model.number="hard.price_max" type="number" min="0" /></label>
@@ -216,11 +216,6 @@ onMounted(load)
           <div class="settings-row">
             <div class="settings-label"><strong>排除衣服類型</strong></div>
             <TagInput v-model="hard.avoid_article_types" placeholder="輸入衣服類型" />
-          </div>
-
-          <div class="settings-row">
-            <label class="settings-label" for="required-details"><strong>其他必要條件</strong></label>
-            <textarea id="required-details" v-model="hard.notes" rows="3" />
           </div>
         </div>
 
