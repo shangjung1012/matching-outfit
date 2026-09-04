@@ -337,17 +337,18 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tryon-upload { min-width: 0; display: grid; gap: 8px; color: #505850; font-size: .73rem; font-weight: 800; }
 .tryon-upload.disabled > span { color: #8d938e; }
 .tryon-preview { aspect-ratio: 3 / 4; overflow: hidden; display: grid; place-items: center; border: 1px dashed #bcc5bd; border-radius: 6px; color: #768078; background: #f5f7f4; }
+.tryon-preview-input { position: relative; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.tryon-upload:not(.disabled) .tryon-preview-input:hover { border-color: #89988c; background: #eef3ef; }
+.tryon-upload:not(.disabled) .tryon-preview-input:focus-within { border-color: #39705b; outline: 2px solid #39705b; outline-offset: 2px; }
 .tryon-upload.disabled .tryon-preview { border-color: #d5d9d5; color: #9aa09b; background: #f1f2f0; }
+.tryon-upload.disabled .tryon-preview-input { cursor: not-allowed; }
 .tryon-preview img { width: 100%; height: 100%; display: block; object-fit: contain; background: #eef0ed; }
-.tryon-preview > div { display: grid; justify-items: center; gap: 8px; padding: 20px; text-align: center; }
+.tryon-preview-copy { display: grid; justify-items: center; gap: 8px; padding: 20px; text-align: center; }
 .tryon-preview small { color: #8a908a; font-size: .65rem; font-weight: 500; }
+.tryon-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
 .tryon-upload-actions { min-height: 31px; display: flex; align-items: center; gap: 7px; }
-.tryon-file-button, .tryon-remove-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; font-size: .65rem; font-weight: 700; cursor: pointer; }
-.tryon-file-button { position: relative; overflow: hidden; }
-.tryon-file-button:hover, .tryon-remove-button:hover { border-color: #9ea8a0; background: #f7f9f7; }
-.tryon-file-button:focus-within:not(.disabled) { border-color: #39705b; outline: 2px solid #39705b; outline-offset: 2px; }
-.tryon-file-button.disabled { color: #969c97; background: #f1f2f0; cursor: not-allowed; }
-.tryon-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.tryon-remove-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; font-size: .65rem; font-weight: 700; cursor: pointer; }
+.tryon-remove-button:hover { border-color: #9ea8a0; background: #f7f9f7; }
 .tryon-remove-button { gap: 4px; border-color: transparent; color: #7e5a4e; background: transparent; }
 .tryon-submit { width: 100%; margin-top: 18px; }
 .tryon-limit { margin: 8px 0 0; color: #858b85; text-align: center; font-size: .65rem; }

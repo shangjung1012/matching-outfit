@@ -454,21 +454,19 @@ onBeforeUnmount(() => {
         <section class="tryon-upload-section">
           <div class="tryon-upload tryon-person-upload">
             <span>人物照片</span>
-            <div class="tryon-preview">
+            <label class="tryon-preview tryon-preview-input">
               <img v-if="personPreview" :src="personPreview" alt="人物照片預覽" />
-              <div v-else><ImagePlus :size="30" /><strong>選擇人物照片</strong><small>建議使用正面全身照</small></div>
-            </div>
+              <span v-else class="tryon-preview-copy"><ImagePlus :size="30" /><strong>選擇人物照片</strong><small>建議使用正面全身照</small></span>
+              <input
+                :key="personInputKey()"
+                class="tryon-file-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                :aria-label="`${personFile ? '更換圖片' : '選擇圖片'}：人物照片`"
+                @change="choosePersonImage"
+              />
+            </label>
             <div class="tryon-upload-actions">
-              <label class="tryon-file-button">
-                {{ personFile ? '更換圖片' : '選擇圖片' }}
-                <input
-                  :key="personInputKey()"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  :aria-label="`${personFile ? '更換圖片' : '選擇圖片'}：人物照片`"
-                  @change="choosePersonImage"
-                />
-              </label>
               <button
                 v-if="personFile"
                 type="button"
@@ -495,34 +493,31 @@ onBeforeUnmount(() => {
               :class="{ disabled: isReferenceDisabled(option.type) }"
             >
               <span>{{ referenceLabel(option.type) }}</span>
-              <div class="tryon-preview">
+              <label
+                class="tryon-preview tryon-preview-input"
+                :aria-disabled="isReferenceDisabled(option.type)"
+              >
                 <img
                   v-if="referencePreview(option.type)"
                   :src="referencePreview(option.type)"
                   :alt="`${referenceLabel(option.type)}參考圖片預覽`"
                 />
-                <div v-else>
+                <span v-else class="tryon-preview-copy">
                   <ImagePlus :size="26" />
                   <strong>選擇{{ referenceLabel(option.type) }}圖片</strong>
                   <small>{{ isReferenceDisabled(option.type) ? referenceDisabledReason(option.type) : option.hint }}</small>
-                </div>
-              </div>
+                </span>
+                <input
+                  :key="referenceInputKey(option.type)"
+                  class="tryon-file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  :disabled="isReferenceDisabled(option.type)"
+                  :aria-label="`${referenceFile(option.type) ? '更換圖片' : '選擇圖片'}：${referenceLabel(option.type)}參考圖片`"
+                  @change="chooseReferenceImage($event, option.type)"
+                />
+              </label>
               <div class="tryon-upload-actions">
-                <label
-                  class="tryon-file-button"
-                  :class="{ disabled: isReferenceDisabled(option.type) }"
-                  :aria-disabled="isReferenceDisabled(option.type)"
-                >
-                  {{ referenceFile(option.type) ? '更換圖片' : '選擇圖片' }}
-                  <input
-                    :key="referenceInputKey(option.type)"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    :disabled="isReferenceDisabled(option.type)"
-                    :aria-label="`${referenceFile(option.type) ? '更換圖片' : '選擇圖片'}：${referenceLabel(option.type)}參考圖片`"
-                    @change="chooseReferenceImage($event, option.type)"
-                  />
-                </label>
                 <button
                   v-if="referenceIsSelected(option.type)"
                   type="button"
