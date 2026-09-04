@@ -13,20 +13,29 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in catvton/.env}
       MINIO_BUCKET: ${MINIO_BUCKET:-catvton}
       MINIO_SECURE: "false"
-    ports:
-      - "${CATVTON_BIND_ADDRESS:-0.0.0.0}:${CATVTON_PORT:-9002}:9001"
+    expose:
+      - 9001
     volumes:
       - catvton_hf_cache:/models/huggingface
     depends_on:
       minio:
         condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    devices:
+      - nvidia.com/gpu=all
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: catvton-cloudflared
+    profiles: ["tunnel"]
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - catvton
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
