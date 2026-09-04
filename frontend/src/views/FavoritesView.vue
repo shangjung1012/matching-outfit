@@ -8,6 +8,7 @@ import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
   FavoriteItem,
   FavoriteOutfit,
+  GarmentZone,
   StylePreferenceProposal,
 } from '../types'
 import { formatCurrency } from '../utils/currency'
@@ -26,6 +27,18 @@ const {
 } = useUserLibrary(props.userKey)
 
 type FavoriteSort = 'newest' | 'oldest' | 'name' | 'price_asc' | 'price_desc'
+
+const favoriteZoneDefinitions: Array<{
+  zone: GarmentZone
+  label: string
+  eyebrow: string
+}> = [
+  { zone: 'upper_body', label: '上身', eyebrow: 'Upper body' },
+  { zone: 'lower_body', label: '下身', eyebrow: 'Lower body' },
+  { zone: 'one_piece', label: '連身穿搭', eyebrow: 'One piece' },
+  { zone: 'accessory', label: '配件', eyebrow: 'Accessories' },
+  { zone: 'other', label: '其他', eyebrow: 'Other' },
+]
 
 const sort = ref<FavoriteSort>('newest')
 const actionLoading = ref(false)
@@ -51,6 +64,15 @@ const sortedFavorites = computed(() => {
   }
   return rows.sort((left, right) => byDate(right) - byDate(left))
 })
+
+const groupedFavorites = computed(() => favoriteZoneDefinitions
+  .map((definition) => ({
+    ...definition,
+    items: sortedFavorites.value.filter(
+      (row) => row.item.garment_zone === definition.zone,
+    ),
+  }))
+  .filter((group) => group.items.length > 0))
 
 function pairingsFor(itemId: number): FavoriteOutfit[] {
   return favoriteOutfits.value.filter(
@@ -151,57 +173,74 @@ onMounted(() => {
     </div>
 
     <div v-if="favoritesLoading" class="loading-state">正在載入收藏…</div>
-    <div v-else-if="sortedFavorites.length" class="product-grid">
-      <ProductCard
-        v-for="row in sortedFavorites"
-        :key="row.item.id"
-        :item="row.item"
-        :preferred="isPreferred([row.item.id])"
-        :favorited="favoriteItemIds.has(row.item.id)"
-        :action-loading="actionLoading"
-        preference-enabled
-        favorite-enabled
-        @toggle-preference="togglePreference"
-        @toggle-favorite="removeFavorite"
+    <div v-else-if="groupedFavorites.length" class="favorite-groups">
+      <section
+        v-for="group in groupedFavorites"
+        :key="group.zone"
+        class="favorite-group"
+        :aria-labelledby="`favorite-group-${group.zone}`"
       >
-        <div v-if="pairingsFor(row.item.id).length" class="favorite-pairings">
-          <button
-            type="button"
-            class="favorite-pairings-toggle"
-            :aria-expanded="expandedItemIds.has(row.item.id)"
-            @click="togglePairings(row.item.id)"
-          >
-            <span>查看搭配（{{ pairingsFor(row.item.id).length }}）</span>
-            <ChevronUp v-if="expandedItemIds.has(row.item.id)" :size="16" />
-            <ChevronDown v-else :size="16" />
-          </button>
-          <div
-            v-if="expandedItemIds.has(row.item.id)"
-            class="favorite-pairing-groups"
-          >
-            <section
-              v-for="(outfit, outfitIndex) in pairingsFor(row.item.id)"
-              :key="outfit.id"
-              class="favorite-pairing-group"
-            >
-              <strong v-if="pairingsFor(row.item.id).length > 1">
-                搭配 {{ outfitIndex + 1 }}
-              </strong>
-              <div
-                v-for="partner in outfit.items.filter((item) => item.id !== row.item.id)"
-                :key="partner.id"
-                class="favorite-pairing-item"
-              >
-                <img :src="partner.image_url" :alt="partner.product_display_name" />
-                <div>
-                  <span>{{ partner.product_display_name }}</span>
-                  <small>{{ formatCurrency(partner.price, partner.currency) }}</small>
-                </div>
-              </div>
-            </section>
+        <header class="favorite-group-heading">
+          <div>
+            <span class="section-kicker">{{ group.eyebrow }}</span>
+            <h3 :id="`favorite-group-${group.zone}`">{{ group.label }}</h3>
           </div>
+          <span class="favorite-group-count">{{ group.items.length }} 件</span>
+        </header>
+
+        <div class="product-grid">
+          <ProductCard
+            v-for="row in group.items"
+            :key="row.item.id"
+            :item="row.item"
+            :preferred="isPreferred([row.item.id])"
+            :favorited="favoriteItemIds.has(row.item.id)"
+            :action-loading="actionLoading"
+            preference-enabled
+            favorite-enabled
+            @toggle-preference="togglePreference"
+            @toggle-favorite="removeFavorite"
+          >
+            <div v-if="pairingsFor(row.item.id).length" class="favorite-pairings">
+              <button
+                type="button"
+                class="favorite-pairings-toggle"
+                :aria-expanded="expandedItemIds.has(row.item.id)"
+                @click="togglePairings(row.item.id)"
+              >
+                <span>查看搭配（{{ pairingsFor(row.item.id).length }}）</span>
+                <ChevronUp v-if="expandedItemIds.has(row.item.id)" :size="16" />
+                <ChevronDown v-else :size="16" />
+              </button>
+              <div
+                v-if="expandedItemIds.has(row.item.id)"
+                class="favorite-pairing-groups"
+              >
+                <section
+                  v-for="(outfit, outfitIndex) in pairingsFor(row.item.id)"
+                  :key="outfit.id"
+                  class="favorite-pairing-group"
+                >
+                  <strong v-if="pairingsFor(row.item.id).length > 1">
+                    搭配 {{ outfitIndex + 1 }}
+                  </strong>
+                  <div
+                    v-for="partner in outfit.items.filter((item) => item.id !== row.item.id)"
+                    :key="partner.id"
+                    class="favorite-pairing-item"
+                  >
+                    <img :src="partner.image_url" :alt="partner.product_display_name" />
+                    <div>
+                      <span>{{ partner.product_display_name }}</span>
+                      <small>{{ formatCurrency(partner.price, partner.currency) }}</small>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </ProductCard>
         </div>
-      </ProductCard>
+      </section>
     </div>
     <div v-else class="empty-view">
       <Bookmark :size="34" />
