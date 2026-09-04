@@ -34,7 +34,9 @@ def _exclusion_filters(hard: UserHardRule) -> list:
     return conditions
 
 
-def _rows_to_results(db: Session, statement: Select) -> list[ClothResult]:
+def _rows_to_results(
+    db: Session, statement: Select, source_urls: list[str] | None = None
+) -> list[ClothResult]:
     return [
         ClothResult(
             id=cloth.id,
@@ -53,6 +55,7 @@ def _rows_to_results(db: Session, statement: Select) -> list[ClothResult]:
             base_colour=cloth.base_colour,
             article_type=cloth.article_type,
             similarity=round(1.0 - float(value), 4),
+            source_urls=source_urls or [],
             image_path=cloth.image_path,
         )
         for cloth, value in db.execute(statement).all()
@@ -98,12 +101,12 @@ def search_catalog(
                 .limit(top_k)
             )
 
-        clothes = _rows_to_results(db, statement_for(drop_filters))
+        clothes = _rows_to_results(db, statement_for(drop_filters), query.source_urls)
         relaxed = False
         if not clothes and drop_filters:
             # The user's "avoid" gates emptied this zone - relax them here only,
             # price/gender/zone stay enforced. The caller can surface `relaxed`.
-            clothes = _rows_to_results(db, statement_for([]))
+            clothes = _rows_to_results(db, statement_for([]), query.source_urls)
             relaxed = True
         output.append(QuerySearchResult(query=query, clothes=clothes, relaxed=relaxed))
     return output

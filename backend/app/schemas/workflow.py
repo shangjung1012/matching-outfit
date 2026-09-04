@@ -13,6 +13,8 @@ class QueryDraft(BaseModel):
     garment_zone: GarmentZone
     rationale: str
     selected: bool = True
+    knowledge_observation_ids: list[str] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
 
 
 class PlanRequest(BaseModel):
@@ -63,6 +65,7 @@ class ClothResult(BaseModel):
     base_colour: str | None
     article_type: str | None
     similarity: float
+    source_urls: list[str] = Field(default_factory=list)
     image_path: str | None = Field(default=None, exclude=True, repr=False)
 
 
@@ -101,6 +104,7 @@ class OutfitRecommendation(BaseModel):
     items: list[ClothResult]
     score: float
     reasons: list[str]
+    reference_urls: list[str] = Field(default_factory=list)
     score_breakdown: OutfitScoreBreakdown | None = None
     aesthetic_review: AestheticReview | None = None
 

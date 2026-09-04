@@ -59,6 +59,7 @@ class FakeLLM:
                     garment_zone="upper_body",
                     text="structured ivory satin blouse minimal details",
                     rationale="維持精緻且不搶眼的上身重點",
+                    cited_observation_ids=["obs_valid", "obs_not_supplied"],
                 ),
                 PlannedCatalogQuery(
                     garment_zone="upper_body",
@@ -90,6 +91,7 @@ def test_agent_plan_orders_zones_and_filters_citations() -> None:
         occasions=["正式晚宴"],
         signal_type="timeless",
         confidence=0.9,
+        source_url="https://example.com/formal-style",
     )
     planner = QueryPlanner(FakeLLM())
 
@@ -110,6 +112,9 @@ def test_agent_plan_orders_zones_and_filters_citations() -> None:
         "one_piece",
     ]
     assert result.knowledge_observation_ids == ["obs_valid"]
+    assert result.queries[0].knowledge_observation_ids == ["obs_valid"]
+    assert result.queries[0].source_urls == ["https://example.com/formal-style"]
+    assert result.queries[1].source_urls == []
     assert result.queries[2].text == "tailored high-waisted trousers feminine silhouette"
     assert all("black" not in query.text.lower() for query in result.queries)
     assert "已自動正規化為英文" in (result.planning_note or "")

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Heart, Sparkles } from 'lucide-vue-next'
+import { ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
 import type { OutfitRecommendation } from '../types'
 import { formatCurrency } from '../utils/currency'
 
@@ -58,6 +58,17 @@ defineEmits<{ toggleLike: [id: number] }>()
         </strong>
         <span>{{ outfit.items.length }} 件商品</span>
       </div>
+    </div>
+    <div v-if="outfit.reference_urls.length" class="recommendation-references">
+      <div class="recommendation-reference-title">
+        <ExternalLink :size="14" />
+        <strong>參考來源</strong>
+      </div>
+      <ul>
+        <li v-for="url in outfit.reference_urls" :key="url">
+          <a :href="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
+        </li>
+      </ul>
     </div>
   </article>
 </template>

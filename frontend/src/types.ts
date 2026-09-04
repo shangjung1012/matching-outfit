@@ -28,6 +28,8 @@ export interface QueryDraft {
   garment_zone: GarmentZone
   rationale: string
   selected: boolean
+  knowledge_observation_ids: string[]
+  source_urls: string[]
 }
 
 export interface ClothResult {
@@ -47,6 +49,7 @@ export interface ClothResult {
   base_colour: string | null
   article_type: string | null
   similarity: number
+  source_urls: string[]
 }
 
 export interface CatalogItem {
@@ -78,6 +81,7 @@ export interface OutfitRecommendation {
   items: ClothResult[]
   score: number
   reasons: string[]
+  reference_urls: string[]
   score_breakdown: {
     fashion_clip: number
     compatibility: number

@@ -56,6 +56,7 @@ class PlannedCatalogQuery(StrictModel):
     garment_zone: Literal["upper_body", "lower_body", "one_piece"]
     text: str = Field(min_length=3, max_length=240)
     rationale: str = Field(min_length=2, max_length=300)
+    cited_observation_ids: list[str] = Field(default_factory=list)
 
 
 class KnowledgeQueryDraft(StrictModel):
@@ -302,10 +303,46 @@ class QueryPlanner:
             style_preferences,
         )
 
-        available_ids = {observation.observation_id for observation in observations}
-        cited_ids = [
-            identifier for identifier in result.cited_observation_ids if identifier in available_ids
-        ]
+        observations_by_id = {
+            observation.observation_id: observation for observation in observations
+        }
+
+        def query_citations(query: PlannedCatalogQuery) -> tuple[list[str], list[str]]:
+            identifiers = list(
+                dict.fromkeys(
+                    identifier
+                    for identifier in query.cited_observation_ids
+                    if identifier in observations_by_id
+                )
+            )
+            urls = list(
+                dict.fromkeys(
+                    observations_by_id[identifier].source_url
+                    for identifier in identifiers
+                    if observations_by_id[identifier].source_url
+                )
+            )
+            return identifiers, urls
+
+        query_citation_map = {
+            (zone, index): query_citations(by_zone[zone][index])
+            for zone in QUERY_ZONES
+            for index in range(2)
+        }
+        cited_ids = list(
+            dict.fromkeys(
+                [
+                    identifier
+                    for identifier in result.cited_observation_ids
+                    if identifier in observations_by_id
+                ]
+                + [
+                    identifier
+                    for identifiers, _ in query_citation_map.values()
+                    for identifier in identifiers
+                ]
+            )
+        )
         return PlanResponse(
             original_input=user_input,
             queries=[
@@ -314,6 +351,8 @@ class QueryPlanner:
                     text=normalized_queries.by_zone[zone][index],
                     garment_zone=zone,
                     rationale=by_zone[zone][index].rationale,
+                    knowledge_observation_ids=query_citation_map[(zone, index)][0],
+                    source_urls=query_citation_map[(zone, index)][1],
                 )
                 for zone in QUERY_ZONES
                 for index in range(2)
