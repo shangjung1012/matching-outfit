@@ -36,7 +36,7 @@ def test_post_review_shoe_is_appended_without_changing_outfit_score(monkeypatch)
 
     monkeypatch.setattr(post_review_shoes, "search_best_shoes", fake_search)
     result = post_review_shoes.attach_post_review_shoes(
-        object(), [outfit], audience="women", hard=None
+        object(), [outfit], {outfit.id: ShoeSpec(shoe_type="loafer", shoe_query="black leather loafers clean low profile")}, audience="women", hard=None
     )
 
     assert received[0].shoe_query == "black leather loafers clean low profile"
@@ -61,7 +61,9 @@ def test_missing_shoe_result_leaves_outfit_unchanged(monkeypatch) -> None:
     })
     monkeypatch.setattr(post_review_shoes, "search_best_shoes", lambda *_args, **_kwargs: [None])
 
-    result = post_review_shoes.attach_post_review_shoes(object(), [outfit], audience=None, hard=None)
+    result = post_review_shoes.attach_post_review_shoes(
+        object(), [outfit], {outfit.id: ShoeSpec(shoe_type="sneaker", shoe_query="white low profile sneakers")}, audience=None, hard=None
+    )
 
     assert result == [outfit]
 

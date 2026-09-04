@@ -97,6 +97,7 @@ def _prepared_spec(outfit: OutfitRecommendation, spec: ShoeSpec, requirements: R
 def attach_post_review_shoes(
     db: Session,
     outfits: list[OutfitRecommendation],
+    shoe_specs: dict[str, ShoeSpec],
     *,
     audience: str | None,
     hard: UserHardRule | None,
@@ -105,18 +106,22 @@ def attach_post_review_shoes(
 ) -> list[OutfitRecommendation]:
     """Never change ranking: leave an outfit untouched when its shoe cannot be retrieved."""
     indexed = [
-        (index, outfit, outfit.aesthetic_review.shoe_spec)
+        (index, outfit, shoe_specs.get(outfit.id))
         for index, outfit in enumerate(outfits)
-        if outfit.aesthetic_review is not None
-        and outfit.aesthetic_review.shoe_spec is not None
-        and outfit.aesthetic_review.shoe_spec.shoe_type.strip()
-        and outfit.aesthetic_review.shoe_spec.shoe_query.strip()
+        if shoe_specs.get(outfit.id) is not None
+        and shoe_specs[outfit.id].shoe_type.strip()
+        and shoe_specs[outfit.id].shoe_query.strip()
     ]
     if not indexed:
         return outfits
 
     prepared = [_prepared_spec(outfit, spec, requirements, user_input) for _, outfit, spec in indexed]
-    shoes = search_best_shoes(db, prepared, audience=audience, hard=hard)
+    try:
+        shoes = search_best_shoes(db, prepared, audience=audience, hard=hard)
+    except Exception:
+        # Shoes are an optional post-review enhancement, never a reason to
+        # discard an otherwise valid clothing recommendation.
+        return outfits
     updated = list(outfits)
     for ((index, outfit, _), spec, shoe) in zip(indexed, prepared, shoes, strict=True):
         if shoe is None or any(item.id == shoe.id for item in outfit.items):

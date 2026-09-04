@@ -2,6 +2,7 @@ import base64
 import io
 
 import pytest
+from fastapi import BackgroundTasks
 from PIL import Image
 
 from app.api import routes
@@ -38,12 +39,19 @@ def test_single_batch_thirty_selects_best_reviewed_ten(monkeypatch, partial):
     monkeypatch.setattr(routes, "AestheticReviewer", Reviewer)
     monkeypatch.setattr(routes, "hard_rules_for", lambda *_: None)
     monkeypatch.setattr(routes, "style_preferences_for", lambda *_: [])
-    monkeypatch.setattr(routes, "semantic_fashion_knowledge", lambda *_args, **_kwargs: [])
+    def knowledge_must_not_reach_reviewer(*_args, **_kwargs):
+        raise AssertionError("recommendation review must not retrieve article knowledge")
+
+    monkeypatch.setattr(routes, "semantic_fashion_knowledge", knowledge_must_not_reach_reviewer)
     monkeypatch.setattr(routes, "search_catalog", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(routes, "rank_outfits", lambda *_args, **_kwargs: candidates)
     monkeypatch.setattr(routes, "select_diverse", lambda pool, limit: pool[:limit])
 
-    result = routes.recommendations(SearchRequest(queries=[_query()], include_debug=True), db=object())
+    result = routes.recommendations(
+        BackgroundTasks(),
+        routes.RecommendationInput(payload=SearchRequest(queries=[_query()], include_debug=True)),
+        db=object(),
+    )
     assert calls == [30]
     assert len(result.recommendations) == (7 if partial else 10)
     assert len(result.discarded_recommendations) == (23 if partial else 20)

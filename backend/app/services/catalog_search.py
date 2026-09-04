@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.cloth import Cloth
 from app.models.user_preference import UserHardRule
-from app.schemas import ClothResult, QueryDraft, QuerySearchResult, ReferenceLink
+from app.schemas import ClothResult, QueryDraft, QuerySearchResult, ReferenceLink, ShoeSpec
 from app.services.integration_tools.fashion_clip import fashion_clip
 
 
@@ -138,3 +138,36 @@ def search_catalog_items(
         )
 
     return _rows_to_results(db, statement_for(drop_filters))
+
+
+def search_best_shoes(
+    db: Session,
+    specs: list[ShoeSpec],
+    *,
+    audience: str | None = None,
+    hard: UserHardRule | None = None,
+) -> list[ClothResult | None]:
+    """Return one strict `sub_category=Shoes` result for each reviewer brief."""
+    if not specs:
+        return []
+    vectors = fashion_clip.encode_texts([spec.shoe_query for spec in specs])
+    keep_filters = _price_filters(hard) if hard is not None else []
+    drop_filters = _exclusion_filters(hard) if hard is not None else []
+    matches: list[ClothResult | None] = []
+    for vector in vectors:
+        distance = Cloth.embedding.cosine_distance(vector).label("distance")
+        filters = [
+            Cloth.embedding.is_not(None),
+            func.lower(Cloth.sub_category) == "shoes",
+            *keep_filters,
+            *drop_filters,
+        ]
+        if audience == "men":
+            filters.append(Cloth.gender.in_(["Men", "Unisex"]))
+        elif audience == "women":
+            filters.append(Cloth.gender.in_(["Women", "Unisex"]))
+        rows = _rows_to_results(
+            db, select(Cloth, distance).where(*filters).order_by(distance).limit(1)
+        )
+        matches.append(rows[0] if rows else None)
+    return matches

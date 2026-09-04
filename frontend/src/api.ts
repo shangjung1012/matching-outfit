@@ -129,7 +129,7 @@ export function getRecommendations(
 ) {
   const payload = {
     queries,
-    top_k: 10,
+    top_k: 5,
     user_key: userKey,
     user_input: userInput,
     audience: audience || null,

@@ -65,6 +65,8 @@ from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
+from app.services.post_review_shoes import attach_post_review_shoes
+from app.services.shoe_planner import ShoePlanner
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
 from app.services.query_planner import (
@@ -915,6 +917,13 @@ def recommendations(
             debug=debug,
         )
 
+    shoe_specs = {}
+    if settings.openai_api_key:
+        try:
+            shoe_specs = ShoePlanner(LLM()).plan(payload.user_input, shortlist)
+        except RuntimeError:
+            pass
+
     should_review = (
         payload.use_aesthetic_review
         and settings.aesthetic_review_enabled
@@ -927,6 +936,10 @@ def recommendations(
             else "Aesthetic review disabled"
         )
         final = select_diverse(shortlist, payload.final_count)
+        final = attach_post_review_shoes(
+            db, final, shoe_specs, audience=audience, hard=hard,
+            requirements=payload.requirements, user_input=payload.user_input,
+        )
         final_ids = {recommendation.id for recommendation in final}
         if debug is not None:
             debug = debug.model_copy(update={"aesthetic_review_error": note})
@@ -942,22 +955,13 @@ def recommendations(
             debug=debug,
         )
 
-    knowledge_query = outfit_context_embedding_text(
-        payload.requirements, payload.user_input
-    )[:4000]
-    observations = []
-    knowledge_note = ""
-    try:
-        observations = semantic_fashion_knowledge(
-            db, knowledge_query, audience=audience, top_k=12
-        )
-    except RuntimeError as error:
-        knowledge_note = f"Fashion knowledge retrieval unavailable: {error}"
-
     if debug is not None:
         debug = debug.model_copy(
             update={
-                "knowledge_observations": observations,
+                # Article knowledge is used while planning.  The visual
+                # reviewer judges only the candidate images and the approved
+                # request context, so it cannot be biased by article text.
+                "knowledge_observations": [],
                 "aesthetic_review_attempted": True,
             }
         )
@@ -970,7 +974,6 @@ def recommendations(
         reviews = reviewer.review(
             payload.user_input,
             shortlist,
-            observations=observations,
             user_preferences=preference_context,
             styling_guide=payload.styling_guide,
             requirements=payload.requirements,
@@ -980,7 +983,6 @@ def recommendations(
             shortlist,
             reviews,
             final_count=len(shortlist),
-            observations=observations,
             fashion_intent=payload.fashion_intent,
         )
         diagnostics = getattr(reviewer, "last_debug", {})
@@ -992,6 +994,15 @@ def recommendations(
             if recommendation.aesthetic_review is not None
             and not recommendation.aesthetic_review.fatal_issues
         ][:payload.final_count]
+        final = attach_post_review_shoes(
+            db,
+            final,
+            shoe_specs,
+            audience=audience,
+            hard=hard,
+            requirements=payload.requirements,
+            user_input=payload.user_input,
+        )
         reviewed_count = sum(
             recommendation.aesthetic_review is not None
             for recommendation in reviewed_pool
@@ -1035,7 +1046,7 @@ def recommendations(
             review_note=review_note,
             knowledge_observation_count=len(used_observation_ids),
             knowledge_sources=knowledge_sources,
-            knowledge_note=knowledge_note,
+            knowledge_note="",
             debug=debug,
         )
     except RuntimeError as error:
@@ -1055,7 +1066,7 @@ def recommendations(
             ],
             aesthetic_reviewed=False,
             review_note=f"Aesthetic review unavailable; match ranking used instead: {error}",
-            knowledge_note=knowledge_note,
+            knowledge_note="",
             debug=debug,
         )
 

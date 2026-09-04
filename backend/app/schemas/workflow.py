@@ -322,7 +322,9 @@ class RefineRequest(PlanRequest):
 
 class SearchRequest(BaseModel):
     queries: list[QueryDraft]
-    top_k: int = Field(default=10, ge=1, le=30)
+    # Keep the combination pool bounded: five candidates per garment query are
+    # enough for diversity while avoiding an expensive cartesian explosion.
+    top_k: int = Field(default=5, ge=1, le=5)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_input: str = Field(default="", max_length=1200)
     audience: Audience | None = None
@@ -396,6 +398,23 @@ class AestheticReview(BaseModel):
     knowledge_observation_ids: list[str] = Field(default_factory=list)
 
 
+class ShoeSpec(BaseModel):
+    """A conservative, retrieval-ready shoe brief produced before visual review."""
+
+    shoe_type: str = Field(default="", max_length=80)
+    shoe_color: str = Field(default="", max_length=80)
+    shoe_query: str = Field(default="", max_length=240)
+    material_appearance: str = Field(default="", max_length=80)
+    profile: str = Field(default="", max_length=80)
+
+
+class ShoeSuggestion(BaseModel):
+    query: str
+    item_id: int
+    retrieval_score: float
+    added_after_review: bool = True
+
+
 class OutfitRecommendation(BaseModel):
     id: str
     kind: Literal["separates", "one_piece"]
@@ -406,6 +425,7 @@ class OutfitRecommendation(BaseModel):
     references: list[ReferenceLink] = Field(default_factory=list)
     score_breakdown: OutfitScoreBreakdown | None = None
     aesthetic_review: AestheticReview | None = None
+    shoe_suggestion: ShoeSuggestion | None = None
 
 
 class RecommendationDebug(BaseModel):

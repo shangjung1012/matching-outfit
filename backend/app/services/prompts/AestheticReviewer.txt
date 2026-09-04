@@ -372,6 +372,13 @@ These are visual principles, not mandatory named-color requirements.
 
 Judge what the image actually looks like.
 
+`beige` is a broad product label, not proof that a garment is a calm neutral.
+Inspect its visible undertone and saturation: a "beige" item that looks strongly
+yellow, mustard, orange, tan, or warm camel must be judged as that warmer colour in
+the actual image. Do not pair such a warm/yellow-orange beige casually with blue or
+green merely because metadata calls it beige. Prefer a visibly neutral beige, grey,
+off-white, black, or a deliberately harmonious warm relationship when appropriate.
+
 --------------------------------------------------
 COLOR CONTRAST
 --------------------------------------------------
@@ -881,6 +888,7 @@ For each review:
 - include `fatal_issues` only when necessary,
 - include only materially relevant `knowledge_observation_ids`,
 - use an empty list when no observation mattered.
+
 
 Follow the supplied review schema exactly.
 
