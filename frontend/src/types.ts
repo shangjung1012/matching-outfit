@@ -18,6 +18,7 @@ export interface TryOnCapabilities {
   reason: string | null
   supported_reference_types: TryOnReferenceType[]
   max_upload_bytes: number
+  max_image_pixels: number
 }
 
 export interface TryOnJob {
@@ -29,6 +30,20 @@ export interface TryOnJob {
   created_at: string
   updated_at: string
   expires_at: string | null
+}
+
+export interface SavedPersonPhoto {
+  id: string
+  userKey: string
+  name: string
+  blob: Blob
+  mimeType: string
+  size: number
+  width: number
+  height: number
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
 }
 export type Audience = 'men' | 'women' | 'unisex'
 
@@ -190,6 +205,18 @@ export interface CatalogItem {
   year: number | null
   usage: string | null
   has_embedding: boolean
+}
+
+export type TryOnReferenceSelection =
+  | { source: 'favorite'; item: CatalogItem }
+  | { source: 'upload'; file: File; previewUrl: string }
+
+export interface TryOnDraft {
+  revision: number
+  source: 'favorite-item' | 'favorite-outfit'
+  outfitId: number | null
+  candidates: Partial<Record<TryOnReferenceType, CatalogItem[]>>
+  unsupportedItems: CatalogItem[]
 }
 
 export interface CatalogSemanticSearchResponse {

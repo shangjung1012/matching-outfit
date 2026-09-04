@@ -23,6 +23,7 @@ class TryOnCapabilities(BaseModel):
         default_factory=lambda: list(SUPPORTED_REFERENCE_TYPES)
     )
     max_upload_bytes: int
+    max_image_pixels: int
 
 
 class TryOnJobView(BaseModel):

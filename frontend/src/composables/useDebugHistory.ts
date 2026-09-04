@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { useToast } from './useToast'
+import { useToast } from './useToast.ts'
 import type { PipelineDebugSession } from '../types'
 
 export interface DebugHistoryItem {
@@ -44,10 +44,12 @@ export function useDebugHistory(userKey: string) {
   const history = ref<DebugHistoryItem[]>([])
   const selected = ref<PipelineDebugSession | null>(null)
   const selectedId = ref<string | null>(null)
+  const error = ref('')
   let queue = Promise.resolve()
 
   function report(reason: unknown) {
-    showError(`除錯歷史保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。可下載目前 JSON 備份。`)
+    error.value = `除錯歷史保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。可下載目前 JSON 備份。`
+    showError(error.value)
   }
 
   async function load() {
@@ -95,5 +97,5 @@ export function useDebugHistory(userKey: string) {
     } catch (reason) { report(reason) }
   }
 
-  return { history, selected, selectedId, load, save, select, showCurrent, remove }
+  return { history, selected, selectedId, error, load, save, select, showCurrent, remove }
 }

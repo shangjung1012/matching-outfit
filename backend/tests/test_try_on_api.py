@@ -117,6 +117,7 @@ def test_capabilities_reports_reference_contract(client) -> None:
         "reason": "TryOn API 尚未設定",
         "supported_reference_types": REFERENCE_TYPES,
         "max_upload_bytes": 10 * 1024 * 1024,
+        "max_image_pixels": 20_000_000,
     }
 
 

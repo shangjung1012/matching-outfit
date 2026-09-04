@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Bookmark, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Bookmark, ChevronDown, ChevronUp, ScanFace } from 'lucide-vue-next'
 import ProductCard from '../components/ProductCard.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import { useToast } from '../composables/useToast'
@@ -9,10 +9,13 @@ import type {
   FavoriteOutfit,
   GarmentZone,
   PreferenceType,
+  TryOnDraft,
 } from '../types'
 import { formatCurrency } from '../utils/currency'
+import { createTryOnDraft, referenceTypeForCatalogItem } from '../utils/tryOnSelection'
 
 const props = defineProps<{ userKey: string }>()
+const emit = defineEmits<{ startTryOn: [draft: TryOnDraft] }>()
 const {
   favoriteItems,
   favoriteItemIds,
@@ -104,6 +107,22 @@ function movePairing(itemId: number, offset: -1 | 1) {
   pairingIndexByItemId.value = { ...pairingIndexByItemId.value, [itemId]: next }
 }
 
+function tryOnItem(row: FavoriteItem) {
+  emit('startTryOn', createTryOnDraft([row.item], 'favorite-item'))
+}
+
+function tryOnOutfit(outfit: FavoriteOutfit) {
+  emit('startTryOn', createTryOnDraft(outfit.items, 'favorite-outfit', outfit.id))
+}
+
+function itemSupportsTryOn(row: FavoriteItem) {
+  return referenceTypeForCatalogItem(row.item) !== null
+}
+
+function outfitSupportsTryOn(outfit: FavoriteOutfit) {
+  return outfit.items.some((item) => referenceTypeForCatalogItem(item) !== null)
+}
+
 async function runAction(task: () => Promise<void>) {
   actionLoading.value = true
   try {
@@ -167,7 +186,45 @@ onMounted(() => {
     </header>
 
     <div v-if="favoritesLoading" class="loading-state">正在載入收藏…</div>
-    <div v-else-if="groupedFavorites.length" class="favorite-groups">
+    <div v-else-if="groupedFavorites.length || favoriteOutfits.length" class="favorites-content">
+      <section v-if="favoriteOutfits.length" class="favorite-outfits-section" aria-labelledby="favorite-outfits-title">
+        <header class="favorite-group-heading">
+          <div>
+            <span class="section-kicker">Saved outfits</span>
+            <h3 id="favorite-outfits-title">收藏整套</h3>
+          </div>
+          <span class="favorite-group-count">{{ favoriteOutfits.length }} 套</span>
+        </header>
+        <div class="favorite-outfit-grid">
+          <article v-for="outfit in favoriteOutfits" :key="outfit.id" class="favorite-outfit-card">
+            <div class="favorite-outfit-images" :class="{ single: outfit.items.length === 1 }">
+              <img
+                v-for="item in outfit.items"
+                :key="item.id"
+                :src="item.image_url"
+                :alt="item.product_display_name"
+              />
+            </div>
+            <div class="favorite-outfit-body">
+              <div>
+                <strong>{{ outfit.items.map((item) => item.product_display_name).join(' ＋ ') }}</strong>
+                <small>{{ outfit.items.length }} 件商品</small>
+              </div>
+              <button
+                type="button"
+                class="primary-button favorite-tryon-button"
+                :disabled="!outfitSupportsTryOn(outfit)"
+                :title="outfitSupportsTryOn(outfit) ? '帶入整套商品到虛擬試穿' : '這套商品目前沒有可試穿的品項'"
+                @click="tryOnOutfit(outfit)"
+              >
+                <ScanFace :size="16" />整套試穿
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div class="favorite-groups">
       <section
         v-for="group in groupedFavorites"
         :key="group.zone"
@@ -249,9 +306,19 @@ onMounted(() => {
                 </div>
               </div>
             </template>
+            <button
+              type="button"
+              class="secondary-button favorite-item-tryon"
+              :disabled="!itemSupportsTryOn(row)"
+              :title="itemSupportsTryOn(row) ? '帶入這件商品到虛擬試穿' : '目前只支援上身、下身、連身、鞋子與包包'"
+              @click="tryOnItem(row)"
+            >
+              <ScanFace :size="15" />{{ itemSupportsTryOn(row) ? '試穿這件' : '目前不支援試穿' }}
+            </button>
           </ProductCard>
         </div>
       </section>
+      </div>
     </div>
     <div v-else class="empty-view">
       <Bookmark :size="34" />

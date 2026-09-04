@@ -98,6 +98,7 @@ def capabilities() -> TryOnCapabilities:
         available=available,
         reason=reason,
         max_upload_bytes=settings.image_max_upload_bytes,
+        max_image_pixels=settings.image_max_pixels,
     )
 
 

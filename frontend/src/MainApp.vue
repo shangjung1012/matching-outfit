@@ -14,7 +14,7 @@ import PreferencesView from './views/PreferencesView.vue'
 import VirtualTryOnView from './views/VirtualTryOnView.vue'
 import KnowledgeManagementView from './views/KnowledgeManagementView.vue'
 import DebugPipelineView from './views/DebugPipelineView.vue'
-import type { AppView, PipelineDebugSession } from './types'
+import type { AppView, PipelineDebugSession, TryOnDraft } from './types'
 import { useUserLibrary } from './composables/useUserLibrary'
 import { useDebugHistory } from './composables/useDebugHistory'
 
@@ -25,6 +25,8 @@ const route = useRoute()
 const router = useRouter()
 const activeView = computed<AppView>(() => (route.name as AppView | undefined) ?? 'agent')
 const preferenceRevision = ref(0)
+const tryOnDraft = ref<TryOnDraft | null>(null)
+let tryOnDraftRevision = 0
 const debugTrace = ref<PipelineDebugSession | null>(null)
 const debugHistory = useDebugHistory(props.userKey)
 function updateDebug(trace: PipelineDebugSession) {
@@ -84,6 +86,12 @@ function toggleGroup(id: string) {
 }
 function selectView(id: AppView) {
   if (route.name !== id) void router.push({ name: id })
+  openGroupId.value = null
+}
+function startTryOn(draft: TryOnDraft) {
+  tryOnDraftRevision += 1
+  tryOnDraft.value = { ...draft, revision: tryOnDraftRevision }
+  if (route.name !== 'tryon') void router.push({ name: 'tryon' })
   openGroupId.value = null
 }
 function toggleUserMenu() {
@@ -189,8 +197,16 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
       <KnowledgeManagementView v-if="activeView === 'knowledge'" />
       <SimilarSearchView v-show="activeView === 'similarity'" />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
-      <FavoritesView v-show="activeView === 'favorites'" :user-key="userKey" />
-      <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
+      <FavoritesView
+        v-show="activeView === 'favorites'"
+        :user-key="userKey"
+        @start-try-on="startTryOn"
+      />
+      <VirtualTryOnView
+        v-show="activeView === 'tryon'"
+        :user-key="userKey"
+        :draft="tryOnDraft"
+      />
       <FashionMbtiView v-if="activeView === 'mbti'" :user-key="userKey" />
       <PreferencesView
         v-show="activeView === 'preferences'"

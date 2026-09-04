@@ -1,31 +1,50 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { CheckCircle2, ImagePlus, LoaderCircle, RefreshCw, ScanFace, Trash2 } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  ImagePlus,
+  Images,
+  LoaderCircle,
+  Pencil,
+  RefreshCw,
+  ScanFace,
+  Shirt,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-vue-next'
 import { createTryOnJob, getTryOnCapabilities, getTryOnJob } from '../api'
+import { usePersonPhotoLibrary, PERSON_PHOTO_LIMIT, validatePersonPhoto } from '../composables/usePersonPhotoLibrary'
 import { useToast } from '../composables/useToast'
-import type { TryOnCapabilities, TryOnJob, TryOnReferenceType } from '../types'
+import { useUserLibrary } from '../composables/useUserLibrary'
+import type {
+  CatalogItem,
+  SavedPersonPhoto,
+  TryOnCapabilities,
+  TryOnDraft,
+  TryOnJob,
+  TryOnReferenceSelection,
+  TryOnReferenceType,
+} from '../types'
+import {
+  createTryOnDraft,
+  referenceTypeForCatalogItem,
+  TRYON_REFERENCE_LABELS,
+  TRYON_REFERENCE_TYPES,
+} from '../utils/tryOnSelection'
 
-const props = defineProps<{ userKey: string }>()
+const props = defineProps<{ userKey: string; draft: TryOnDraft | null }>()
 const { showError } = useToast()
 
 const HISTORY_STORAGE_VERSION = 2
 const HISTORY_LIMIT = 20
+const DEFAULT_MAX_BYTES = 10 * 1024 * 1024
+const DEFAULT_MAX_PIXELS = 20_000_000
 const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
-const REFERENCE_TYPES = ['upper', 'lower', 'overall', 'shoe', 'bag'] as const satisfies readonly TryOnReferenceType[]
-const REFERENCE_LABELS: Record<TryOnReferenceType, string> = {
-  upper: '上身',
-  lower: '下身',
-  overall: '洋裝或連身',
-  shoe: '鞋子',
-  bag: '包包',
-}
-const REFERENCE_OPTIONS: { type: TryOnReferenceType; hint: string }[] = [
-  { type: 'upper', hint: '上衣、外套等商品照' },
-  { type: 'lower', hint: '褲子、裙子等商品照' },
-  { type: 'overall', hint: '洋裝或連身服飾商品照' },
-  { type: 'shoe', hint: '鞋款商品照' },
-  { type: 'bag', hint: '包款商品照' },
-]
+const WARDROBE_TABS = ['outfits', 'items', 'upload'] as const
 
 interface StoredTryOnHistory {
   version: typeof HISTORY_STORAGE_VERSION
@@ -33,12 +52,23 @@ interface StoredTryOnHistory {
   jobs: TryOnJob[]
 }
 
+type WardrobeTab = 'outfits' | 'items' | 'upload'
+
 const capabilities = ref<TryOnCapabilities | null>(null)
 const capabilityLoading = ref(true)
-const personFile = ref<File | null>(null)
-const personPreview = ref('')
-const referenceFiles = ref<Partial<Record<TryOnReferenceType, File>>>({})
-const referencePreviews = ref<Partial<Record<TryOnReferenceType, string>>>({})
+const wardrobeTab = ref<WardrobeTab>('outfits')
+const references = ref<Partial<Record<TryOnReferenceType, TryOnReferenceSelection>>>({})
+const draftCandidates = ref<Partial<Record<TryOnReferenceType, CatalogItem[]>>>({})
+const unsupportedItems = ref<CatalogItem[]>([])
+const selectedPersonId = ref<string | null>(null)
+const temporaryPersonFile = ref<File | null>(null)
+const temporaryPersonPreview = ref('')
+const personPreviewUrls = ref<Record<string, string>>({})
+const newPhotoName = ref('')
+const photoSaving = ref(false)
+const photoError = ref('')
+const editingPhotoId = ref<string | null>(null)
+const editingPhotoName = ref('')
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
 const submitting = ref(false)
@@ -48,29 +78,58 @@ let componentActive = false
 let historyGeneration = 0
 const retryJobIds = new Set<string>()
 
+const personLibrary = usePersonPhotoLibrary(props.userKey)
+const {
+  favoriteItems,
+  favoriteOutfits,
+  favoritesLoading,
+  loadFavorites,
+} = useUserLibrary(props.userKey)
+
 const historyStorageKey = computed(() => `matching-outfit.tryon-history:v2:${props.userKey}`)
 const legacyHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v1:${props.userKey}`)
-const selectedReferenceTypes = computed(() => (
-  REFERENCE_TYPES.filter((referenceType) => Boolean(referenceFiles.value[referenceType]))
+const selectedSavedPerson = computed(() => (
+  personLibrary.photos.value.find((photo) => photo.id === selectedPersonId.value) ?? null
 ))
-const selectedReferencesAreCompatible = computed(() => !(
-  referenceFiles.value.overall
-  && (referenceFiles.value.upper || referenceFiles.value.lower)
+const hasPerson = computed(() => Boolean(selectedSavedPerson.value || temporaryPersonFile.value))
+const selectedReferenceTypes = computed(() => (
+  TRYON_REFERENCE_TYPES.filter((referenceType) => Boolean(references.value[referenceType]))
+))
+const unresolvedDuplicateTypes = computed(() => TRYON_REFERENCE_TYPES.filter((referenceType) => (
+  (draftCandidates.value[referenceType]?.length ?? 0) > 1
+  && !references.value[referenceType]
+)))
+const hasModeConflict = computed(() => Boolean(
+  references.value.overall
+  && (references.value.upper || references.value.lower),
 ))
 const selectedReferencesAreSupported = computed(() => selectedReferenceTypes.value.every(
   (referenceType) => capabilities.value?.supported_reference_types.includes(referenceType),
 ))
-
-const canSubmit = computed(() => (
+const supportedFavoriteItems = computed(() => favoriteItems.value.filter(
+  (row) => referenceTypeForCatalogItem(row.item) !== null,
+))
+const canSubmit = computed(() => Boolean(
   capabilities.value?.available
-  && personFile.value
+  && hasPerson.value
   && selectedReferenceTypes.value.length > 0
-  && selectedReferencesAreCompatible.value
+  && !unresolvedDuplicateTypes.value.length
+  && !hasModeConflict.value
   && selectedReferencesAreSupported.value
   && !submitting.value
-  && !['queued', 'running'].includes(job.value?.status ?? '')
+  && !['queued', 'running'].includes(job.value?.status ?? ''),
 ))
-
+const submitHint = computed(() => {
+  if (capabilityLoading.value) return '正在檢查試穿服務…'
+  if (!capabilities.value?.available) return capabilities.value?.reason || '試穿服務目前無法使用。'
+  if (!hasPerson.value) return '請先選擇或上傳一張人物照。'
+  if (!selectedReferenceTypes.value.length) return '請至少選擇一件可試穿的服飾。'
+  if (unresolvedDuplicateTypes.value.length) return '同一槽位有多件候選商品，請先選定一件。'
+  if (hasModeConflict.value) return '請先選擇連身或上下身模式。'
+  if (!selectedReferencesAreSupported.value) return '目前服務不支援其中一個服飾槽位。'
+  if (job.value?.status === 'queued' || job.value?.status === 'running') return '目前已有一個試穿工作正在處理。'
+  return `人物與 ${selectedReferenceTypes.value.length} 個服飾槽位已就緒。`
+})
 const statusLabel = computed(() => {
   if (!job.value) return ''
   return {
@@ -94,7 +153,7 @@ function isTryOnJob(value: unknown): value is TryOnJob {
     && JOB_STATUSES.includes(candidate.status as TryOnJob['status'])
     && Array.isArray(candidate.reference_types)
     && candidate.reference_types.length > 0
-    && candidate.reference_types.every((type) => REFERENCE_TYPES.includes(type as TryOnReferenceType))
+    && candidate.reference_types.every((type) => TRYON_REFERENCE_TYPES.includes(type as TryOnReferenceType))
     && (candidate.error === null || typeof candidate.error === 'string')
     && (candidate.result_url === null || typeof candidate.result_url === 'string')
     && typeof candidate.created_at === 'string'
@@ -143,7 +202,7 @@ function discardStoredHistory() {
   try {
     window.localStorage.removeItem(historyStorageKey.value)
   } catch {
-    // Browsers may deny storage access; the in-memory view can still be used.
+    // The in-memory history still works when browser storage is unavailable.
   }
 }
 
@@ -204,7 +263,7 @@ function clearHistory() {
 }
 
 function referenceTypesLabel(types: TryOnReferenceType[]) {
-  return types.map((type) => REFERENCE_LABELS[type]).join('、')
+  return types.map((type) => TRYON_REFERENCE_LABELS[type]).join('、')
 }
 
 function historyStatusLabel(status: TryOnJob['status']) {
@@ -227,83 +286,254 @@ function replacePreview(current: string, file: File | null) {
   return file ? URL.createObjectURL(file) : ''
 }
 
-function choosePersonImage(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] ?? null
-  personPreview.value = replacePreview(personPreview.value, file)
-  personFile.value = file
+function syncPersonPreviewUrls() {
+  const current = personPreviewUrls.value
+  const next: Record<string, string> = {}
+  personLibrary.photos.value.forEach((photo) => {
+    next[photo.id] = current[photo.id] ?? URL.createObjectURL(photo.blob)
+  })
+  Object.entries(current).forEach(([id, url]) => {
+    if (!next[id]) URL.revokeObjectURL(url)
+  })
+  personPreviewUrls.value = next
 }
 
-function removePersonImage() {
-  personPreview.value = replacePreview(personPreview.value, null)
-  personFile.value = null
+function selectPerson(photo: SavedPersonPhoto) {
+  selectedPersonId.value = photo.id
+  temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, null)
+  temporaryPersonFile.value = null
+  photoError.value = ''
+}
+
+async function choosePersonImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file) return
+  photoSaving.value = true
+  photoError.value = ''
+  const maxBytes = capabilities.value?.max_upload_bytes ?? DEFAULT_MAX_BYTES
+  const maxPixels = capabilities.value?.max_image_pixels ?? DEFAULT_MAX_PIXELS
+  try {
+    await validatePersonPhoto(file, maxBytes, maxPixels)
+    try {
+      const saved = await personLibrary.add(file, newPhotoName.value, maxBytes, maxPixels)
+      syncPersonPreviewUrls()
+      selectPerson(saved)
+      newPhotoName.value = ''
+    } catch {
+      temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, file)
+      temporaryPersonFile.value = file
+      selectedPersonId.value = null
+      photoError.value = personLibrary.error.value
+    }
+  } catch (reason) {
+    photoError.value = reason instanceof Error ? reason.message : '無法讀取人物照片'
+  } finally {
+    photoSaving.value = false
+  }
+}
+
+function removeTemporaryPerson() {
+  temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, null)
+  temporaryPersonFile.value = null
+  selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
+}
+
+function beginRename(photo: SavedPersonPhoto) {
+  editingPhotoId.value = photo.id
+  editingPhotoName.value = photo.name
+}
+
+async function savePhotoName(photo: SavedPersonPhoto) {
+  try {
+    await personLibrary.rename(photo.id, editingPhotoName.value)
+    editingPhotoId.value = null
+    photoError.value = ''
+  } catch (reason) {
+    photoError.value = reason instanceof Error ? reason.message : '無法更新人物照名稱'
+  }
+}
+
+async function makeDefault(photo: SavedPersonPhoto) {
+  try {
+    await personLibrary.setDefault(photo.id)
+    syncPersonPreviewUrls()
+    photoError.value = ''
+  } catch (reason) {
+    photoError.value = reason instanceof Error ? reason.message : '無法設定預設人物照'
+  }
+}
+
+async function deletePersonPhoto(photo: SavedPersonPhoto) {
+  if (!window.confirm(`刪除人物照「${photo.name}」？`)) return
+  try {
+    await personLibrary.remove(photo.id)
+    syncPersonPreviewUrls()
+    if (selectedPersonId.value === photo.id) {
+      selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
+    }
+    photoError.value = ''
+  } catch (reason) {
+    photoError.value = reason instanceof Error ? reason.message : '無法刪除人物照'
+  }
+}
+
+function referencePreview(referenceType: TryOnReferenceType) {
+  const selection = references.value[referenceType]
+  if (!selection) return ''
+  return selection.source === 'favorite' ? selection.item.image_url : selection.previewUrl
+}
+
+function referenceName(referenceType: TryOnReferenceType) {
+  const selection = references.value[referenceType]
+  if (!selection) return ''
+  return selection.source === 'favorite' ? selection.item.product_display_name : selection.file.name
+}
+
+function removeReference(referenceType: TryOnReferenceType) {
+  const current = references.value[referenceType]
+  if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
+  const next = { ...references.value }
+  delete next[referenceType]
+  references.value = next
+  const nextCandidates = { ...draftCandidates.value }
+  delete nextCandidates[referenceType]
+  draftCandidates.value = nextCandidates
+}
+
+function clearReferences() {
+  Object.values(references.value).forEach((selection) => {
+    if (selection?.source === 'upload') URL.revokeObjectURL(selection.previewUrl)
+  })
+  references.value = {}
+  draftCandidates.value = {}
+  unsupportedItems.value = []
+}
+
+function setFavoriteReference(item: CatalogItem) {
+  const referenceType = referenceTypeForCatalogItem(item)
+  if (!referenceType) return
+  const current = references.value[referenceType]
+  if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
+  references.value = {
+    ...references.value,
+    [referenceType]: { source: 'favorite', item },
+  }
+  draftCandidates.value = {
+    ...draftCandidates.value,
+    [referenceType]: [item],
+  }
+}
+
+function favoriteItemSelected(item: CatalogItem) {
+  const referenceType = referenceTypeForCatalogItem(item)
+  if (!referenceType) return false
+  const selection = references.value[referenceType]
+  return selection?.source === 'favorite' && selection.item.id === item.id
+}
+
+function favoriteReferenceTypeLabel(item: CatalogItem) {
+  const referenceType = referenceTypeForCatalogItem(item)
+  return referenceType ? TRYON_REFERENCE_LABELS[referenceType] : '目前不支援'
+}
+
+function chooseCandidate(referenceType: TryOnReferenceType, item: CatalogItem) {
+  references.value = {
+    ...references.value,
+    [referenceType]: { source: 'favorite', item },
+  }
 }
 
 function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
-  if (!file) {
-    removeReferenceImage(referenceType)
-    return
+  input.value = ''
+  if (!file) return
+  const current = references.value[referenceType]
+  if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
+  references.value = {
+    ...references.value,
+    [referenceType]: {
+      source: 'upload',
+      file,
+      previewUrl: URL.createObjectURL(file),
+    },
   }
-  const currentPreview = referencePreviews.value[referenceType] ?? ''
-  referencePreviews.value = {
-    ...referencePreviews.value,
-    [referenceType]: replacePreview(currentPreview, file),
-  }
-  referenceFiles.value = { ...referenceFiles.value, [referenceType]: file }
+  draftCandidates.value = { ...draftCandidates.value, [referenceType]: [] }
 }
 
-function removeReferenceImage(referenceType: TryOnReferenceType) {
-  const preview = referencePreviews.value[referenceType]
-  if (preview) URL.revokeObjectURL(preview)
-  const nextPreviews = { ...referencePreviews.value }
-  const nextFiles = { ...referenceFiles.value }
-  delete nextPreviews[referenceType]
-  delete nextFiles[referenceType]
-  referencePreviews.value = nextPreviews
-  referenceFiles.value = nextFiles
+function chooseClothingMode(mode: 'overall' | 'separates') {
+  if (mode === 'overall') {
+    removeReference('upper')
+    removeReference('lower')
+  } else {
+    removeReference('overall')
+  }
+}
+
+function handleWardrobeTabKeydown(event: KeyboardEvent, currentTab: WardrobeTab) {
+  let nextIndex: number | null = null
+  const currentIndex = WARDROBE_TABS.indexOf(currentTab)
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+    nextIndex = (currentIndex - 1 + WARDROBE_TABS.length) % WARDROBE_TABS.length
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    nextIndex = (currentIndex + 1) % WARDROBE_TABS.length
+  } else if (event.key === 'Home') {
+    nextIndex = 0
+  } else if (event.key === 'End') {
+    nextIndex = WARDROBE_TABS.length - 1
+  }
+  if (nextIndex === null) return
+  event.preventDefault()
+  const nextTab = WARDROBE_TABS[nextIndex]
+  wardrobeTab.value = nextTab
+  const tablist = (event.currentTarget as HTMLElement).closest('[role="tablist"]')
+  window.requestAnimationFrame(() => {
+    tablist?.querySelector<HTMLButtonElement>(`#tryon-source-tab-${nextTab}`)?.focus()
+  })
+}
+
+function applyDraft(draft: TryOnDraft) {
+  if (draft.source === 'favorite-outfit') clearReferences()
+  unsupportedItems.value = [...draft.unsupportedItems]
+  draftCandidates.value = draft.source === 'favorite-outfit'
+    ? { ...draft.candidates }
+    : { ...draftCandidates.value, ...draft.candidates }
+  TRYON_REFERENCE_TYPES.forEach((referenceType) => {
+    const candidates = draft.candidates[referenceType] ?? []
+    if (candidates.length === 1) setFavoriteReference(candidates[0])
+    if (candidates.length > 1) {
+      const current = references.value[referenceType]
+      if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
+      const next = { ...references.value }
+      delete next[referenceType]
+      references.value = next
+      draftCandidates.value = { ...draftCandidates.value, [referenceType]: candidates }
+    }
+  })
+  wardrobeTab.value = draft.source === 'favorite-outfit' ? 'outfits' : 'items'
+}
+
+function selectFavoriteOutfit(outfit: { id: number; items: CatalogItem[] }) {
+  applyDraft(createTryOnDraft(outfit.items, 'favorite-outfit', outfit.id))
+}
+
+function outfitSelected(outfit: { items: CatalogItem[] }) {
+  const selectedIds = new Set(Object.values(references.value)
+    .filter((selection): selection is Extract<TryOnReferenceSelection, { source: 'favorite' }> => selection?.source === 'favorite')
+    .map((selection) => selection.item.id))
+  const supportedIds = outfit.items
+    .filter((item) => referenceTypeForCatalogItem(item))
+    .map((item) => item.id)
+  return supportedIds.length > 0 && supportedIds.every((id) => selectedIds.has(id))
 }
 
 function isReferenceDisabled(referenceType: TryOnReferenceType) {
-  const supportedTypes = capabilities.value?.supported_reference_types
-  if (supportedTypes && !supportedTypes.includes(referenceType)) return true
-  if ((referenceType === 'upper' || referenceType === 'lower') && referenceFiles.value.overall) return true
-  return referenceType === 'overall' && Boolean(referenceFiles.value.upper || referenceFiles.value.lower)
-}
-
-function referenceDisabledReason(referenceType: TryOnReferenceType) {
-  if (capabilities.value && !capabilities.value.supported_reference_types.includes(referenceType)) {
-    return '目前服務不支援此類型'
-  }
-  if (referenceType === 'overall') return '已選擇上身或下身圖片'
-  return '已選擇洋裝／連身圖片'
-}
-
-function referenceInputKey(referenceType: TryOnReferenceType) {
-  const file = referenceFiles.value[referenceType]
-  return file ? `${file.name}:${file.size}:${file.lastModified}` : `${referenceType}:empty`
-}
-
-function personInputKey() {
-  const file = personFile.value
-  return file ? `${file.name}:${file.size}:${file.lastModified}` : 'person:empty'
-}
-
-function referencePreview(referenceType: TryOnReferenceType) {
-  return referencePreviews.value[referenceType] ?? ''
-}
-
-function referenceFile(referenceType: TryOnReferenceType) {
-  return referenceFiles.value[referenceType]
-}
-
-function referenceLabel(referenceType: TryOnReferenceType) {
-  return REFERENCE_LABELS[referenceType]
-}
-
-function referenceIsSelected(referenceType: TryOnReferenceType) {
-  return Boolean(referenceFiles.value[referenceType])
+  return Boolean(
+    capabilities.value
+    && !capabilities.value.supported_reference_types.includes(referenceType),
+  )
 }
 
 async function loadCapabilities() {
@@ -325,7 +555,6 @@ async function synchronizeHistory(refreshAll = false) {
   stopPolling()
   cleanExpiredHistory()
   if (!historyJobs.value.length) return
-
   const generation = historyGeneration
   const jobsToSynchronize = historyJobs.value.filter((historyJob) => (
     refreshAll
@@ -338,7 +567,6 @@ async function synchronizeHistory(refreshAll = false) {
     jobsToSynchronize.map((historyJob) => getTryOnJob(historyJob.id)),
   )
   if (!componentActive || generation !== historyGeneration) return
-
   let failedRequests = 0
   results.forEach((result, resultIndex) => {
     const synchronizedJobId = jobsToSynchronize[resultIndex].id
@@ -352,17 +580,14 @@ async function synchronizeHistory(refreshAll = false) {
       failedRequests += 1
     }
   })
-
   historyJobs.value = sortAndLimitHistory(historyJobs.value)
   if (job.value && !historyJobs.value.some((historyJob) => historyJob.id === job.value?.id)) {
     job.value = historyJobs.value[0] ?? null
   }
   persistHistory()
-
   if (failedRequests) {
     showError(`有 ${failedRequests} 筆紀錄暫時無法更新，將自動重試。`)
   }
-
   const hasPendingJobs = historyJobs.value.some(
     (historyJob) => historyJob.status === 'queued' || historyJob.status === 'running',
   )
@@ -371,16 +596,57 @@ async function synchronizeHistory(refreshAll = false) {
   }
 }
 
+function extensionForType(contentType: string) {
+  if (contentType === 'image/png') return 'png'
+  if (contentType === 'image/webp') return 'webp'
+  return 'jpg'
+}
+
+async function catalogItemFile(item: CatalogItem, referenceType: TryOnReferenceType): Promise<File> {
+  const response = await fetch(item.image_url)
+  if (!response.ok) throw new Error(`${TRYON_REFERENCE_LABELS[referenceType]}商品圖片讀取失敗，請重新選擇`)
+  const blob = await response.blob()
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) {
+    throw new Error(`${TRYON_REFERENCE_LABELS[referenceType]}商品圖片格式不支援`)
+  }
+  return new File(
+    [blob],
+    `favorite-${item.id}.${extensionForType(blob.type)}`,
+    { type: blob.type },
+  )
+}
+
+async function materializeReferences() {
+  const entries = await Promise.all(selectedReferenceTypes.value.map(async (referenceType) => {
+    const selection = references.value[referenceType]
+    if (!selection) throw new Error(`請重新選擇${TRYON_REFERENCE_LABELS[referenceType]}`)
+    const file = selection.source === 'upload'
+      ? selection.file
+      : await catalogItemFile(selection.item, referenceType)
+    return [referenceType, file] as const
+  }))
+  return Object.fromEntries(entries) as Partial<Record<TryOnReferenceType, File>>
+}
+
+function selectedPersonFile(): File | null {
+  if (temporaryPersonFile.value) return temporaryPersonFile.value
+  const saved = selectedSavedPerson.value
+  if (!saved) return null
+  return new File(
+    [saved.blob],
+    `person-${saved.id}.${extensionForType(saved.mimeType)}`,
+    { type: saved.mimeType },
+  )
+}
+
 async function submit() {
-  if (!canSubmit.value || !personFile.value) return
+  const person = selectedPersonFile()
+  if (!canSubmit.value || !person) return
   stopPolling()
   submitting.value = true
   try {
-    const createdJob = await createTryOnJob(
-      personFile.value,
-      referenceFiles.value,
-      props.userKey,
-    )
+    const referenceFiles = await materializeReferences()
+    const createdJob = await createTryOnJob(person, referenceFiles, props.userKey)
     replaceHistory(createdJob, true)
     pollTimer = window.setTimeout(synchronizeHistory, 2000)
   } catch (reason) {
@@ -398,20 +664,39 @@ async function submit() {
   }
 }
 
-onMounted(() => {
+watch(() => props.draft?.revision, () => {
+  if (props.draft) applyDraft(props.draft)
+}, { immediate: true })
+
+watch(personLibrary.photos, () => {
+  syncPersonPreviewUrls()
+  if (!selectedPersonId.value && !temporaryPersonFile.value) {
+    selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
+  }
+}, { deep: true })
+
+onMounted(async () => {
   componentActive = true
   loadHistory()
-  void loadCapabilities()
+  await Promise.allSettled([
+    loadCapabilities(),
+    personLibrary.load(),
+    loadFavorites(),
+  ])
+  syncPersonPreviewUrls()
+  if (!selectedPersonId.value) selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
   void synchronizeHistory(true)
   cleanupTimer = window.setInterval(cleanExpiredHistory, 60_000)
 })
+
 onBeforeUnmount(() => {
   componentActive = false
   stopPolling()
   if (cleanupTimer !== undefined) window.clearInterval(cleanupTimer)
-  if (personPreview.value) URL.revokeObjectURL(personPreview.value)
-  Object.values(referencePreviews.value).forEach((preview) => {
-    if (preview) URL.revokeObjectURL(preview)
+  temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, null)
+  Object.values(personPreviewUrls.value).forEach((preview) => URL.revokeObjectURL(preview))
+  Object.values(references.value).forEach((selection) => {
+    if (selection?.source === 'upload') URL.revokeObjectURL(selection.previewUrl)
   })
 })
 </script>
@@ -421,7 +706,8 @@ onBeforeUnmount(() => {
     <header class="view-heading">
       <div>
         <span class="section-kicker">Virtual try-on</span>
-        <h2>虛擬試穿</h2>
+        <h2>虛擬試穿工作區</h2>
+        <p>選擇人物與穿搭後，即可直接生成試穿結果。</p>
       </div>
       <button class="secondary-button" :disabled="capabilityLoading" @click="loadCapabilities">
         <RefreshCw :size="16" :class="{ spinning: capabilityLoading }" />重新檢查服務
@@ -430,93 +716,255 @@ onBeforeUnmount(() => {
 
     <div class="tryon-layout">
       <section class="tryon-form-card">
-        <section class="tryon-upload-section">
-          <div class="tryon-upload tryon-person-upload">
-            <span>人物照片</span>
-            <label class="tryon-preview tryon-preview-input">
-              <img v-if="personPreview" :src="personPreview" alt="人物照片預覽" />
-              <span v-else class="tryon-preview-copy"><ImagePlus :size="30" /><strong>選擇人物照片</strong><small>建議使用正面全身照</small></span>
+        <section class="tryon-workspace-section" aria-labelledby="tryon-person-heading">
+          <header class="tryon-panel-heading">
+            <div><span>Person profile</span><h3 id="tryon-person-heading">人物設定</h3></div>
+            <small>照片只保存在這個瀏覽器，最多 {{ PERSON_PHOTO_LIMIT }} 張。</small>
+          </header>
+
+          <p v-if="personLibrary.error.value || photoError" class="tryon-inline-error" role="alert">
+            {{ photoError || personLibrary.error.value }}
+          </p>
+          <div v-if="personLibrary.loading.value" class="loading-state">正在載入人物照…</div>
+          <div v-else-if="personLibrary.photos.value.length" class="person-photo-grid">
+            <article
+              v-for="photo in personLibrary.photos.value"
+              :key="photo.id"
+              class="person-photo-card"
+              :class="{ selected: selectedPersonId === photo.id }"
+            >
+              <button type="button" class="person-photo-select" @click="selectPerson(photo)">
+                <img :src="personPreviewUrls[photo.id]" :alt="photo.name" />
+                <span v-if="selectedPersonId === photo.id" class="selection-badge"><Check :size="13" />已選取</span>
+                <span v-if="photo.isDefault" class="default-badge"><Star :size="12" fill="currentColor" />預設</span>
+              </button>
+              <div class="person-photo-meta">
+                <template v-if="editingPhotoId === photo.id">
+                  <label :for="`person-name-${photo.id}`">人物照名稱</label>
+                  <div class="person-photo-rename">
+                    <input
+                      :id="`person-name-${photo.id}`"
+                      v-model="editingPhotoName"
+                      maxlength="40"
+                      @keyup.enter="savePhotoName(photo)"
+                    />
+                    <button type="button" aria-label="儲存名稱" @click="savePhotoName(photo)"><Check :size="14" /></button>
+                    <button type="button" aria-label="取消重新命名" @click="editingPhotoId = null"><X :size="14" /></button>
+                  </div>
+                </template>
+                <template v-else>
+                  <strong>{{ photo.name }}</strong>
+                  <small>{{ photo.width }} × {{ photo.height }}</small>
+                </template>
+              </div>
+              <div class="person-photo-actions">
+                <button v-if="!photo.isDefault" type="button" @click="makeDefault(photo)"><Star :size="13" />設為預設</button>
+                <button type="button" @click="beginRename(photo)"><Pencil :size="13" />命名</button>
+                <button type="button" class="danger" @click="deletePersonPhoto(photo)"><Trash2 :size="13" />刪除</button>
+              </div>
+            </article>
+          </div>
+
+          <article v-if="temporaryPersonFile" class="temporary-person-card">
+            <img :src="temporaryPersonPreview" alt="本次人物照預覽" />
+            <div><strong>本次人物照</strong><small>未保存，離開或重新載入後會消失。</small></div>
+            <button type="button" class="tryon-remove-button" @click="removeTemporaryPerson"><Trash2 :size="13" />移除</button>
+          </article>
+
+          <div class="person-photo-upload" :class="{ disabled: !personLibrary.canAdd.value }">
+            <div><ImagePlus :size="25" /><strong>新增人物照</strong><small>建議使用正面全身照</small></div>
+            <label>
+              <span>人物照名稱（選填）</span>
+              <input v-model="newPhotoName" maxlength="40" placeholder="例如：正面全身照" :disabled="!personLibrary.canAdd.value" />
+            </label>
+            <label class="secondary-button person-upload-button" :aria-disabled="!personLibrary.canAdd.value || photoSaving">
+              <LoaderCircle v-if="photoSaving" :size="16" class="spinning" />
+              <Upload v-else :size="16" />
+              {{ personLibrary.canAdd.value ? '選擇並保存照片' : '人物照已達上限' }}
               <input
-                :key="personInputKey()"
                 class="tryon-file-input"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                :aria-label="`${personFile ? '更換圖片' : '選擇圖片'}：人物照片`"
+                :disabled="!personLibrary.canAdd.value || photoSaving"
+                aria-label="選擇並保存人物照片"
                 @change="choosePersonImage"
               />
             </label>
-            <div class="tryon-upload-actions">
-              <button
-                v-if="personFile"
-                type="button"
-                class="tryon-remove-button"
-                aria-label="移除人物照片"
-                @click="removePersonImage"
-              >
-                <Trash2 :size="13" />移除
-              </button>
-            </div>
           </div>
+
         </section>
 
-        <section class="tryon-upload-section tryon-reference-section">
-          <div class="tryon-section-heading">
-            <strong>服飾參考圖片</strong>
-            <small>至少選擇一項</small>
-          </div>
-          <div class="tryon-reference-grid">
-            <div
-              v-for="option in REFERENCE_OPTIONS"
-              :key="option.type"
-              class="tryon-upload"
-              :class="{ disabled: isReferenceDisabled(option.type) }"
+        <section class="tryon-workspace-section" aria-labelledby="tryon-clothes-heading">
+          <header class="tryon-panel-heading">
+            <div><span>Outfit selection</span><h3 id="tryon-clothes-heading">選擇穿搭</h3></div>
+            <button v-if="selectedReferenceTypes.length" type="button" class="text-button danger" @click="clearReferences">
+              <Trash2 :size="14" />清空穿搭
+            </button>
+          </header>
+
+          <div class="tryon-slot-grid">
+            <article
+              v-for="referenceType in TRYON_REFERENCE_TYPES"
+              :key="referenceType"
+              class="tryon-slot-card"
+              :class="{ selected: references[referenceType], unresolved: (draftCandidates[referenceType]?.length ?? 0) > 1 && !references[referenceType] }"
             >
-              <span>{{ referenceLabel(option.type) }}</span>
-              <label
-                class="tryon-preview tryon-preview-input"
-                :aria-disabled="isReferenceDisabled(option.type)"
-              >
-                <img
-                  v-if="referencePreview(option.type)"
-                  :src="referencePreview(option.type)"
-                  :alt="`${referenceLabel(option.type)}參考圖片預覽`"
-                />
-                <span v-else class="tryon-preview-copy">
-                  <ImagePlus :size="26" />
-                  <strong>選擇{{ referenceLabel(option.type) }}圖片</strong>
-                  <small>{{ isReferenceDisabled(option.type) ? referenceDisabledReason(option.type) : option.hint }}</small>
-                </span>
+              <header>
+                <strong>{{ TRYON_REFERENCE_LABELS[referenceType] }}</strong>
+                <span v-if="references[referenceType]" class="tryon-slot-status"><Check :size="13" />已選取</span>
+              </header>
+              <div v-if="references[referenceType]" class="tryon-slot-preview">
+                <img :src="referencePreview(referenceType)" :alt="referenceName(referenceType)" />
+                <span>{{ referenceName(referenceType) }}</span>
+                <button type="button" :aria-label="`移除${TRYON_REFERENCE_LABELS[referenceType]}`" @click="removeReference(referenceType)"><X :size="15" /></button>
+              </div>
+              <div v-else-if="(draftCandidates[referenceType]?.length ?? 0) > 1" class="tryon-candidate-list">
+                <small>請選擇一件</small>
+                <button
+                  v-for="candidate in draftCandidates[referenceType]"
+                  :key="candidate.id"
+                  type="button"
+                  @click="chooseCandidate(referenceType, candidate)"
+                >
+                  <img :src="candidate.image_url" :alt="candidate.product_display_name" />
+                  <span>{{ candidate.product_display_name }}</span>
+                </button>
+              </div>
+              <label v-else-if="wardrobeTab === 'upload'" class="tryon-slot-empty upload">
+                <Upload :size="20" /><span>上傳{{ TRYON_REFERENCE_LABELS[referenceType] }}</span>
                 <input
-                  :key="referenceInputKey(option.type)"
                   class="tryon-file-input"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  :disabled="isReferenceDisabled(option.type)"
-                  :aria-label="`${referenceFile(option.type) ? '更換圖片' : '選擇圖片'}：${referenceLabel(option.type)}參考圖片`"
-                  @change="chooseReferenceImage($event, option.type)"
+                  :disabled="isReferenceDisabled(referenceType)"
+                  :aria-label="`上傳${TRYON_REFERENCE_LABELS[referenceType]}圖片`"
+                  @change="chooseReferenceImage($event, referenceType)"
                 />
               </label>
-              <div class="tryon-upload-actions">
-                <button
-                  v-if="referenceIsSelected(option.type)"
-                  type="button"
-                  class="tryon-remove-button"
-                  :aria-label="`移除${referenceLabel(option.type)}參考圖片`"
-                  @click="removeReferenceImage(option.type)"
-                >
-                  <Trash2 :size="13" />移除
-                </button>
-              </div>
+              <div v-else class="tryon-slot-empty"><Shirt :size="20" /><span>尚未選擇</span></div>
+            </article>
+          </div>
+
+          <div v-if="hasModeConflict" class="tryon-conflict" role="alert">
+            <AlertCircle :size="18" />
+            <div><strong>請選擇一種穿搭模式</strong><p>連身服飾不能與上身或下身同時送入模型。</p></div>
+            <div class="tryon-conflict-actions">
+              <button type="button" @click="chooseClothingMode('overall')">保留連身</button>
+              <button type="button" @click="chooseClothingMode('separates')">保留上下身</button>
             </div>
           </div>
+
+          <div v-if="unsupportedItems.length" class="tryon-unsupported" role="status">
+            <AlertCircle :size="17" />
+            <div><strong>以下品項目前不支援試穿</strong><p>{{ unsupportedItems.map((item) => item.product_display_name).join('、') }}</p></div>
+          </div>
+
+          <div class="tryon-source-tabs" role="tablist" aria-label="穿搭來源">
+            <button
+              id="tryon-source-tab-outfits"
+              type="button"
+              role="tab"
+              :tabindex="wardrobeTab === 'outfits' ? 0 : -1"
+              :aria-selected="wardrobeTab === 'outfits'"
+              aria-controls="tryon-source-panel-outfits"
+              :class="{ active: wardrobeTab === 'outfits' }"
+              @click="wardrobeTab = 'outfits'"
+              @keydown="handleWardrobeTabKeydown($event, 'outfits')"
+            >
+              <Images :size="16" />收藏整套
+            </button>
+            <button
+              id="tryon-source-tab-items"
+              type="button"
+              role="tab"
+              :tabindex="wardrobeTab === 'items' ? 0 : -1"
+              :aria-selected="wardrobeTab === 'items'"
+              aria-controls="tryon-source-panel-items"
+              :class="{ active: wardrobeTab === 'items' }"
+              @click="wardrobeTab = 'items'"
+              @keydown="handleWardrobeTabKeydown($event, 'items')"
+            >
+              <Shirt :size="16" />收藏單品
+            </button>
+            <button
+              id="tryon-source-tab-upload"
+              type="button"
+              role="tab"
+              :tabindex="wardrobeTab === 'upload' ? 0 : -1"
+              :aria-selected="wardrobeTab === 'upload'"
+              aria-controls="tryon-source-panel-upload"
+              :class="{ active: wardrobeTab === 'upload' }"
+              @click="wardrobeTab = 'upload'"
+              @keydown="handleWardrobeTabKeydown($event, 'upload')"
+            >
+              <Upload :size="16" />自行上傳
+            </button>
+          </div>
+
+          <div
+            :id="`tryon-source-panel-${wardrobeTab}`"
+            role="tabpanel"
+            :aria-labelledby="`tryon-source-tab-${wardrobeTab}`"
+          >
+            <div v-if="favoritesLoading" class="loading-state">正在載入收藏…</div>
+            <div v-else-if="wardrobeTab === 'outfits'" class="tryon-wardrobe-grid outfits">
+              <button
+                v-for="outfit in favoriteOutfits"
+                :key="outfit.id"
+                type="button"
+                class="tryon-wardrobe-outfit"
+                :class="{ selected: outfitSelected(outfit) }"
+                @click="selectFavoriteOutfit(outfit)"
+              >
+                <span class="tryon-wardrobe-images">
+                  <img v-for="item in outfit.items" :key="item.id" :src="item.image_url" :alt="item.product_display_name" />
+                </span>
+                <span>
+                  <strong>收藏穿搭</strong>
+                  <small>{{ outfit.items.length }} 件商品{{ outfitSelected(outfit) ? ' · 已選取' : '' }}</small>
+                </span>
+                <Check v-if="outfitSelected(outfit)" :size="17" />
+              </button>
+              <div v-if="!favoriteOutfits.length" class="tryon-empty-source"><Images :size="27" /><p>還沒有收藏整套穿搭。</p></div>
+            </div>
+            <div v-else-if="wardrobeTab === 'items'" class="tryon-wardrobe-grid items">
+              <button
+                v-for="row in supportedFavoriteItems"
+                :key="row.item.id"
+                type="button"
+                class="tryon-wardrobe-item"
+                :class="{ selected: favoriteItemSelected(row.item) }"
+                @click="setFavoriteReference(row.item)"
+              >
+                <img :src="row.item.image_url" :alt="row.item.product_display_name" />
+                <span>
+                  <strong>{{ row.item.product_display_name }}</strong>
+                  <small>{{ favoriteReferenceTypeLabel(row.item) }}{{ favoriteItemSelected(row.item) ? ' · 已選取' : '' }}</small>
+                </span>
+                <Check v-if="favoriteItemSelected(row.item)" :size="16" />
+              </button>
+              <div v-if="!supportedFavoriteItems.length" class="tryon-empty-source"><Shirt :size="27" /><p>還沒有可試穿的收藏單品。</p></div>
+            </div>
+            <div v-else class="tryon-upload-guidance">
+              <Upload :size="24" />
+              <div><strong>從上方槽位上傳商品照</strong><p>每個槽位只能選一張；連身服飾不能與上身或下身同時使用。</p></div>
+            </div>
+          </div>
+
         </section>
 
-        <button class="primary-button tryon-submit" :disabled="!canSubmit" @click="submit">
-          <LoaderCircle v-if="submitting" :size="17" class="spinning" />
-          <ScanFace v-else :size="17" />
-          {{ submitting ? '建立工作中…' : '開始虛擬試穿' }}
-        </button>
-        <p class="tryon-limit">每張圖片上限 {{ Math.round((capabilities?.max_upload_bytes || 10485760) / 1048576) }} MiB</p>
+        <section class="tryon-submit-panel" aria-labelledby="tryon-submit-heading">
+          <div>
+            <strong id="tryon-submit-heading">直接生成試穿結果</strong>
+            <p aria-live="polite">{{ submitHint }}</p>
+          </div>
+          <button class="primary-button tryon-submit" :disabled="!canSubmit" @click="submit">
+            <LoaderCircle v-if="submitting" :size="17" class="spinning" />
+            <ScanFace v-else :size="17" />
+            {{ submitting ? '建立工作中…' : '開始虛擬試穿' }}
+          </button>
+          <p class="tryon-limit">每張圖片上限 {{ Math.round((capabilities?.max_upload_bytes || DEFAULT_MAX_BYTES) / 1048576) }} MiB</p>
+        </section>
       </section>
 
       <section class="tryon-result-card">
@@ -543,7 +991,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <div class="tryon-result-body">
+        <div class="tryon-result-body" aria-live="polite">
           <div v-if="job?.status === 'succeeded' && job.result_url" class="tryon-result">
             <img :src="job.result_url" alt="虛擬試穿結果" />
             <div><CheckCircle2 :size="17" /><strong>{{ statusLabel }}</strong></div>
@@ -555,10 +1003,10 @@ onBeforeUnmount(() => {
             <p v-if="job?.status === 'queued'">正在等待處理。</p>
             <p v-else-if="job?.status === 'running'">正在生成試穿結果。</p>
             <p v-else-if="job?.status === 'failed'">{{ job.error || '這次試穿未能完成，請重新送出。' }}</p>
+            <p v-else>選好人物與穿搭並送出後，結果會保留在這裡方便比較。</p>
           </div>
         </div>
       </section>
     </div>
-
   </section>
 </template>
