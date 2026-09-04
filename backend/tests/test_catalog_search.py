@@ -88,3 +88,26 @@ def test_free_text_catalog_search_never_relaxes_hard_exclusions(monkeypatch) -> 
 
     assert results == []
     assert db.execute_count == 1
+
+
+def test_free_text_catalog_search_applies_per_item_price_range(monkeypatch) -> None:
+    monkeypatch.setattr(
+        catalog_search.fashion_clip,
+        "encode_texts",
+        lambda _: [[0.0] * 512],
+    )
+    db = FakeSession([])
+
+    catalog_search.search_catalog_items(
+        db,
+        "casual outfit",
+        20,
+        hard=UserHardRule(user_key="demo", price_min=500, price_max=1500),
+    )
+
+    statement = str(db.statement)
+    assert "clothes.price >=" in statement
+    assert "clothes.price <=" in statement
+    params = list(db.statement.compile().params.values())
+    assert 500 in params
+    assert 1500 in params

@@ -5,7 +5,6 @@ import {
   saveHardRules,
 } from '../api'
 import ColorPreferenceEditor from '../components/ColorPreferenceEditor.vue'
-import TagInput from '../components/TagInput.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import { useToast } from '../composables/useToast'
 import type { HardRules, StylePreference } from '../types'
@@ -19,6 +18,31 @@ const {
   removePreference,
 } = useUserLibrary(props.userKey)
 const { showError, showSuccess } = useToast()
+
+const articleTypeOptions = [
+  ['Tshirts', 'T 恤'],
+  ['Polo shirt', 'Polo 衫'],
+  ['Shirts', '襯衫'],
+  ['Blouse', '女式襯衫'],
+  ['Tops', '上衣'],
+  ['Sweaters', '毛衣'],
+  ['Hoodie', '連帽上衣'],
+  ['Cardigan', '開襟衫'],
+  ['Jackets', '夾克'],
+  ['Blazers', '西裝外套'],
+  ['Coat', '大衣'],
+  ['Trousers', '長褲'],
+  ['Outdoor trousers', '戶外長褲'],
+  ['Shorts', '短褲'],
+  ['Skirts', '裙子'],
+  ['Leggings', '內搭褲'],
+  ['Dresses', '洋裝'],
+  ['Jumpsuit', '連身褲'],
+  ['Dungarees', '吊帶褲'],
+  ['Garment Set', '套裝'],
+  ['Outdoor Waistcoat', '戶外背心'],
+  ['Tailored Waistcoat', '西裝背心'],
+] as const
 
 function emptyHard(): HardRules {
   return {
@@ -215,7 +239,12 @@ onMounted(load)
 
           <div class="settings-row">
             <div class="settings-label"><strong>排除衣服類型</strong></div>
-            <TagInput v-model="hard.avoid_article_types" placeholder="輸入衣服類型" />
+            <div class="article-type-options">
+              <label v-for="([value, label]) in articleTypeOptions" :key="value">
+                <input v-model="hard.avoid_article_types" type="checkbox" :value="value" />
+                <span>{{ label }}</span>
+              </label>
+            </div>
           </div>
         </div>
 

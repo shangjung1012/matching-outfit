@@ -23,7 +23,7 @@ def _not_in_ci(column, values: list[str]) -> object:
 
 
 def _exclusion_filters(hard: UserHardRule) -> list:
-    """"Avoid" gates - dropped for a single zone if they empty its candidate pool."""
+    """Hard exclusion gates applied to every catalog search."""
     conditions = []
     if hard.avoid_colours:
         conditions.append(_not_in_ci(Cloth.base_colour, hard.avoid_colours))
@@ -76,7 +76,7 @@ def search_catalog(
 
     # hard preference:
     # price_min/max => keep_filters
-    # avoid_{colours, article_types, master_categories} => drop_filters
+    # avoid_{colours, article_types, master_categories} => exclusion filters
     keep_filters = _price_filters(hard) if hard is not None else []
     drop_filters = _exclusion_filters(hard) if hard is not None else []
 
