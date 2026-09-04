@@ -1,4 +1,5 @@
 from app.schemas import AestheticReview
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.aesthetic_reviewer import apply_aesthetic_reviews
 from tests.test_outfit_ranker import cloth, group
 from app.services.outfit_ranker import rank_outfits
@@ -30,3 +31,43 @@ def test_aesthetic_review_changes_final_score_and_is_attached() -> None:
     assert result.score_breakdown.aesthetic is not None
     assert result.score != recommendation.score
     assert review.reason in result.reasons
+
+
+def test_outfit_review_maps_only_used_observations_to_references() -> None:
+    recommendation = rank_outfits(
+        [
+            group("upper_body", [cloth(1, "upper_body", "White", 0.8)]),
+            group("lower_body", [cloth(2, "lower_body", "Black", 0.8)]),
+        ],
+        limit=1,
+    )[0]
+    observation = OutfitObservation(
+        observation_id="obs_used",
+        source_url="https://example.com/outfit-guide",
+        source_name="Example",
+        source_title="正式穿搭指南",
+        summary="俐落上衣適合搭配同等正式度的長褲",
+        evidence="上下身維持一致正式程度",
+        signal_type="timeless",
+        confidence=0.9,
+    )
+    review = AestheticReview(
+        occasion_fit=90,
+        color_harmony=92,
+        silhouette_balance=84,
+        material_coherence=82,
+        overall_aesthetic=90,
+        reason="上下身正式程度一致。",
+        knowledge_observation_ids=["obs_used", "obs_not_supplied"],
+    )
+
+    result = apply_aesthetic_reviews(
+        [recommendation],
+        {recommendation.id: review},
+        final_count=1,
+        observations=[observation],
+    )[0]
+
+    assert [reference.model_dump() for reference in result.references] == [
+        {"title": "正式穿搭指南", "url": "https://example.com/outfit-guide"}
+    ]

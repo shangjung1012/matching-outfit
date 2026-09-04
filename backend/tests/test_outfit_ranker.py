@@ -1,26 +1,15 @@
-from app.models.user_preference import UserHardRule, UserStylePreference
+from app.models.user_preference import UserHardRule
 from app.models.cloth import Cloth
-from app.preferences.context import relevant_style_preferences
 from app.schemas import (
     ClothResult,
     QueryDraft,
     QuerySearchResult,
     ReferenceLink,
+    RequirementSummary,
     StylePreferenceProposalRequest,
 )
 from app.api.routes import effective_audience, outfit_memory_proposals
 from app.services.outfit_ranker import rank_outfits, select_diverse
-
-
-def style_pref(text: str) -> UserStylePreference:
-    return UserStylePreference(
-        user_key="demo",
-        preference_text=text,
-        is_active=True,
-        context_occasions=[],
-        context_times=[],
-        context_situations=[],
-    )
 
 
 def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothResult:
@@ -38,7 +27,10 @@ def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothRes
 
 
 def group(
-    zone: str, clothes: list[ClothResult], references: list[ReferenceLink] | None = None
+    zone: str,
+    clothes: list[ClothResult],
+    references: list[ReferenceLink] | None = None,
+    direction_id: str | None = None,
 ) -> QuerySearchResult:
     return QuerySearchResult(
         query=QueryDraft(
@@ -46,12 +38,47 @@ def group(
             text=zone,
             garment_zone=zone,
             rationale="test",
+            direction_id=direction_id,
             references=references or [],
         ),
         clothes=[
             item.model_copy(update={"references": references or []}) for item in clothes
         ],
     )
+
+
+def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> None:
+    recommendations = rank_outfits(
+        [
+            group(
+                "upper_body",
+                [cloth(101, "upper_body", "Pink", 0.9)],
+                direction_id="A",
+            ),
+            group(
+                "lower_body",
+                [cloth(102, "lower_body", "Blue", 0.9)],
+                direction_id="A",
+            ),
+            group(
+                "upper_body",
+                [cloth(103, "upper_body", "Black", 0.9)],
+                direction_id="B",
+            ),
+            group(
+                "lower_body",
+                [cloth(104, "lower_body", "White", 0.9)],
+                direction_id="B",
+            ),
+        ],
+        limit=10,
+    )
+
+    combinations = {
+        tuple(item.id for item in recommendation.items)
+        for recommendation in recommendations
+    }
+    assert combinations == {(101, 102), (103, 104)}
 
 
 def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:
@@ -61,9 +88,14 @@ def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:
         user_key="demo",
         user_request="秋天參加戶外婚禮，希望正式但方便走動",
         outfit_item_ids=[[70, 71]],
-        occasion="戶外婚禮",
-        time="秋天傍晚",
-        context="戶外草地，需要走動",
+        requirements=RequirementSummary(
+            occasions=["outdoor wedding"],
+            seasons=["autumn"],
+            times_of_day=["evening"],
+            climates=["outdoor"],
+            formalities=["formal"],
+            activities=["walking on grass"],
+        ),
     )
 
     proposals = outfit_memory_proposals({70: upper, 71: lower}, payload)
@@ -71,20 +103,7 @@ def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:
     assert len(proposals) == 1
     assert "秋天參加戶外婚禮" in proposals[0].preference_text
     assert "Silk Shirt、Wide Leg Trousers" in proposals[0].preference_text
-    assert proposals[0].context_occasions == ["戶外婚禮"]
-
-
-def test_outfit_memories_are_filtered_by_current_context() -> None:
-    wedding_memory = style_pref("婚禮偏好句")
-    wedding_memory.context_occasions = ["戶外婚禮"]
-    work_memory = style_pref("上班偏好句")
-    work_memory.context_occasions = ["上班"]
-
-    selected = relevant_style_preferences(
-        [wedding_memory, work_memory], "秋天參加戶外婚禮"
-    )
-
-    assert selected == [wedding_memory]
+    assert proposals[0].occasions == ["outdoor wedding"]
 
 
 def test_explicit_request_overrides_profile_gender_audience() -> None:
@@ -95,37 +114,23 @@ def test_explicit_request_overrides_profile_gender_audience() -> None:
     assert effective_audience("想找正式西裝", "unisex", profile) == "unisex"
 
 
-def test_ranker_collects_and_deduplicates_query_reference_urls() -> None:
-    shared = "https://example.com/shared"
-    upper_references = [
-        ReferenceLink(title="共同穿搭原則", url=shared),
-        ReferenceLink(title="上身指南", url="https://example.com/upper"),
-    ]
-    lower_references = [
-        ReferenceLink(title="共同穿搭原則", url=shared),
-        ReferenceLink(title="下身指南", url="https://example.com/lower"),
-    ]
+def test_ranker_does_not_attach_query_stage_references() -> None:
     recommendations = rank_outfits(
         [
             group(
                 "upper_body",
                 [cloth(50, "upper_body", "White", 0.9)],
-                upper_references,
+                [ReferenceLink(title="舊 Query 來源", url="https://example.com/old")],
             ),
             group(
                 "lower_body",
                 [cloth(51, "lower_body", "Black", 0.9)],
-                lower_references,
             ),
         ],
         limit=1,
     )
 
-    assert [reference.model_dump() for reference in recommendations[0].references] == [
-        {"title": "共同穿搭原則", "url": shared},
-        {"title": "上身指南", "url": "https://example.com/upper"},
-        {"title": "下身指南", "url": "https://example.com/lower"},
-    ]
+    assert recommendations[0].references == []
 
 
 def test_ranker_includes_accessory_when_formula_requested_one() -> None:

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { ArrowLeft, Check, MessageSquare, MessageSquarePlus, Send, Sparkles } from 'lucide-vue-next'
+import {
+  ArrowLeft, BookOpenText, Check, ChevronDown, ChevronUp, MessageSquare,
+  MessageSquarePlus, Send, Sparkles,
+} from 'lucide-vue-next'
 import {
   clarifyRequirements,
   confirmSoftPreferences,
@@ -17,11 +20,12 @@ import type {
   OutfitRecommendation,
   QueryDraft,
   RequirementSummary,
+  StylingGuide,
   StylePreferenceProposal,
 } from '../types'
 
 const props = defineProps<{ userKey: string }>()
-const emit = defineEmits<{ preferenceUpdated: [] }>()
+const emit = defineEmits<{ preferenceUpdated: []; openKnowledge: [] }>()
 
 interface ChatMessage {
   id: number
@@ -35,6 +39,8 @@ const messages = ref<ChatMessage[]>([
 const draft = ref('')
 const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
+const discardedRecommendations = ref<OutfitRecommendation[]>([])
+const showDiscarded = ref(false)
 const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceUpdated = ref(false)
@@ -45,6 +51,7 @@ const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
 const audience = ref<Audience | ''>('')
 const requirements = ref<RequirementSummary | null>(null)
+const stylingGuide = ref<StylingGuide | null>(null)
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
 let messageId = 2
@@ -57,12 +64,31 @@ const composerPlaceholder = computed(() => {
   return '若要搜尋其他穿搭，請開啟新的對話'
 })
 
-const requirementLabels: Record<keyof Omit<RequirementSummary, 'search_brief'>, string> = {
-  occasion: '場合',
-  time: '時間／季節',
-  context: '情境',
+type RequirementDisplayField = Exclude<
+  keyof RequirementSummary,
+  'search_brief' | 'tag_translations'
+>
+
+const requirementLabels: Record<RequirementDisplayField, string> = {
+  occasions: '場合',
+  seasons: '季節',
+  times_of_day: '時段',
+  climates: '氣候與環境',
+  formalities: '正式程度',
+  activities: '活動',
+  styles: '風格',
   special_requirements: '特殊要求',
   additional_notes: '其他補充',
+}
+
+function requirementValue(field: RequirementDisplayField): string {
+  const value = requirements.value?.[field]
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((tag) => requirements.value?.tag_translations[tag] || tag).join('、')
+      : '尚未提供'
+  }
+  return value?.trim() || '尚未提供'
 }
 
 const quickPrompts = [
@@ -101,6 +127,7 @@ async function sendRequest(text = draft.value) {
     const response = await clarifyRequirements(
       messages.value.map(({ role, text }) => ({ role, text })),
       props.userKey,
+      requirements.value,
       audience.value || undefined,
     )
     requirements.value = response.requirements
@@ -118,32 +145,43 @@ async function refine(text: string) {
       props.userKey,
       queries.value,
       previousRequest,
+      requirements.value,
       audience.value || undefined,
     )
     queries.value = response.queries
+    stylingGuide.value = response.styling_guide
     audience.value = response.audience ?? audience.value
     originalRequest.value = `${previousRequest} ${text}`.trim()
-    addMessage('agent', `已依照補充條件與 ${response.knowledge_observation_ids.length} 條搭配知識重新規劃。`)
+    addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
   })
 }
 
 async function confirmRequirements() {
   if (!hasUserDetails.value || loading.value) return
-  const fallback = messages.value
+  const rawUserRequest = messages.value
     .filter((message) => message.role === 'user')
     .map((message) => message.text)
     .join('；')
-  const brief = requirements.value?.search_brief.trim() || fallback
-  originalRequest.value = brief
+    .trim()
+  const planningInput = rawUserRequest || requirements.value?.search_brief.trim() || ''
+  originalRequest.value = planningInput
   await run(async () => {
-    const response = await createQueryPlan(brief, props.userKey, audience.value || undefined)
+    const response = await createQueryPlan(
+      planningInput,
+      props.userKey,
+      requirements.value,
+      audience.value || undefined,
+    )
     queries.value = response.queries
+    stylingGuide.value = response.styling_guide
     audience.value = response.audience ?? audience.value
     recommendations.value = []
+    discardedRecommendations.value = []
+    showDiscarded.value = false
     stage.value = 'review'
     addMessage(
       'agent',
-      `需求已確認。已參考 ${response.knowledge_observation_ids.length} 條搭配知識並產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+      `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
     )
   })
 }
@@ -155,7 +193,10 @@ function startNewConversation() {
   draft.value = ''
   queries.value = []
   recommendations.value = []
+  discardedRecommendations.value = []
+  showDiscarded.value = false
   requirements.value = null
+  stylingGuide.value = null
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -172,9 +213,13 @@ async function searchOutfits() {
       queries.value,
       props.userKey,
       originalRequest.value,
+      requirements.value,
+      stylingGuide.value,
       audience.value || undefined,
     )
     recommendations.value = response.recommendations
+    discardedRecommendations.value = response.discarded_recommendations
+    showDiscarded.value = false
     likedOutfitIds.value = new Set()
     proposal.value = null
     preferenceUpdated.value = false
@@ -209,9 +254,10 @@ async function toggleLike(id: string) {
 
 async function buildProposal(selectedIds = likedOutfitIds.value) {
   await run(async () => {
-    const likedOutfits = recommendations.value.filter((outfit) =>
-      selectedIds.has(outfit.id),
-    )
+    const likedOutfits = [
+      ...recommendations.value,
+      ...discardedRecommendations.value,
+    ].filter((outfit) => selectedIds.has(outfit.id))
     proposal.value = await proposeSoftFromOutfit(
       props.userKey,
       likedOutfits.map((outfit) => outfit.items.map((item) => item.id)),
@@ -290,6 +336,10 @@ async function confirmProposal() {
     </aside>
 
     <main class="agent-workspace">
+      <button class="knowledge-source-button" @click="emit('openKnowledge')">
+        <BookOpenText :size="16" />知識來源
+      </button>
+
       <section v-if="stage === 'start' && !requirements" class="agent-start">
         <div class="start-icon"><MessageSquare :size="26" /></div>
         <h2>開始新的穿搭搜尋</h2>
@@ -313,7 +363,7 @@ async function confirmProposal() {
             :class="{ missing: missingFields.includes(field) }"
           >
             <dt>{{ label }}</dt>
-            <dd>{{ requirements?.[field] || '尚未提供' }}</dd>
+            <dd>{{ requirementValue(field) }}</dd>
           </div>
         </dl>
         <button class="primary-button requirement-confirm" :disabled="loading" @click="confirmRequirements">
@@ -370,6 +420,31 @@ async function confirmProposal() {
           <h3>沒有找到可組合的搭配</h3>
           <button class="secondary-button" @click="stage = 'review'">返回調整 query</button>
         </div>
+
+        <section v-if="discardedRecommendations.length" class="discarded-outfits">
+          <button
+            class="discarded-toggle"
+            type="button"
+            :aria-expanded="showDiscarded"
+            @click="showDiscarded = !showDiscarded"
+          >
+            <span>
+              {{ showDiscarded ? '收合其他候選搭配' : `查看其他 ${discardedRecommendations.length} 套候選搭配` }}
+            </span>
+            <ChevronUp v-if="showDiscarded" :size="17" />
+            <ChevronDown v-else :size="17" />
+          </button>
+          <div v-if="showDiscarded" class="recommendation-grid discarded-grid">
+            <OutfitCard
+              v-for="(outfit, index) in discardedRecommendations"
+              :key="outfit.id"
+              :outfit="outfit"
+              :rank="recommendations.length + index + 1"
+              :liked="likedOutfitIds.has(outfit.id)"
+              @toggle-like="toggleLike(outfit.id)"
+            />
+          </div>
+        </section>
       </section>
     </main>
   </section>

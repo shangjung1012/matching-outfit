@@ -18,7 +18,8 @@ The project has four main input sources:
 3. **User preferences**
    - Personal profile: gender, age, height, and weight.
    - Hard rules: price limits and attributes to avoid.
-   - Outfit memories: user-authored or confirmed preference sentences scoped by occasion, time, and situation.
+   - Outfit memories: user-authored or confirmed preference sentences scoped by normalized outfit context.
+   - The user and Agent communicate in Traditional Chinese. Structured context tags are stored in English so they align with article observations.
 
 4. **Fashion articles**
    - URL lists such as `data/article_urls.example.txt`.
@@ -86,16 +87,24 @@ Main tables:
 
 ```text
 user input + personal profile + user preferences
-  -> retrieve relevant fashion observations from DB
-  -> LLM query planner considers fit, proportion, comfort, and audience context
-  -> planner creates catalog search queries by garment zone without inserting body measurements into FashionCLIP queries
-  -> FashionCLIP searches catalog images/text
-  -> outfit ranker combines upper/lower/one-piece candidates
-  -> hard rules filter invalid items
-  -> relevant preference sentences guide query planning and the final aesthetic review
-  -> optional aesthetic reviewer re-ranks shortlist
-  -> frontend displays final outfits
+  -> requirement collector chats in Chinese and summarizes the current conversation
+  -> shared English context tags: occasions, seasons, times_of_day, climates, formalities, activities, styles
+  -> LLM query planner considers the full request, profile, hard rules, and contextually similar outfit memories
+  -> planner creates 5 upper-body, 5 lower-body, and 2 one-piece FashionCLIP queries without article knowledge
+  -> FashionCLIP keeps the 10 most similar catalog items for each selected query
+  -> hard rules permanently filter invalid catalog items
+  -> results are deduplicated by item id and each garment zone keeps at most 40 items
+  -> outfit ranker forms upper/lower pairs and keeps one-piece alternatives
+  -> retrieve fashion observations using the same normalized outfit-context fields
+  -> outfit agent reviews images, similar-context memories, and relevant observations
+  -> only observations actually used for a final outfit become source links
+  -> frontend displays re-ranked outfits and their cited article titles
 ```
+
+Initial pairing uses `50%` average FashionCLIP relevance, `30%` basic color/usage
+compatibility, and `20%` context fit. With five upper-body and five lower-body
+queries, each zone can contribute up to 40 unique items after deduplication, producing
+up to 1,600 upper/lower candidate pairs before shortlist and diversity selection.
 
 Garment zones are normalized into:
 

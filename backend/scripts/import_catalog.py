@@ -19,6 +19,7 @@ OUTFIT_DEMO_EXCLUDED_TERMS = {
     "boxers",
     "bra",
     "briefs",
+    "bodysuit",
     "camisoles",
     "innerwear",
     "lingerie",
@@ -31,7 +32,30 @@ OUTFIT_DEMO_EXCLUDED_TERMS = {
     "shapewear",
     "socks",
     "stockings",
+    "swimwear",
+    "bikini",
     "tights",
+    "underwear",
+}
+
+HM_GROUP_TO_SUBCATEGORY = {
+    "garment upper body": "Topwear",
+    "garment lower body": "Bottomwear",
+    "garment full body": "Dress",
+    "swimwear": "Swimwear",
+}
+HM_ARTICLE_TYPE_MAP = {
+    "blazer": "Blazers",
+    "dress": "Dresses",
+    "jacket": "Jackets",
+    "jumpsuit/playsuit": "Jumpsuit",
+    "leggings/tights": "Leggings",
+    "shirt": "Shirts",
+    "skirt": "Skirts",
+    "sweater": "Sweaters",
+    "t-shirt": "Tshirts",
+    "top": "Tops",
+    "vest top": "Tops",
 }
 
 
@@ -49,6 +73,43 @@ def positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
+
+
+def hm_gender(row: dict[str, str]) -> str | None:
+    context = " ".join(
+        str(row.get(field) or "")
+        for field in ("index_group_name", "index_name", "section_name")
+    ).lower()
+    if any(term in context for term in ("ladies", "women", "divided")):
+        return "Women"
+    if any(term in context for term in ("men", "menswear")):
+        return "Men"
+    return "Unisex" if context else None
+
+
+def normalize_hm_row(row: dict[str, str]) -> dict[str, str | None]:
+    product_group = str(row.get("product_group_name") or "").strip()
+    product_type = str(row.get("product_type_name") or "").strip()
+    return {
+        "id": row.get("article_id"),
+        "gender": hm_gender(row),
+        "masterCategory": "Apparel",
+        "subCategory": HM_GROUP_TO_SUBCATEGORY.get(product_group.lower(), product_group),
+        "articleType": HM_ARTICLE_TYPE_MAP.get(product_type.lower(), product_type),
+        "baseColour": row.get("colour_group_name")
+        or row.get("perceived_colour_master_name"),
+        "season": None,
+        "year": None,
+        "usage": None,
+        "productDisplayName": row.get("prod_name") or row.get("detail_desc"),
+        "price": row.get("price_twd"),
+        "brandName": "H&M",
+        "ageGroup": "Adults",
+    }
+
+
+def normalize_catalog_row(row: dict[str, str], dataset: str) -> dict[str, str | None]:
+    return normalize_hm_row(row) if dataset == "hm" else row
 
 
 def parse_zone_limits(value: str | None) -> dict[str, int]:
@@ -131,7 +192,9 @@ def matches_outfit_demo_profile(
     if str(row.get("gender") or "").strip().lower() in {"boys", "girls"}:
         return False
 
-    age_group = str((style_data or {}).get("ageGroup") or "").strip().lower()
+    age_group = str(
+        (style_data or {}).get("ageGroup") or row.get("ageGroup") or ""
+    ).strip().lower()
     if age_group and not age_group.startswith("adults"):
         return False
 
@@ -141,11 +204,12 @@ def matches_outfit_demo_profile(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import Kaggle Fashion Product Images metadata.")
+    parser.add_argument("--dataset", choices=("myntra", "hm"), default="myntra")
     parser.add_argument("--csv", required=True, type=Path)
     parser.add_argument("--image-dir", default=Path("/data/images"), type=Path)
     parser.add_argument("--styles-json-dir", type=Path)
     parser.add_argument("--default-price", default=1000, type=int)
-    parser.add_argument("--currency", default=settings.catalog_currency)
+    parser.add_argument("--currency")
     parser.add_argument("--profile", choices=("all", "outfit-demo"), default="all")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--zone-limits", type=parse_zone_limits, default={})
@@ -157,14 +221,15 @@ def main() -> None:
     skipped = filtered = json_loaded = 0
     print(f"Indexing JPG files in {args.image_dir}...", flush=True)
     available_images = {
-        path.stem: path
+        (path.stem.lstrip("0") or "0") if args.dataset == "hm" else path.stem: path
         for path in args.image_dir.glob("*.jpg")
     }
     print(f"Indexed {len(available_images)} JPG files.", flush=True)
     candidates: list[tuple[int, Path, dict[str, str]]] = []
     with args.csv.open(encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
-            source_id = int(row["id"])
+            row = normalize_catalog_row(row, args.dataset)
+            source_id = int(str(row["id"]))
             image_path = available_images.get(str(source_id))
             if image_path is None:
                 skipped += 1
@@ -293,11 +358,14 @@ def main() -> None:
                     args.default_price,
                     positive_int(row.get("prices") or row.get("price")),
                 ),
-                "currency": args.currency.upper(),
-                "brand_name": (style_data or {}).get("brandName"),
-                "age_group": (style_data or {}).get("ageGroup"),
+                "currency": (
+                    args.currency
+                    or ("TWD" if args.dataset == "hm" else settings.catalog_currency)
+                ).upper(),
+                "brand_name": (style_data or {}).get("brandName") or row.get("brandName"),
+                "age_group": (style_data or {}).get("ageGroup") or row.get("ageGroup"),
                 "image_path": str(image_path),
-                "image_url": f"/media/{source_id}.jpg",
+                "image_url": f"/media/{image_path.name}",
             }
             if cloth:
                 for key, value in values.items():

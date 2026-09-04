@@ -15,6 +15,11 @@ import type {
   TryOnReferenceType,
   QueryPlanResponse,
   RecommendationResponse,
+  FashionArticleAdmin,
+  FashionArticleCollectResponse,
+  FashionArticleAutoUpdateResponse,
+  FashionKnowledgeSource,
+  StylingGuide,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -43,23 +48,31 @@ function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Requ
   }
 }
 
-export function createQueryPlan(userInput: string, userKey: string, audience?: Audience) {
+export function createQueryPlan(
+  userInput: string,
+  userKey: string,
+  requirements: RequirementSummary | null,
+  audience?: Audience,
+) {
   return request<QueryPlanResponse>('/api/query-plans', json('POST', {
     user_input: userInput,
     user_key: userKey,
     audience: audience || null,
+    requirements,
   }))
 }
 
 export function clarifyRequirements(
   messages: Array<{ role: 'agent' | 'user'; text: string }>,
   userKey: string,
+  previousRequirements: RequirementSummary | null,
   audience?: Audience,
 ) {
   return request<ClarificationResponse>('/api/query-plans/clarify', json('POST', {
     messages,
     user_key: userKey,
     audience: audience || null,
+    previous_requirements: previousRequirements,
   }))
 }
 
@@ -68,6 +81,7 @@ export function refineQueryPlan(
   userKey: string,
   existingQueries: QueryDraft[],
   originalInput: string,
+  requirements: RequirementSummary | null,
   audience?: Audience,
 ) {
   return request<QueryPlanResponse>('/api/query-plans/refine', json('POST', {
@@ -76,6 +90,7 @@ export function refineQueryPlan(
     existing_queries: existingQueries,
     original_input: originalInput,
     audience: audience || null,
+    requirements,
   }))
 }
 
@@ -83,14 +98,18 @@ export function getRecommendations(
   queries: QueryDraft[],
   userKey: string,
   userInput: string,
+  requirements: RequirementSummary | null,
+  stylingGuide: StylingGuide | null,
   audience?: Audience,
 ) {
   return request<RecommendationResponse>('/api/recommendations', json('POST', {
     queries,
-    top_k: 25,
+    top_k: 10,
     user_key: userKey,
     user_input: userInput,
     audience: audience || null,
+    requirements,
+    styling_guide: stylingGuide,
     shortlist_count: 15,
     final_count: 5,
     use_aesthetic_review: true,
@@ -111,9 +130,7 @@ export function proposeSoftFromOutfit(
     user_key: userKey,
     user_request: userRequest,
     outfit_item_ids: outfitItemIds,
-    occasion: requirements?.occasion ?? '',
-    time: requirements?.time ?? '',
-    context: requirements?.context ?? '',
+    requirements,
   }))
 }
 
@@ -194,4 +211,47 @@ export function createTryOnJob(
 
 export function getTryOnJob(jobId: string) {
   return request<TryOnJob>(`/api/try-on/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getFashionArticles(search = '') {
+  const params = new URLSearchParams({ limit: '100' })
+  if (search.trim()) params.set('search', search.trim())
+  return request<{ items: FashionArticleAdmin[]; total: number }>(
+    `/api/fashion-knowledge/articles?${params}`,
+  )
+}
+
+export function collectFashionArticles(urls: string[]) {
+  return request<FashionArticleCollectResponse>(
+    '/api/fashion-knowledge/articles/collect',
+    json('POST', { urls, download_images: false, max_images: 4 }),
+  )
+}
+
+export function getFashionKnowledgeSources() {
+  return request<FashionKnowledgeSource[]>('/api/fashion-knowledge/sources')
+}
+
+export function autoUpdateFashionArticles(
+  sourceKeys: string[], perSourceLimit: number, pageLimit: number,
+) {
+  return request<FashionArticleAutoUpdateResponse>(
+    '/api/fashion-knowledge/articles/auto-update',
+    json('POST', {
+      source_keys: sourceKeys,
+      per_source_limit: perSourceLimit,
+      page_limit: Math.max(0, pageLimit),
+      max_articles: Math.min(12, Math.max(1, sourceKeys.length * perSourceLimit)),
+    }),
+  )
+}
+
+export function setFashionObservationActive(id: number, isActive: boolean) {
+  return request(`/api/fashion-knowledge/observations/${id}`, json('PATCH', {
+    is_active: isActive,
+  }))
+}
+
+export function deleteFashionArticle(id: number) {
+  return request<void>(`/api/fashion-knowledge/articles/${id}`, json('DELETE'))
 }

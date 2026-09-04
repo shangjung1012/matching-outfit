@@ -10,7 +10,10 @@ from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
-from app.preferences.context import relevant_style_preferences
+from app.preferences.context import (
+    build_planner_preference_context,
+    outfit_context_embedding_text,
+)
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
@@ -247,9 +250,13 @@ def upsert_style_preference(
             preference_text=row.preference_text,
             source=row.source,
             origin_item_ids=row.origin_item_ids,
-            context_occasions=row.context_occasions,
-            context_times=row.context_times,
-            context_situations=row.context_situations,
+            occasions=row.occasions,
+            seasons=row.seasons,
+            times_of_day=row.times_of_day,
+            climates=row.climates,
+            formalities=row.formalities,
+            activities=row.activities,
+            styles=row.styles,
             is_active=True,
             confirmed_at=now if confirmed else None,
         )
@@ -257,9 +264,11 @@ def upsert_style_preference(
         return created, True
 
     existing.is_active = True
-    existing.context_occasions = sorted({*existing.context_occasions, *row.context_occasions})
-    existing.context_times = sorted({*existing.context_times, *row.context_times})
-    existing.context_situations = sorted({*existing.context_situations, *row.context_situations})
+    for field in (
+        "occasions", "seasons", "times_of_day", "climates",
+        "formalities", "activities", "styles",
+    ):
+        setattr(existing, field, sorted({*getattr(existing, field), *getattr(row, field)}))
     existing.origin_item_ids = sorted({*existing.origin_item_ids, *row.origin_item_ids})
     if confirmed:
         existing.confirmed_at = now
@@ -291,9 +300,13 @@ def outfit_memory_proposals(
                 preference_text=sentence,
                 source="implicit",
                 origin_item_ids=[str(cloth.id) for cloth in clothes],
-                context_occasions=[payload.occasion] if payload.occasion else [],
-                context_times=[payload.time] if payload.time else [],
-                context_situations=[payload.context] if payload.context else [],
+                occasions=payload.requirements.occasions if payload.requirements else [],
+                seasons=payload.requirements.seasons if payload.requirements else [],
+                times_of_day=payload.requirements.times_of_day if payload.requirements else [],
+                climates=payload.requirements.climates if payload.requirements else [],
+                formalities=payload.requirements.formalities if payload.requirements else [],
+                activities=payload.requirements.activities if payload.requirements else [],
+                styles=payload.requirements.styles if payload.requirements else [],
             )
         )
     return proposals
@@ -302,21 +315,16 @@ def outfit_memory_proposals(
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
     preference = hard_rules_for(db, payload.user_key)
-    style_preferences = relevant_style_preferences(
-        style_preferences_for(db, payload.user_key), payload.user_input
-    )
+    style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
     try:
-        observations = semantic_fashion_knowledge(
-            db, payload.user_input, audience=audience, top_k=8
-        )
         planner = QueryPlanner(LLM())
         return planner.plan(
             payload.user_input,
-            observations,
             audience=audience,
             hard=preference,
             style_preferences=style_preferences,
+            requirements=payload.requirements,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
@@ -335,8 +343,7 @@ def clarify_requirements(
         return RequirementCollector(LLM()).collect(
             payload.messages,
             audience=audience,
-            hard=preference,
-            style_preferences=style_preferences_for(db, payload.user_key),
+            previous_requirements=payload.previous_requirements,
         )
     except RuntimeError as error:
         raise HTTPException(
@@ -350,22 +357,16 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
     preference = hard_rules_for(db, payload.user_key)
-    style_preferences = relevant_style_preferences(
-        style_preferences_for(db, payload.user_key), combined
-    )
+    style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(combined, payload.audience, preference)
     try:
-        # 先嘗試把 user input + original 去找 fashion knowledge
-        observations = semantic_fashion_knowledge(
-            db, combined, audience=audience, top_k=8
-        )
         planner = QueryPlanner(LLM())
         return planner.plan(
             original or payload.user_input,
-            observations,
             audience=audience,
             hard=preference,
             style_preferences=style_preferences,
+            requirements=payload.requirements,
             existing_queries=selected,
             refinement=payload.user_input,
         )
@@ -394,42 +395,6 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchRespo
 def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> RecommendationResponse:
     hard = hard_rules_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, hard)
-    observations = []
-    knowledge_note = ""
-    if payload.user_input:
-        try:
-            observations = semantic_fashion_knowledge(
-                db, payload.user_input, audience=audience, top_k=8
-            )
-            knowledge_note = (
-                f"Retrieved {len(observations)} semantic fashion observations"
-            )
-        except RuntimeError as error:
-            knowledge_note = f"Fashion knowledge retrieval unavailable: {error}"
-    knowledge_sources = list(
-        dict.fromkeys(observation.source_title for observation in observations)
-    )
-    knowledge_fields = {
-        "knowledge_observation_count": len(observations),
-        "knowledge_sources": knowledge_sources,
-        "knowledge_note": knowledge_note,
-    }
-    observation_context = " ".join(
-        [
-            observation.summary
-            for observation in observations
-            if observation.signal_type != "editorial_example"
-        ]
-    )
-    style_preferences = relevant_style_preferences(
-        style_preferences_for(db, payload.user_key), payload.user_input
-    )
-    outfit_memories = [row.preference_text for row in style_preferences]
-    memory_context = " ".join(outfit_memories)
-    ranking_context = (
-        f"{payload.user_input} {observation_context} "
-        f"Relevant confirmed outfit preferences: {memory_context}"
-    ).strip()
     try:
         groups = search_catalog(
             db, payload.queries, payload.top_k, audience=audience, hard=hard
@@ -446,7 +411,6 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         return RecommendationResponse(
             recommendations=[],
             review_note="No valid outfit combinations",
-            **knowledge_fields,
         )
 
     should_review = (
@@ -460,29 +424,92 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             if payload.use_aesthetic_review and not settings.openai_api_key
             else "Aesthetic review disabled"
         )
-        return RecommendationResponse(
-            recommendations=select_diverse(shortlist, payload.final_count),
-            aesthetic_reviewed=False,
-            review_note=note,
-            **knowledge_fields,
-        )
-
-    try:
-        reviewer = AestheticReviewer(LLM())
-        reviews = reviewer.review(ranking_context, shortlist)
-        final = apply_aesthetic_reviews(shortlist, reviews, final_count=payload.final_count)
+        final = select_diverse(shortlist, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
         return RecommendationResponse(
             recommendations=final,
-            aesthetic_reviewed=True,
-            review_note=f"Vision critic reviewed {len(reviews)} shortlisted outfits",
-            **knowledge_fields,
+            discarded_recommendations=[
+                recommendation
+                for recommendation in shortlist
+                if recommendation.id not in final_ids
+            ],
+            aesthetic_reviewed=False,
+            review_note=note,
+        )
+
+    knowledge_query = outfit_context_embedding_text(
+        payload.requirements, payload.user_input
+    )[:4000]
+    observations = []
+    knowledge_note = ""
+    try:
+        observations = semantic_fashion_knowledge(
+            db, knowledge_query, audience=audience, top_k=12
         )
     except RuntimeError as error:
+        knowledge_note = f"Fashion knowledge retrieval unavailable: {error}"
+
+    style_preferences = style_preferences_for(db, payload.user_key)
+    preference_context = build_planner_preference_context(hard, style_preferences)
+    try:
+        reviewer = AestheticReviewer(LLM())
+        reviews = reviewer.review(
+            payload.user_input,
+            shortlist,
+            observations=observations,
+            user_preferences=preference_context,
+            styling_guide=payload.styling_guide,
+        )
+        reviewed_pool = apply_aesthetic_reviews(
+            shortlist,
+            reviews,
+            final_count=len(shortlist),
+            observations=observations,
+        )
+        final = select_diverse(reviewed_pool, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
+        discarded = [
+            recommendation
+            for recommendation in reviewed_pool
+            if recommendation.id not in final_ids
+        ]
+        used_observation_ids = list(
+            dict.fromkeys(
+                identifier
+                for recommendation in final
+                if recommendation.aesthetic_review is not None
+                for identifier in recommendation.aesthetic_review.knowledge_observation_ids
+            )
+        )
+        knowledge_sources = list(
+            dict.fromkeys(
+                reference.title
+                for recommendation in final
+                for reference in recommendation.references
+            )
+        )
         return RecommendationResponse(
-            recommendations=select_diverse(shortlist, payload.final_count),
+            recommendations=final,
+            discarded_recommendations=discarded,
+            aesthetic_reviewed=True,
+            review_note=f"Outfit agent reviewed {len(reviews)} shortlisted outfits",
+            knowledge_observation_count=len(used_observation_ids),
+            knowledge_sources=knowledge_sources,
+            knowledge_note=knowledge_note,
+        )
+    except RuntimeError as error:
+        final = select_diverse(shortlist, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
+        return RecommendationResponse(
+            recommendations=final,
+            discarded_recommendations=[
+                recommendation
+                for recommendation in shortlist
+                if recommendation.id not in final_ids
+            ],
             aesthetic_reviewed=False,
             review_note=f"Aesthetic review unavailable; match ranking used instead: {error}",
-            **knowledge_fields,
+            knowledge_note=knowledge_note,
         )
 
 

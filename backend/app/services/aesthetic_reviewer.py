@@ -6,7 +6,8 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
-from app.schemas import AestheticReview, OutfitRecommendation
+from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink, StylingGuide
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.outfit_ranker import select_diverse
 from app.services.integration_tools.llm import LLM
 
@@ -68,7 +69,12 @@ class AestheticReviewer:
         self,
         user_input: str,
         recommendations: list[OutfitRecommendation],
+        *,
+        observations: list[OutfitObservation] | None = None,
+        user_preferences: dict | None = None,
+        styling_guide: StylingGuide | None = None,
     ) -> dict[str, AestheticReview]:
+        observations = observations or []
         metadata = []
         content: list[dict] = []
         for recommendation in recommendations:
@@ -107,7 +113,37 @@ class AestheticReviewer:
             {
                 "type": "input_text",
                 "text": json.dumps(
-                    {"user_request": user_input, "candidates": metadata},
+                    {
+                        "user_request": user_input,
+                        "styling_guide": (
+                            styling_guide.model_dump(mode="json") if styling_guide else None
+                        ),
+                        "user_preferences": user_preferences or {},
+                        "fashion_observations": [
+                            {
+                                "observation_id": observation.observation_id,
+                                "summary": observation.summary,
+                                "evidence": observation.evidence,
+                                "occasions": observation.occasions,
+                                "climates": observation.climates,
+                                "seasons": observation.seasons,
+                                "times_of_day": observation.times_of_day,
+                                "formalities": observation.formalities,
+                                "activities": observation.activities,
+                                "styles": observation.styles,
+                                "garments": observation.garments,
+                                "colors": observation.colors,
+                                "materials": observation.materials,
+                                "silhouettes": observation.silhouettes,
+                                "styling_actions": observation.styling_actions,
+                                "avoid_when": observation.avoid_when,
+                                "signal_type": observation.signal_type,
+                                "confidence": observation.confidence,
+                            }
+                            for observation in observations
+                        ],
+                        "candidates": metadata,
+                    },
                     ensure_ascii=False,
                 ),
             },
@@ -120,9 +156,21 @@ class AestheticReviewer:
         )
         if not result.reviews:
             raise RuntimeError("The aesthetic reviewer returned no candidate reviews")
+        valid_observation_ids = {
+            observation.observation_id for observation in observations
+        }
         return {
             review.candidate_id: AestheticReview.model_validate(
-                review.model_dump(exclude={"candidate_id"})
+                {
+                    **review.model_dump(exclude={"candidate_id"}),
+                    "knowledge_observation_ids": list(
+                        dict.fromkeys(
+                            identifier
+                            for identifier in review.knowledge_observation_ids
+                            if identifier in valid_observation_ids
+                        )
+                    ),
+                }
             )
             for review in result.reviews
         }
@@ -133,7 +181,11 @@ def apply_aesthetic_reviews(
     reviews: dict[str, AestheticReview],
     *,
     final_count: int,
+    observations: list[OutfitObservation] | None = None,
 ) -> list[OutfitRecommendation]:
+    observations_by_id = {
+        observation.observation_id: observation for observation in observations or []
+    }
     rescored: list[OutfitRecommendation] = []
     for recommendation in recommendations:
         review = reviews.get(recommendation.id)
@@ -153,6 +205,25 @@ def apply_aesthetic_reviews(
         breakdown = recommendation.score_breakdown
         if breakdown is not None:
             breakdown = breakdown.model_copy(update={"aesthetic": round(aesthetic_score, 4)})
+        references = []
+        seen_urls: set[str] = set()
+        for identifier in review.knowledge_observation_ids:
+            observation = observations_by_id.get(identifier)
+            if observation is None or not observation.source_url:
+                continue
+            if observation.source_url in seen_urls:
+                continue
+            seen_urls.add(observation.source_url)
+            references.append(
+                ReferenceLink(
+                    title=(
+                        observation.source_title
+                        or observation.source_name
+                        or observation.source_url
+                    ),
+                    url=observation.source_url,
+                )
+            )
         rescored.append(
             recommendation.model_copy(
                 update={
@@ -160,6 +231,7 @@ def apply_aesthetic_reviews(
                     "score_breakdown": breakdown,
                     "aesthetic_review": review,
                     "reasons": [*recommendation.reasons, review.reason],
+                    "references": references,
                 }
             )
         )

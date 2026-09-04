@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { MessageSquareText, ScanFace, Shirt, SlidersHorizontal } from 'lucide-vue-next'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { MessageSquareText, ScanFace, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
 import PreferencesView from './views/PreferencesView.vue'
 import VirtualTryOnView from './views/VirtualTryOnView.vue'
+import KnowledgeManagementView from './views/KnowledgeManagementView.vue'
 import type { AppView } from './types'
 
 const activeView = ref<AppView>('agent')
+const knowledgeOpen = ref(false)
 const userKey = 'demo-user'
 const preferenceRevision = ref(0)
 
@@ -17,6 +19,13 @@ const navigation = [
   { id: 'tryon' as const, label: '虛擬試穿', icon: ScanFace },
   { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
 ]
+
+function closeKnowledgeOnEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape') knowledgeOpen.value = false
+}
+
+onMounted(() => window.addEventListener('keydown', closeKnowledgeOnEscape))
+onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEscape))
 </script>
 
 <template>
@@ -48,6 +57,7 @@ const navigation = [
         v-show="activeView === 'agent'"
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
+        @open-knowledge="knowledgeOpen = true"
       />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
       <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
@@ -57,5 +67,16 @@ const navigation = [
         :user-key="userKey"
       />
     </div>
+
+    <Teleport to="body">
+      <div v-if="knowledgeOpen" class="knowledge-modal-backdrop" @click.self="knowledgeOpen = false">
+        <section class="knowledge-modal-panel" role="dialog" aria-modal="true" aria-label="文章與搭配知識">
+          <button class="knowledge-modal-close" title="關閉知識來源" @click="knowledgeOpen = false">
+            <X :size="20" />
+          </button>
+          <KnowledgeManagementView />
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>

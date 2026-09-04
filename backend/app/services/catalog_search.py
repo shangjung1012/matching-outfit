@@ -102,13 +102,7 @@ def search_catalog(
             )
 
         clothes = _rows_to_results(db, statement_for(drop_filters), query.references)
-        relaxed = False
-        if not clothes and drop_filters:
-            # The user's "avoid" gates emptied this zone - relax them here only,
-            # price/gender/zone stay enforced. The caller can surface `relaxed`.
-            clothes = _rows_to_results(db, statement_for([]), query.references)
-            relaxed = True
-        output.append(QuerySearchResult(query=query, clothes=clothes, relaxed=relaxed))
+        output.append(QuerySearchResult(query=query, clothes=clothes, relaxed=False))
     return output
 
 
@@ -143,7 +137,4 @@ def search_catalog_items(
             .limit(top_k)
         )
 
-    clothes = _rows_to_results(db, statement_for(drop_filters))
-    if not clothes and drop_filters:
-        clothes = _rows_to_results(db, statement_for([]))
-    return clothes
+    return _rows_to_results(db, statement_for(drop_filters))

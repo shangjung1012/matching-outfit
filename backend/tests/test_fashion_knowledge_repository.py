@@ -16,6 +16,9 @@ def make_observation(**overrides) -> OutfitObservation:
         "occasions": ["正式晚宴"],
         "climates": [],
         "seasons": [],
+        "times_of_day": ["evening"],
+        "formalities": ["formal"],
+        "activities": ["dining"],
         "styles": ["優雅"],
         "garments": ["長裙"],
         "colors": ["黑色"],
@@ -50,6 +53,8 @@ def test_embedding_text_contains_retrieval_fields() -> None:
     assert "audiences: women" in text
     assert "正式晚宴" in text
     assert "海灘活動" in text
+    assert "times of day: evening" in text
+    assert "formalities: formal" in text
 
 
 def test_audience_can_be_explicit_or_inferred() -> None:

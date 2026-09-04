@@ -115,6 +115,10 @@ class ArticleCollector:
             raise PermissionError(f"robots.txt does not allow collection of {url}")
 
     def collect(self, url: str, *, check_robots: bool = True) -> CollectedArticle:
+        html, final_url = self.fetch_html(url, check_robots=check_robots)
+        return self.parse_html(html, final_url)
+
+    def fetch_html(self, url: str, *, check_robots: bool = True) -> tuple[str, str]:
         self._validate_url(url)
         if check_robots:
             self._check_robots(url)
@@ -124,7 +128,7 @@ class ArticleCollector:
         content_type = response.headers.get("content-type", "")
         if "html" not in content_type:
             raise ValueError(f"Expected an HTML article, received {content_type or 'unknown content'}")
-        return self.parse_html(response.text, str(response.url))
+        return response.text, str(response.url)
 
     def parse_html(self, html: str, source_url: str) -> CollectedArticle:
         soup = BeautifulSoup(html, "html.parser")

@@ -32,9 +32,30 @@ export interface QueryDraft {
   text: string
   garment_zone: GarmentZone
   rationale: string
+  direction_id?: string | null
   selected: boolean
   knowledge_observation_ids: string[]
   references: ReferenceLink[]
+}
+
+export interface PairingDirection {
+  id: string
+  concept: string
+  upper_body_focus: string
+  lower_body_focus: string
+  color_relationship: string
+}
+
+export interface StylingGuide {
+  concept: string
+  visual_attributes: string[]
+  avoid_misinterpretations: string[]
+  color_direction: string[]
+  silhouette_direction: string[]
+  material_direction: string[]
+  pattern_direction: string[]
+  pairing_directions: PairingDirection[]
+  reviewer_checklist: string[]
 }
 
 export interface ClothResult {
@@ -108,6 +129,7 @@ export interface OutfitRecommendation {
     overall_aesthetic: number
     fatal_issues: string[]
     reason: string
+    knowledge_observation_ids: string[]
   } | null
 }
 
@@ -117,26 +139,33 @@ export interface QueryPlanResponse {
   audience: Audience | null
   knowledge_observation_ids: string[]
   planning_note: string
+  styling_guide: StylingGuide | null
 }
 
 export interface RequirementSummary {
-  occasion: string
-  time: string
-  context: string
-  special_requirements: string
+  occasions: string[]
+  seasons: string[]
+  times_of_day: string[]
+  climates: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
+  special_requirements: string[]
   additional_notes: string
   search_brief: string
+  tag_translations: Record<string, string>
 }
 
 export interface ClarificationResponse {
   reply: string
   requirements: RequirementSummary
-  missing_fields: Array<keyof Omit<RequirementSummary, 'search_brief'>>
+  missing_fields: Array<Exclude<keyof RequirementSummary, 'search_brief' | 'tag_translations'>>
   ready_to_plan: boolean
 }
 
 export interface RecommendationResponse {
   recommendations: OutfitRecommendation[]
+  discarded_recommendations: OutfitRecommendation[]
   aesthetic_reviewed: boolean
   review_note: string
   knowledge_observation_count: number
@@ -166,9 +195,13 @@ export interface StylePreferenceCreate {
   preference_text: string
   source: PreferenceSource
   origin_item_ids: string[]
-  context_occasions: string[]
-  context_times: string[]
-  context_situations: string[]
+  occasions: string[]
+  seasons: string[]
+  times_of_day: string[]
+  climates: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
 }
 
 export interface StylePreference extends StylePreferenceCreate {
@@ -187,4 +220,75 @@ export interface PreferenceBundle {
 export interface StylePreferenceProposal {
   proposals: StylePreferenceCreate[]
   explanation: string
+}
+
+export interface FashionObservationAdmin {
+  id: number
+  observation_id: string
+  summary: string
+  evidence: string
+  audiences: string[]
+  occasions: string[]
+  climates: string[]
+  seasons: string[]
+  times_of_day: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
+  garments: string[]
+  colors: string[]
+  materials: string[]
+  silhouettes: string[]
+  styling_actions: string[]
+  avoid_when: string[]
+  signal_type: 'timeless' | 'current_trend' | 'editorial_example'
+  confidence: number
+  is_active: boolean
+  has_embedding: boolean
+}
+
+export interface FashionArticleAdmin {
+  id: number
+  source_url: string
+  source_name: string
+  title: string
+  author: string | null
+  published_at: string | null
+  collected_at: string
+  language: string | null
+  article_summary: string
+  extraction_notes: string[]
+  extraction_model: string
+  observation_count: number
+  active_observation_count: number
+  observations: FashionObservationAdmin[]
+}
+
+export interface FashionArticleCollectResult {
+  url: string
+  status: 'created' | 'updated' | 'failed'
+  article_id: number | null
+  title: string | null
+  observation_count: number
+  message: string
+}
+
+export interface FashionArticleCollectResponse {
+  results: FashionArticleCollectResult[]
+  succeeded: number
+  failed: number
+}
+
+export interface FashionKnowledgeSource {
+  key: string
+  name: string
+  index_url: string
+  audience: 'men' | 'women'
+}
+
+export interface FashionArticleAutoUpdateResponse extends FashionArticleCollectResponse {
+  discovered: number
+  skipped_existing: number
+  candidates: string[]
+  discovery_errors: Record<string, string>
 }

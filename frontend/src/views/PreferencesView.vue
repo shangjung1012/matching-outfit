@@ -31,7 +31,7 @@ function emptyHard(): HardRules {
 
 const hard = reactive<HardRules>(emptyHard())
 const soft = ref<StylePreference[]>([])
-const newPreference = reactive({ text: '', occasion: '', time: '', situation: '' })
+const newPreference = reactive({ text: '' })
 const editingId = ref<number | null>(null)
 const editingText = ref('')
 const loading = ref(false)
@@ -91,12 +91,16 @@ async function addSoft() {
       preference_text: preferenceText,
       source: 'explicit',
       origin_item_ids: [],
-      context_occasions: newPreference.occasion.trim() ? [newPreference.occasion.trim()] : [],
-      context_times: newPreference.time.trim() ? [newPreference.time.trim()] : [],
-      context_situations: newPreference.situation.trim() ? [newPreference.situation.trim()] : [],
+      occasions: [],
+      seasons: [],
+      times_of_day: [],
+      climates: [],
+      formalities: [],
+      activities: [],
+      styles: [],
     })
     soft.value = [...soft.value.filter((item) => item.id !== row.id), row]
-    Object.assign(newPreference, { text: '', occasion: '', time: '', situation: '' })
+    newPreference.text = ''
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '新增失敗'
   }
@@ -131,9 +135,13 @@ async function removeSoft(row: StylePreference) {
 
 function preferenceContexts(row: StylePreference): string[] {
   return [
-    ...row.context_occasions,
-    ...row.context_times,
-    ...row.context_situations,
+    ...row.occasions,
+    ...row.seasons,
+    ...row.times_of_day,
+    ...row.climates,
+    ...row.formalities,
+    ...row.activities,
+    ...row.styles,
   ]
 }
 
@@ -263,11 +271,6 @@ onMounted(load)
 
         <div class="memory-create">
           <label>新增偏好<textarea v-model="newPreference.text" rows="3" /></label>
-          <div class="memory-context-inputs">
-            <label>場合<input v-model="newPreference.occasion" /></label>
-            <label>時間<input v-model="newPreference.time" /></label>
-            <label>情境<input v-model="newPreference.situation" /></label>
-          </div>
           <button class="secondary-button" :disabled="!newPreference.text.trim()" @click="addSoft">
             <Plus :size="16" />新增偏好
           </button>

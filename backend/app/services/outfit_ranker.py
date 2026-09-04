@@ -81,14 +81,6 @@ def _recommendation(
         0.0,
         min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit),
     )
-    references = list(
-        {
-            reference.url: reference
-            for item in items
-            for reference in item.references
-            if reference.url
-        }.values()
-    )
     return OutfitRecommendation(
         id=str(uuid4()),
         kind=kind,
@@ -103,7 +95,7 @@ def _recommendation(
             "FashionCLIP candidate relevance", coverage_reason,
             *context_reasons,
         ],
-        references=references,
+        references=[],
     )
 
 
@@ -113,6 +105,7 @@ def rank_outfits(
     user_context: str = "",
 ) -> list[OutfitRecommendation]:
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
+    pooled_by_direction: dict[str, dict[str, dict[int, ClothResult]]] = {}
     for group in groups:
         zone_pool = pooled_by_zone.setdefault(group.query.garment_zone, {})
         for item in group.clothes:
@@ -120,31 +113,59 @@ def rank_outfits(
             if current is None:
                 zone_pool[item.id] = item
                 continue
-            references = list(
-                {
-                    reference.url: reference
-                    for reference in [*current.references, *item.references]
-                }.values()
-            )
             preferred = item if item.similarity > current.similarity else current
-            zone_pool[item.id] = preferred.model_copy(update={"references": references})
+            zone_pool[item.id] = preferred
+        direction_id = group.query.direction_id
+        if direction_id and group.query.garment_zone in {"upper_body", "lower_body"}:
+            direction_pool = pooled_by_direction.setdefault(direction_id, {}).setdefault(
+                group.query.garment_zone, {}
+            )
+            for item in group.clothes:
+                current = direction_pool.get(item.id)
+                if current is None or item.similarity > current.similarity:
+                    direction_pool[item.id] = item
     by_zone = {
-        zone: sorted(pool.values(), key=lambda item: item.similarity, reverse=True)
+        zone: sorted(pool.values(), key=lambda item: item.similarity, reverse=True)[:40]
         for zone, pool in pooled_by_zone.items()
     }
     recommendations: list[OutfitRecommendation] = []
     accessories = by_zone.get("accessory", [])[:3]
     accessory_options: list[ClothResult | None] = accessories if accessories else [None]
-    for upper, lower, accessory in product(
-        by_zone.get("upper_body", []), by_zone.get("lower_body", []), accessory_options
-    ):
-        items = [upper, lower, *([accessory] if accessory else [])]
-        recommendations.append(
-            _recommendation(
-                "separates", items,
-                "Upper and lower body candidate coverage", user_context,
+    matched_directions = {
+        direction_id: pools
+        for direction_id, pools in pooled_by_direction.items()
+        if pools.get("upper_body") and pools.get("lower_body")
+    }
+    if matched_directions:
+        for direction_id, pools in matched_directions.items():
+            uppers = sorted(
+                pools["upper_body"].values(), key=lambda item: item.similarity, reverse=True
+            )[:20]
+            lowers = sorted(
+                pools["lower_body"].values(), key=lambda item: item.similarity, reverse=True
+            )[:20]
+            for upper, lower, accessory in product(uppers, lowers, accessory_options):
+                items = [upper, lower, *([accessory] if accessory else [])]
+                recommendations.append(
+                    _recommendation(
+                        "separates",
+                        items,
+                        f"Matched styling direction: {direction_id}",
+                        user_context,
+                    )
+                )
+    else:
+        # Backward-compatible fallback for manually edited or older query plans.
+        for upper, lower, accessory in product(
+            by_zone.get("upper_body", []), by_zone.get("lower_body", []), accessory_options
+        ):
+            items = [upper, lower, *([accessory] if accessory else [])]
+            recommendations.append(
+                _recommendation(
+                    "separates", items,
+                    "Upper and lower body candidate coverage", user_context,
+                )
             )
-        )
     for item, accessory in product(by_zone.get("one_piece", []), accessory_options):
         items = [item, *([accessory] if accessory else [])]
         recommendations.append(
