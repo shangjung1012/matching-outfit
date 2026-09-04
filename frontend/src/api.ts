@@ -62,6 +62,7 @@ export function createQueryPlan(
     user_key: userKey,
     audience: audience || null,
     requirements,
+    include_debug: true,
   }))
 }
 
@@ -96,6 +97,7 @@ export function refineQueryPlan(
     audience: audience || null,
     requirements,
     fashion_intent: fashionIntent,
+    include_debug: true,
   }))
 }
 
@@ -118,6 +120,7 @@ export function getRecommendations(
     shortlist_count: 15,
     final_count: 5,
     use_aesthetic_review: true,
+    include_debug: true,
   }))
 }
 

@@ -79,6 +79,37 @@ def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> N
         for recommendation in recommendations
     }
     assert combinations == {(101, 102), (103, 104)}
+    assert {item.direction_id for item in recommendations} == {"A", "B"}
+
+
+def test_ranker_preserves_candidates_from_each_styling_direction() -> None:
+    recommendations = rank_outfits(
+        [
+            group(
+                "upper_body",
+                [cloth(201, "upper_body", "White", 0.90), cloth(202, "upper_body", "White", 0.89)],
+                direction_id="A",
+            ),
+            group(
+                "lower_body",
+                [cloth(203, "lower_body", "Black", 0.90), cloth(204, "lower_body", "Black", 0.89)],
+                direction_id="A",
+            ),
+            group(
+                "upper_body",
+                [cloth(205, "upper_body", "Beige", 0.86)],
+                direction_id="B",
+            ),
+            group(
+                "lower_body",
+                [cloth(206, "lower_body", "Brown", 0.86)],
+                direction_id="B",
+            ),
+        ],
+        limit=2,
+    )
+
+    assert {item.direction_id for item in recommendations} == {"A", "B"}
 
 
 def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:

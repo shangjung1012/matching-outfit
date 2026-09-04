@@ -98,6 +98,42 @@ def test_requirement_update_preserves_fields_not_mentioned_this_turn() -> None:
     assert result.requirements.tag_translations["wedding"] == "婚禮"
 
 
+class FakeDiningRequirementLLM:
+    def parse(self, **_):
+        return RequirementAssessment(
+            reply="已知道是餐敘。請問正式程度？",
+            occasions=["dining"],
+            search_brief="前往餐廳用餐",
+            missing_fields=["formalities", "seasons"],
+            updated_fields=["occasions"],
+            tag_translations=[TagTranslation(tag="dining", label_zh="餐敘")],
+            ready_to_plan=True,
+        )
+
+
+def test_upscale_restaurant_implies_formal_but_ordinary_dining_does_not() -> None:
+    collector = RequirementCollector(FakeDiningRequirementLLM())
+
+    upscale = collector.collect([ChatTurn(role="user", text="我要去高級餐廳")])
+    ordinary = collector.collect([ChatTurn(role="user", text="我要去餐廳吃飯")])
+
+    assert upscale.requirements.formalities == ["formal"]
+    assert upscale.requirements.tag_translations["formal"] == "正式"
+    assert "formalities" not in upscale.missing_fields
+    assert "請問正式程度" not in upscale.reply
+    assert ordinary.requirements.formalities == []
+    assert "formalities" in ordinary.missing_fields
+
+
+def test_upscale_restaurant_respects_request_not_to_look_too_formal() -> None:
+    result = RequirementCollector(FakeDiningRequirementLLM()).collect(
+        [ChatTurn(role="user", text="去高級餐廳，但不想穿得太正式")]
+    )
+
+    assert result.requirements.formalities == ["smart casual"]
+    assert result.requirements.tag_translations["smart casual"] == "正式休閒"
+
+
 def test_planner_context_includes_profile_hard_rules_and_all_active_memories() -> None:
     profile = UserHardRule(
         user_key="demo",
@@ -243,6 +279,7 @@ def test_planner_receives_intent_without_changing_query_contract() -> None:
         requirements=RequirementSummary(seasons=["summer"], styles=["y2k"]),
         audience="women",
         fashion_intent=intent,
+        include_debug=True,
     )
 
     assert llm.payloads[0]["fashion_intent"]["user_goal"] == intent.user_goal
@@ -256,6 +293,53 @@ def test_planner_receives_intent_without_changing_query_contract() -> None:
         "lower_body": 5,
         "one_piece": 2,
     }
+    assert result.debug is not None
+    assert result.debug.fashion_intent == intent
+    assert len(result.debug.generated_queries_before_normalization) == 12
+    assert len(result.debug.generated_queries_after_normalization) == 12
+    assert result.debug.prompt_version == "intent-v1"
+    assert len(result.debug.normalizer_changes) == 12
+    assert all(
+        change.after == change.before.replace("black ", "")
+        for change in result.debug.normalizer_changes
+    )
+
+
+def test_debug_change_count_is_independent_of_model_query_order() -> None:
+    class InterleavedLLM(FakeLLM):
+        def parse(self, *, schema, content, **kwargs):
+            result = super().parse(schema=schema, content=content, **kwargs)
+            if schema is EnglishQueryRepair:
+                return result
+            grouped = {
+                zone: [query for query in result.queries if query.garment_zone == zone]
+                for zone in ("upper_body", "lower_body", "one_piece")
+            }
+            result.queries = [
+                query
+                for index in range(5)
+                for query in (grouped["upper_body"][index], grouped["lower_body"][index])
+            ] + grouped["one_piece"]
+            return result
+
+    result = QueryPlanner(InterleavedLLM()).plan(
+        "女生參加正式晚宴",
+        audience="women",
+        include_debug=True,
+    )
+
+    assert result.debug is not None
+    assert len(result.debug.normalizer_changes) == 12
+    assert all(
+        change.after == change.before.replace("black ", "")
+        for change in result.debug.normalizer_changes
+    )
+
+
+def test_planner_omits_debug_trace_unless_requested() -> None:
+    result = QueryPlanner(FakeLLM()).plan("女生參加正式晚宴", audience="women")
+
+    assert result.debug is None
 
 
 def test_intent_timeout_falls_back_to_complete_legacy_query_plan() -> None:
@@ -303,11 +387,21 @@ def test_query_warning_flags_non_product_context_and_missing_garment() -> None:
                 rationale="test",
                 direction_id="B",
             ),
+            QueryDraft(
+                id="valid-vest",
+                text="muted tone cropped button front knit vest textured finish",
+                garment_zone="upper_body",
+                rationale="test",
+                direction_id="C",
+            ),
         ]
     )
 
     assert any("non-product context" in warning for warning in warnings)
     assert any("lack a recognizable garment" in warning for warning in warnings)
+    assert all("bad-context" not in warning for warning in warnings)
+    assert any(warning.startswith("A/upper_body:") for warning in warnings)
+    assert all(not warning.startswith("C/upper_body:") for warning in warnings)
 
 
 def test_chinese_queries_are_repaired_to_twelve_english_queries() -> None:

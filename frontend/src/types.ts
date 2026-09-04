@@ -1,5 +1,5 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
-export type AppView = 'agent' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
+export type AppView = 'agent' | 'debug' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
@@ -162,6 +162,7 @@ export interface FavoriteItemsMutationResponse {
 export interface OutfitRecommendation {
   id: string
   kind: 'separates' | 'one_piece'
+  direction_id: string | null
   items: ClothResult[]
   score: number
   reasons: string[]
@@ -192,6 +193,34 @@ export interface QueryPlanResponse {
   planning_note: string
   styling_guide: StylingGuide | null
   fashion_intent: FashionIntent | null
+  debug: QueryPlanDebug | null
+}
+
+export interface GeneratedQueryTrace {
+  garment_zone: 'upper_body' | 'lower_body' | 'one_piece'
+  direction_id: string
+  text: string
+  rationale: string
+}
+
+export interface QueryNormalizationChange {
+  direction_id: string | null
+  garment_zone: GarmentZone
+  before: string
+  after: string
+}
+
+export interface QueryPlanDebug {
+  raw_user_text: string
+  requirement_summary: RequirementSummary | null
+  fashion_intent: FashionIntent | null
+  generated_queries_before_normalization: GeneratedQueryTrace[]
+  generated_queries_after_normalization: QueryDraft[]
+  normalizer_changes: QueryNormalizationChange[]
+  query_warnings: string[]
+  intent_fallback_used: boolean
+  model: string
+  prompt_version: string
 }
 
 export interface RequirementSummary {
@@ -222,6 +251,65 @@ export interface RecommendationResponse {
   review_note: string
   knowledge_observation_count: number
   knowledge_sources: string[]
+  knowledge_note: string
+  debug: RecommendationDebug | null
+}
+
+export interface FashionObservationTrace {
+  observation_id: string
+  source_url: string
+  source_name: string
+  source_title: string
+  published_at: string | null
+  summary: string
+  evidence: string
+  audiences: string[]
+  occasions: string[]
+  climates: string[]
+  seasons: string[]
+  times_of_day: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
+  garments: string[]
+  colors: string[]
+  materials: string[]
+  silhouettes: string[]
+  styling_actions: string[]
+  avoid_when: string[]
+  signal_type: 'timeless' | 'current_trend' | 'editorial_example'
+  confidence: number
+}
+
+export interface QuerySearchResult {
+  query: QueryDraft
+  clothes: ClothResult[]
+  relaxed: boolean
+}
+
+export interface RecommendationDebug {
+  search_results: QuerySearchResult[]
+  ranked_candidate_count: number
+  ranked_preview: OutfitRecommendation[]
+  shortlist_before_review: OutfitRecommendation[]
+  knowledge_observations: FashionObservationTrace[]
+  aesthetic_review_attempted: boolean
+  aesthetic_review_error: string
+}
+
+export interface PipelineDebugSession {
+  updated_at: string
+  messages: Array<{ role: 'agent' | 'user'; text: string }>
+  original_input: string
+  requirements: RequirementSummary | null
+  fashion_intent: FashionIntent | null
+  queries: QueryDraft[]
+  styling_guide: StylingGuide | null
+  plan_debug: QueryPlanDebug | null
+  recommendation_debug: RecommendationDebug | null
+  recommendations: OutfitRecommendation[]
+  discarded_recommendations: OutfitRecommendation[]
+  review_note: string
   knowledge_note: string
 }
 

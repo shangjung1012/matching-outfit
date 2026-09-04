@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.fashion_knowledge import OutfitObservation
+
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
 Audience = Literal["men", "women", "unisex"]
 RequirementField = Literal[
@@ -130,11 +132,41 @@ class RequirementSummary(BaseModel):
     tag_translations: dict[str, str] = Field(default_factory=dict)
 
 
+class GeneratedQueryTrace(BaseModel):
+    garment_zone: Literal["upper_body", "lower_body", "one_piece"]
+    direction_id: str
+    text: str
+    rationale: str
+
+
+class QueryNormalizationChange(BaseModel):
+    direction_id: str | None = None
+    garment_zone: GarmentZone
+    before: str
+    after: str
+
+
+class QueryPlanDebug(BaseModel):
+    raw_user_text: str
+    requirement_summary: RequirementSummary | None = None
+    fashion_intent: FashionIntent | None = None
+    generated_queries_before_normalization: list[GeneratedQueryTrace] = Field(
+        default_factory=list
+    )
+    generated_queries_after_normalization: list[QueryDraft] = Field(default_factory=list)
+    normalizer_changes: list[QueryNormalizationChange] = Field(default_factory=list)
+    query_warnings: list[str] = Field(default_factory=list)
+    intent_fallback_used: bool = False
+    model: str
+    prompt_version: str
+
+
 class PlanRequest(BaseModel):
     user_input: str = Field(min_length=2, max_length=1000)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     audience: Audience | None = None
     requirements: RequirementSummary | None = None
+    include_debug: bool = False
 
 
 class ClarificationRequest(BaseModel):
@@ -160,6 +192,7 @@ class PlanResponse(BaseModel):
     planning_note: str = ""
     styling_guide: StylingGuide | None = None
     fashion_intent: FashionIntent | None = None
+    debug: QueryPlanDebug | None = None
 
 
 class RefineRequest(PlanRequest):
@@ -179,6 +212,7 @@ class SearchRequest(BaseModel):
     shortlist_count: int = Field(default=15, ge=5, le=30)
     final_count: int = Field(default=5, ge=1, le=10)
     use_aesthetic_review: bool = True
+    include_debug: bool = False
 
 
 class ClothResult(BaseModel):
@@ -234,12 +268,23 @@ class AestheticReview(BaseModel):
 class OutfitRecommendation(BaseModel):
     id: str
     kind: Literal["separates", "one_piece"]
+    direction_id: str | None = None
     items: list[ClothResult]
     score: float
     reasons: list[str]
     references: list[ReferenceLink] = Field(default_factory=list)
     score_breakdown: OutfitScoreBreakdown | None = None
     aesthetic_review: AestheticReview | None = None
+
+
+class RecommendationDebug(BaseModel):
+    search_results: list[QuerySearchResult] = Field(default_factory=list)
+    ranked_candidate_count: int = 0
+    ranked_preview: list[OutfitRecommendation] = Field(default_factory=list)
+    shortlist_before_review: list[OutfitRecommendation] = Field(default_factory=list)
+    knowledge_observations: list[OutfitObservation] = Field(default_factory=list)
+    aesthetic_review_attempted: bool = False
+    aesthetic_review_error: str = ""
 
 
 class RecommendationResponse(BaseModel):
@@ -250,6 +295,7 @@ class RecommendationResponse(BaseModel):
     knowledge_observation_count: int = 0
     knowledge_sources: list[str] = Field(default_factory=list)
     knowledge_note: str = ""
+    debug: RecommendationDebug | None = None
 
 
 # ---------------------------------------------------------------------------
