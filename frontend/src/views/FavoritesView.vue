@@ -43,6 +43,7 @@ const actionLoading = ref(false)
 const error = ref('')
 const preferenceStatus = ref('')
 const expandedItemIds = ref(new Set<number>())
+const pairingIndexByItemId = ref<Record<number, number>>({})
 
 const sortedFavorites = computed(() => {
   const rows = [...favoriteItems.value]
@@ -79,8 +80,28 @@ function pairingsFor(itemId: number): FavoriteOutfit[] {
 
 function togglePairings(itemId: number) {
   const next = new Set(expandedItemIds.value)
-  next.has(itemId) ? next.delete(itemId) : next.add(itemId)
+  if (next.has(itemId)) {
+    next.delete(itemId)
+  } else {
+    next.add(itemId)
+    pairingIndexByItemId.value = { ...pairingIndexByItemId.value, [itemId]: 0 }
+  }
   expandedItemIds.value = next
+}
+
+function pairingIndex(itemId: number): number {
+  const count = pairingsFor(itemId).length
+  return Math.min(pairingIndexByItemId.value[itemId] ?? 0, Math.max(0, count - 1))
+}
+
+function selectedPairing(itemId: number): FavoriteOutfit | null {
+  return pairingsFor(itemId)[pairingIndex(itemId)] ?? null
+}
+
+function movePairing(itemId: number, offset: -1 | 1) {
+  const next = pairingIndex(itemId) + offset
+  if (next < 0 || next >= pairingsFor(itemId).length) return
+  pairingIndexByItemId.value = { ...pairingIndexByItemId.value, [itemId]: next }
 }
 
 async function runAction(task: () => Promise<void>) {
@@ -182,43 +203,60 @@ onMounted(() => {
             @react="reactToPreference"
             @toggle-favorite="removeFavorite"
           >
-            <div v-if="pairingsFor(row.item.id).length" class="favorite-pairings">
-              <button
-                type="button"
-                class="favorite-pairings-toggle"
-                :aria-expanded="expandedItemIds.has(row.item.id)"
-                @click="togglePairings(row.item.id)"
-              >
-                <span>查看搭配（{{ pairingsFor(row.item.id).length }}）</span>
-                <ChevronUp v-if="expandedItemIds.has(row.item.id)" :size="16" />
-                <ChevronDown v-else :size="16" />
-              </button>
+            <template #below-media>
               <div
-                v-if="expandedItemIds.has(row.item.id)"
-                class="favorite-pairing-groups"
+                class="favorite-pairings"
+                :class="{ expanded: expandedItemIds.has(row.item.id) }"
               >
-                <section
-                  v-for="(outfit, outfitIndex) in pairingsFor(row.item.id)"
-                  :key="outfit.id"
-                  class="favorite-pairing-group"
+                <button
+                  type="button"
+                  class="favorite-pairings-toggle"
+                  :aria-expanded="expandedItemIds.has(row.item.id)"
+                  :disabled="pairingsFor(row.item.id).length === 0"
+                  @click="pairingsFor(row.item.id).length && togglePairings(row.item.id)"
                 >
-                  <strong v-if="pairingsFor(row.item.id).length > 1">
-                    搭配 {{ outfitIndex + 1 }}
-                  </strong>
-                  <div
-                    v-for="partner in outfit.items.filter((item) => item.id !== row.item.id)"
-                    :key="partner.id"
-                    class="favorite-pairing-item"
+                  <span>查看搭配({{ pairingsFor(row.item.id).length }})</span>
+                  <ChevronDown v-if="expandedItemIds.has(row.item.id)" :size="16" />
+                  <ChevronUp v-else-if="pairingsFor(row.item.id).length" :size="16" />
+                </button>
+                <div
+                  v-if="expandedItemIds.has(row.item.id)"
+                  class="favorite-pairing-groups"
+                >
+                  <section
+                    v-if="selectedPairing(row.item.id)"
+                    :key="selectedPairing(row.item.id)!.id"
+                    class="favorite-pairing-group"
                   >
-                    <img :src="partner.image_url" :alt="partner.product_display_name" />
-                    <div>
-                      <span>{{ partner.product_display_name }}</span>
-                      <small>{{ formatCurrency(partner.price, partner.currency) }}</small>
+                    <button
+                      type="button"
+                      class="favorite-pairing-arrow previous"
+                      aria-label="查看上一組搭配"
+                      :disabled="pairingIndex(row.item.id) === 0"
+                      @click="movePairing(row.item.id, -1)"
+                    >&lt;</button>
+                    <div
+                      v-for="partner in selectedPairing(row.item.id)!.items.filter((item) => item.id !== row.item.id)"
+                      :key="partner.id"
+                      class="favorite-pairing-item"
+                    >
+                      <img :src="partner.image_url" :alt="partner.product_display_name" />
+                      <div>
+                        <span>{{ partner.product_display_name }}</span>
+                        <small>{{ formatCurrency(partner.price, partner.currency) }}</small>
+                      </div>
                     </div>
-                  </div>
-                </section>
+                    <button
+                      type="button"
+                      class="favorite-pairing-arrow next"
+                      aria-label="查看下一組搭配"
+                      :disabled="pairingIndex(row.item.id) === pairingsFor(row.item.id).length - 1"
+                      @click="movePairing(row.item.id, 1)"
+                    >&gt;</button>
+                  </section>
+                </div>
               </div>
-            </div>
+            </template>
           </ProductCard>
         </div>
       </section>
