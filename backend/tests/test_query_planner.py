@@ -1,8 +1,9 @@
 from app.schemas.styling import OutfitObservation
-from app.services.knowledge_query_planner import (
+from app.services.query_planner import (
     EnglishQueryRepair,
     KnowledgeQueryDraft,
-    KnowledgeQueryPlanner,
+    QueryPlanner,
+    QueryOutputNormalizer,
     PlannedCatalogQuery,
     RepairedCatalogQuery,
 )
@@ -90,7 +91,7 @@ def test_agent_plan_orders_zones_and_filters_citations() -> None:
         signal_type="timeless",
         confidence=0.9,
     )
-    planner = KnowledgeQueryPlanner(FakeLLM(), "test-model")
+    planner = QueryPlanner(FakeLLM())
 
     result = planner.plan(
         "女生參加正式晚宴",
@@ -206,7 +207,7 @@ def _observation() -> OutfitObservation:
 
 def test_chinese_queries_are_repaired_without_losing_knowledge() -> None:
     llm = ChineseOnlyLLM()
-    result = KnowledgeQueryPlanner(llm, "test-model").plan(
+    result = QueryPlanner(llm).plan(
         "去海邊玩 女生", [_observation()], audience="women"
     )
 
@@ -218,7 +219,7 @@ def test_chinese_queries_are_repaired_without_losing_knowledge() -> None:
 
 def test_failed_query_repair_uses_safe_fallback_without_losing_knowledge() -> None:
     llm = ChineseOnlyLLM(fail_repair=True)
-    result = KnowledgeQueryPlanner(llm, "test-model").plan(
+    result = QueryPlanner(llm).plan(
         "去海邊玩 女生", [_observation()], audience="women"
     )
 
@@ -228,7 +229,7 @@ def test_failed_query_repair_uses_safe_fallback_without_losing_knowledge() -> No
 
 
 def test_explicit_user_color_is_preserved() -> None:
-    result = KnowledgeQueryPlanner(FakeLLM(), "test-model").plan(
+    result = QueryPlanner(FakeLLM()).plan(
         "女生參加正式晚宴，想穿黑色", [_observation()], audience="women"
     )
 
@@ -236,11 +237,11 @@ def test_explicit_user_color_is_preserved() -> None:
 
 
 def test_beach_query_removes_denim_unless_user_requests_it() -> None:
-    planner = KnowledgeQueryPlanner(FakeLLM(), "test-model")
+    normalizer = QueryOutputNormalizer(FakeLLM())
 
-    assert planner._remove_contextually_unsuitable_terms(
+    assert normalizer._remove_contextually_unsuitable_terms(
         "relaxed denim shorts", "去海邊玩"
     ) == "relaxed shorts"
-    assert planner._remove_contextually_unsuitable_terms(
+    assert normalizer._remove_contextually_unsuitable_terms(
         "relaxed denim shorts", "去海邊玩，想穿牛仔短褲"
     ) == "relaxed denim shorts"

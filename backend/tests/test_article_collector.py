@@ -1,4 +1,4 @@
-from app.services.article_collector import ArticleCollector
+from app.knowledge.ingestion.article_collector import ArticleCollector
 
 
 HTML = """

@@ -1,0 +1,27 @@
+# Small, diverse seed set for outfit-knowledge extraction.
+# One public article URL per line. Keep this list intentionally curated.
+
+# Existing samples: current street style
+https://www.elle.com/tw/fashion/street-snap/a71802104/2026ss-denim-streetstyle/
+https://www.gq.com.tw/galerie/2026-gq-style-fest-%E6%96%87%E5%8C%96%E7%A5%AD-%E8%A1%97%E6%8B%8D%E7%89%B9%E8%BC%AF
+
+# ELLE Taiwan: date, office, vacation, and everyday styling
+https://www.elle.com/tw/fashion/street-snap/g36031205/what-to-wear-on-a-first-date/
+https://www.elle.com/tw/fashion/street-snap/g70947907/2026-long-skirt-style/
+https://www.elle.com/tw/fashion/street-snap/g63355192/best-winter-work-outfits/
+
+# GQ Taiwan: current menswear direction and wearable trends
+https://www.gq.com.tw/article/2026-%E6%98%A5%E5%AD%A3%E7%94%B7%E8%A3%9D
+https://www.gq.com.tw/article/2026-%E5%B9%B4%E7%94%B7%E8%A3%9D%E8%B6%A8%E5%8B%A2
+
+# Marie Claire Korea: practical material and shirt styling
+https://www.marieclairekorea.com/fashion/2026/05/2026-satin-styling/
+https://www.marieclairekorea.com/fashion/fashion_shopping/2026/05/striped-shirt/
+
+# GQ Korea: casual-to-formal examples and transitional outerwear
+https://www.gqkorea.co.kr/2026/08/31/%EC%9B%83%EA%B8%B0%EB%8A%94-%EB%82%A8%EC%9E%90%EA%B0%80-%EC%9D%BC%EC%A3%BC%EC%9D%BC-%EB%82%B4%EB%82%B4-%EB%8B%A4%EB%A5%B8-%EC%8A%A4%ED%83%80%EC%9D%BC%EB%A1%9C-%EC%98%B7-%EC%9E%98%EC%9E%85%EB%8A%94/
+https://www.gqkorea.co.kr/2026/08/28/%EA%B0%80%EC%9D%84%EC%9D%B4-%EC%98%A4%EB%A9%B4-%EB%84%88%EB%AC%B4-%EB%8A%A6%EC%9D%84%EC%A7%80%EB%8F%84-%EB%AF%B8%EB%A6%AC-%EC%95%8C%EC%95%84-%EB%91%AC%EC%95%BC-%ED%95%A0-%EB%82%A8%EC%9E%90-%ED%8A%B8/
+
+# Formal events: wedding-guest etiquette and dinner-party dressing
+https://www.elle.com/tw/fashion/celeb-style/g29448/celeb-wedding-guest-style/
+https://www.gq.com.tw/fashion/content-30428

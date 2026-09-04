@@ -1,8 +1,10 @@
 from app.schemas.styling import OutfitObservation
-from app.services.fashion_knowledge_repository import (
-    infer_audience,
+from app.knowledge.ingestion.db_importer import (
     observation_audiences,
     observation_embedding_text,
+)
+from app.knowledge.retrieval import (
+    infer_audience,
 )
 
 

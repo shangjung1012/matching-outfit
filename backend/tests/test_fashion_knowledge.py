@@ -1,5 +1,5 @@
 from app.schemas.styling import OutfitObservation
-from app.services.fashion_knowledge import retrieve_observations
+from app.knowledge.retrieval import retrieve_observations
 
 
 def observation(identifier: str, summary: str, occasions: list[str]) -> OutfitObservation:

@@ -39,6 +39,16 @@ def test_price_fields_fall_back_when_json_is_missing() -> None:
     }
 
 
+def test_price_fields_uses_csv_price_when_json_is_missing() -> None:
+    assert price_fields(None, 1000, 399) == {
+        "price": 399,
+        "original_price": None,
+        "discounted_price": None,
+    }
+    # Falls back to default when the CSV column is blank / non-numeric.
+    assert price_fields(None, 1000, positive_int(""))["price"] == 1000
+
+
 def test_load_style_data_ignores_malformed_json(tmp_path) -> None:
     (tmp_path / "7.json").write_text("not json", encoding="utf-8")
 

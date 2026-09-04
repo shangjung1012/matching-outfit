@@ -1,6 +1,18 @@
-from app.models.user_preference import UserPreference
+from app.models.user_preference import UserStylePreference
 from app.schemas import ClothResult, QueryDraft, QuerySearchResult
 from app.services.outfit_ranker import rank_outfits, select_diverse
+
+
+def style_pref(axis: str, value: str, polarity: str, weight: float = 0.5) -> UserStylePreference:
+    return UserStylePreference(
+        user_key="demo",
+        axis=axis,
+        value=value,
+        zone="any",
+        polarity=polarity,
+        weight=weight,
+        is_active=True,
+    )
 
 
 def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothResult:
@@ -32,11 +44,12 @@ def test_ranker_uses_user_color_preferences_after_fashion_clip_retrieval() -> No
         ),
         group("lower_body", [cloth(3, "lower_body", "Beige", 0.8)]),
     ]
-    preference = UserPreference(
-        user_key="demo", favorite_colors=["black"], disliked_colors=["red"]
-    )
+    style_preferences = [
+        style_pref("color", "black", "prefer"),
+        style_pref("color", "red", "avoid"),
+    ]
 
-    recommendations = rank_outfits(groups, preference=preference)
+    recommendations = rank_outfits(groups, style_preferences=style_preferences)
 
     assert recommendations[0].items[0].base_colour == "Black"
     assert any("Preferred color" in reason for reason in recommendations[0].reasons)
