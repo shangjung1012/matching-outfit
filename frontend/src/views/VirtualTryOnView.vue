@@ -2,14 +2,28 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { AlertCircle, CheckCircle2, ImagePlus, LoaderCircle, RefreshCw, ScanFace, Trash2 } from 'lucide-vue-next'
 import { createTryOnJob, getTryOnCapabilities, getTryOnJob } from '../api'
-import type { TryOnCapabilities, TryOnClothType, TryOnJob } from '../types'
+import type { TryOnCapabilities, TryOnJob, TryOnReferenceType } from '../types'
 
 const props = defineProps<{ userKey: string }>()
 
-const HISTORY_STORAGE_VERSION = 1
+const HISTORY_STORAGE_VERSION = 2
 const HISTORY_LIMIT = 20
 const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
-const CLOTH_TYPES = ['upper', 'lower', 'overall'] as const
+const REFERENCE_TYPES = ['upper', 'lower', 'overall', 'shoe', 'bag'] as const satisfies readonly TryOnReferenceType[]
+const REFERENCE_LABELS: Record<TryOnReferenceType, string> = {
+  upper: '上身',
+  lower: '下身',
+  overall: '洋裝／連身',
+  shoe: '鞋子',
+  bag: '包包',
+}
+const REFERENCE_OPTIONS: { type: TryOnReferenceType; hint: string }[] = [
+  { type: 'upper', hint: '上衣、外套等商品照' },
+  { type: 'lower', hint: '褲子、裙子等商品照' },
+  { type: 'overall', hint: '洋裝或連身服飾商品照' },
+  { type: 'shoe', hint: '鞋款商品照' },
+  { type: 'bag', hint: '包款商品照' },
+]
 
 interface StoredTryOnHistory {
   version: typeof HISTORY_STORAGE_VERSION
@@ -20,10 +34,9 @@ interface StoredTryOnHistory {
 const capabilities = ref<TryOnCapabilities | null>(null)
 const capabilityLoading = ref(true)
 const personFile = ref<File | null>(null)
-const clothFile = ref<File | null>(null)
 const personPreview = ref('')
-const clothPreview = ref('')
-const clothType = ref<TryOnClothType>('upper')
+const referenceFiles = ref<Partial<Record<TryOnReferenceType, File>>>({})
+const referencePreviews = ref<Partial<Record<TryOnReferenceType, string>>>({})
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
 const historySyncError = ref('')
@@ -35,12 +48,25 @@ let componentActive = false
 let historyGeneration = 0
 const retryJobIds = new Set<string>()
 
-const historyStorageKey = computed(() => `matching-outfit.tryon-history:v1:${props.userKey}`)
+const historyStorageKey = computed(() => `matching-outfit.tryon-history:v2:${props.userKey}`)
+const legacyHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v1:${props.userKey}`)
+const selectedReferenceTypes = computed(() => (
+  REFERENCE_TYPES.filter((referenceType) => Boolean(referenceFiles.value[referenceType]))
+))
+const selectedReferencesAreCompatible = computed(() => !(
+  referenceFiles.value.overall
+  && (referenceFiles.value.upper || referenceFiles.value.lower)
+))
+const selectedReferencesAreSupported = computed(() => selectedReferenceTypes.value.every(
+  (referenceType) => capabilities.value?.supported_reference_types.includes(referenceType),
+))
 
 const canSubmit = computed(() => (
   capabilities.value?.available
   && personFile.value
-  && clothFile.value
+  && selectedReferenceTypes.value.length > 0
+  && selectedReferencesAreCompatible.value
+  && selectedReferencesAreSupported.value
   && !submitting.value
   && !['queued', 'running'].includes(job.value?.status ?? '')
 ))
@@ -66,7 +92,9 @@ function isTryOnJob(value: unknown): value is TryOnJob {
   return (
     typeof candidate.id === 'string'
     && JOB_STATUSES.includes(candidate.status as TryOnJob['status'])
-    && CLOTH_TYPES.includes(candidate.cloth_type as TryOnClothType)
+    && Array.isArray(candidate.reference_types)
+    && candidate.reference_types.length > 0
+    && candidate.reference_types.every((type) => REFERENCE_TYPES.includes(type as TryOnReferenceType))
     && (candidate.error === null || typeof candidate.error === 'string')
     && (candidate.result_url === null || typeof candidate.result_url === 'string')
     && typeof candidate.created_at === 'string'
@@ -148,6 +176,7 @@ function cleanExpiredHistory() {
 
 function loadHistory() {
   try {
+    window.localStorage.removeItem(legacyHistoryStorageKey.value)
     const raw = window.localStorage.getItem(historyStorageKey.value)
     if (!raw) return
     const stored = JSON.parse(raw) as Partial<StoredTryOnHistory>
@@ -177,8 +206,8 @@ function clearHistory() {
   discardStoredHistory()
 }
 
-function clothTypeLabel(type: TryOnClothType) {
-  return { upper: '上身', lower: '下身', overall: '洋裝／連身' }[type]
+function referenceTypesLabel(types: TryOnReferenceType[]) {
+  return types.map((type) => REFERENCE_LABELS[type]).join('、')
 }
 
 function historyStatusLabel(status: TryOnJob['status']) {
@@ -201,17 +230,87 @@ function replacePreview(current: string, file: File | null) {
   return file ? URL.createObjectURL(file) : ''
 }
 
-function chooseImage(event: Event, kind: 'person' | 'cloth') {
+function choosePersonImage(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
-  if (kind === 'person') {
-    personPreview.value = replacePreview(personPreview.value, file)
-    personFile.value = file
-  } else {
-    clothPreview.value = replacePreview(clothPreview.value, file)
-    clothFile.value = file
-  }
+  personPreview.value = replacePreview(personPreview.value, file)
+  personFile.value = file
   error.value = ''
+}
+
+function removePersonImage() {
+  personPreview.value = replacePreview(personPreview.value, null)
+  personFile.value = null
+  error.value = ''
+}
+
+function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  if (!file) {
+    removeReferenceImage(referenceType)
+    return
+  }
+  const currentPreview = referencePreviews.value[referenceType] ?? ''
+  referencePreviews.value = {
+    ...referencePreviews.value,
+    [referenceType]: replacePreview(currentPreview, file),
+  }
+  referenceFiles.value = { ...referenceFiles.value, [referenceType]: file }
+  error.value = ''
+}
+
+function removeReferenceImage(referenceType: TryOnReferenceType) {
+  const preview = referencePreviews.value[referenceType]
+  if (preview) URL.revokeObjectURL(preview)
+  const nextPreviews = { ...referencePreviews.value }
+  const nextFiles = { ...referenceFiles.value }
+  delete nextPreviews[referenceType]
+  delete nextFiles[referenceType]
+  referencePreviews.value = nextPreviews
+  referenceFiles.value = nextFiles
+  error.value = ''
+}
+
+function isReferenceDisabled(referenceType: TryOnReferenceType) {
+  const supportedTypes = capabilities.value?.supported_reference_types
+  if (supportedTypes && !supportedTypes.includes(referenceType)) return true
+  if ((referenceType === 'upper' || referenceType === 'lower') && referenceFiles.value.overall) return true
+  return referenceType === 'overall' && Boolean(referenceFiles.value.upper || referenceFiles.value.lower)
+}
+
+function referenceDisabledReason(referenceType: TryOnReferenceType) {
+  if (capabilities.value && !capabilities.value.supported_reference_types.includes(referenceType)) {
+    return '目前服務不支援此類型'
+  }
+  if (referenceType === 'overall') return '已選擇上身或下身圖片'
+  return '已選擇洋裝／連身圖片'
+}
+
+function referenceInputKey(referenceType: TryOnReferenceType) {
+  const file = referenceFiles.value[referenceType]
+  return file ? `${file.name}:${file.size}:${file.lastModified}` : `${referenceType}:empty`
+}
+
+function personInputKey() {
+  const file = personFile.value
+  return file ? `${file.name}:${file.size}:${file.lastModified}` : 'person:empty'
+}
+
+function referencePreview(referenceType: TryOnReferenceType) {
+  return referencePreviews.value[referenceType] ?? ''
+}
+
+function referenceFile(referenceType: TryOnReferenceType) {
+  return referenceFiles.value[referenceType]
+}
+
+function referenceLabel(referenceType: TryOnReferenceType) {
+  return REFERENCE_LABELS[referenceType]
+}
+
+function referenceIsSelected(referenceType: TryOnReferenceType) {
+  return Boolean(referenceFiles.value[referenceType])
 }
 
 async function loadCapabilities() {
@@ -221,7 +320,7 @@ async function loadCapabilities() {
     capabilities.value = await getTryOnCapabilities()
   } catch (reason) {
     capabilities.value = null
-    error.value = reason instanceof Error ? reason.message : '無法檢查 CatVTON 狀態'
+    error.value = reason instanceof Error ? reason.message : '無法檢查試穿服務狀態'
   } finally {
     capabilityLoading.value = false
   }
@@ -279,15 +378,14 @@ async function synchronizeHistory(refreshAll = false) {
 }
 
 async function submit() {
-  if (!canSubmit.value || !personFile.value || !clothFile.value) return
+  if (!canSubmit.value || !personFile.value) return
   stopPolling()
   submitting.value = true
   error.value = ''
   try {
     const createdJob = await createTryOnJob(
       personFile.value,
-      clothFile.value,
-      clothType.value,
+      referenceFiles.value,
       props.userKey,
     )
     replaceHistory(createdJob, true)
@@ -319,7 +417,9 @@ onBeforeUnmount(() => {
   stopPolling()
   if (cleanupTimer !== undefined) window.clearInterval(cleanupTimer)
   if (personPreview.value) URL.revokeObjectURL(personPreview.value)
-  if (clothPreview.value) URL.revokeObjectURL(clothPreview.value)
+  Object.values(referencePreviews.value).forEach((preview) => {
+    if (preview) URL.revokeObjectURL(preview)
+  })
 })
 </script>
 
@@ -329,7 +429,7 @@ onBeforeUnmount(() => {
       <div>
         <span class="section-kicker">Virtual try-on</span>
         <h2>虛擬試穿</h2>
-        <p>上傳全身人物照與單件衣服圖片，使用 CatVTON 產生試穿預覽。</p>
+        <p>上傳全身人物照與服飾參考圖片，一次預覽完整搭配。</p>
       </div>
       <button class="secondary-button" :disabled="capabilityLoading" @click="loadCapabilities">
         <RefreshCw :size="16" :class="{ spinning: capabilityLoading }" />重新檢查服務
@@ -342,43 +442,91 @@ onBeforeUnmount(() => {
       role="status"
     >
       <AlertCircle :size="19" />
-      <div><strong>CatVTON 尚未連線</strong><p>{{ capabilities?.reason || 'GPU 推論服務目前無法使用' }}</p></div>
+      <div><strong>試穿服務尚未連線</strong><p>{{ capabilities?.reason || 'GPU 推論服務目前無法使用' }}</p></div>
     </div>
     <div v-else-if="capabilities?.available" class="tryon-service-banner available" role="status">
       <CheckCircle2 :size="19" />
-      <div><strong>CatVTON 已就緒</strong><p>圖片會在工作結束後刪除；結果保留 24 小時，可從此瀏覽器的最近試穿紀錄找回。</p></div>
+      <div><strong>試穿服務已就緒</strong><p>圖片會在工作結束後刪除；結果保留 24 小時，可從此瀏覽器的最近試穿紀錄找回。</p></div>
     </div>
 
     <div class="tryon-layout">
       <section class="tryon-form-card">
-        <div class="tryon-upload-grid">
-          <label class="tryon-upload">
-            <span>1 · 人物照片</span>
+        <section class="tryon-upload-section">
+          <div class="tryon-upload tryon-person-upload">
+            <span>人物照片</span>
             <div class="tryon-preview">
               <img v-if="personPreview" :src="personPreview" alt="人物照片預覽" />
               <div v-else><ImagePlus :size="30" /><strong>選擇人物照片</strong><small>建議使用正面全身照</small></div>
             </div>
-            <input type="file" accept="image/jpeg,image/png,image/webp" @change="chooseImage($event, 'person')" />
-          </label>
-
-          <label class="tryon-upload">
-            <span>2 · 衣服圖片</span>
-            <div class="tryon-preview">
-              <img v-if="clothPreview" :src="clothPreview" alt="衣服圖片預覽" />
-              <div v-else><ImagePlus :size="30" /><strong>選擇衣服圖片</strong><small>建議使用乾淨背景商品照</small></div>
+            <div class="tryon-upload-actions">
+              <label class="tryon-file-button">
+                {{ personFile ? '更換圖片' : '選擇圖片' }}
+                <input
+                  :key="personInputKey()"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  @change="choosePersonImage"
+                />
+              </label>
+              <button v-if="personFile" type="button" class="tryon-remove-button" @click="removePersonImage">
+                <Trash2 :size="13" />移除
+              </button>
             </div>
-            <input type="file" accept="image/jpeg,image/png,image/webp" @change="chooseImage($event, 'cloth')" />
-          </label>
-        </div>
-
-        <fieldset class="tryon-type-field">
-          <legend>3 · 試穿類型</legend>
-          <div class="segmented-control">
-            <button type="button" :class="{ active: clothType === 'upper' }" @click="clothType = 'upper'">上身</button>
-            <button type="button" :class="{ active: clothType === 'lower' }" @click="clothType = 'lower'">下身</button>
-            <button type="button" :class="{ active: clothType === 'overall' }" @click="clothType = 'overall'">洋裝／連身</button>
           </div>
-        </fieldset>
+        </section>
+
+        <section class="tryon-upload-section tryon-reference-section">
+          <div class="tryon-section-heading">
+            <strong>服飾參考圖片</strong>
+            <small>至少選擇一項；洋裝／連身不可與上身或下身同時使用</small>
+          </div>
+          <div class="tryon-reference-grid">
+            <div
+              v-for="option in REFERENCE_OPTIONS"
+              :key="option.type"
+              class="tryon-upload"
+              :class="{ disabled: isReferenceDisabled(option.type) }"
+            >
+              <span>{{ referenceLabel(option.type) }}</span>
+              <div class="tryon-preview">
+                <img
+                  v-if="referencePreview(option.type)"
+                  :src="referencePreview(option.type)"
+                  :alt="`${referenceLabel(option.type)}參考圖片預覽`"
+                />
+                <div v-else>
+                  <ImagePlus :size="26" />
+                  <strong>選擇{{ referenceLabel(option.type) }}圖片</strong>
+                  <small>{{ isReferenceDisabled(option.type) ? referenceDisabledReason(option.type) : option.hint }}</small>
+                </div>
+              </div>
+              <div class="tryon-upload-actions">
+                <label
+                  class="tryon-file-button"
+                  :class="{ disabled: isReferenceDisabled(option.type) }"
+                  :aria-disabled="isReferenceDisabled(option.type)"
+                >
+                  {{ referenceFile(option.type) ? '更換圖片' : '選擇圖片' }}
+                  <input
+                    :key="referenceInputKey(option.type)"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    :disabled="isReferenceDisabled(option.type)"
+                    @change="chooseReferenceImage($event, option.type)"
+                  />
+                </label>
+                <button
+                  v-if="referenceIsSelected(option.type)"
+                  type="button"
+                  class="tryon-remove-button"
+                  @click="removeReferenceImage(option.type)"
+                >
+                  <Trash2 :size="13" />移除
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <p v-if="error" class="error-banner">{{ error }}</p>
         <button class="primary-button tryon-submit" :disabled="!canSubmit" @click="submit">
@@ -408,7 +556,7 @@ onBeforeUnmount(() => {
               @click="selectHistoryJob(historyJob)"
             >
               <span>{{ historyStatusLabel(historyJob.status) }}</span>
-              <strong>{{ clothTypeLabel(historyJob.cloth_type) }}</strong>
+              <strong>{{ referenceTypesLabel(historyJob.reference_types) }}</strong>
               <small>{{ formatHistoryTime(historyJob.created_at) }}</small>
             </button>
           </div>
@@ -416,7 +564,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="tryon-result-body">
           <div v-if="job?.status === 'succeeded' && job.result_url" class="tryon-result">
-            <img :src="job.result_url" alt="CatVTON 虛擬試穿結果" />
+            <img :src="job.result_url" alt="虛擬試穿結果" />
             <div><CheckCircle2 :size="17" /><strong>{{ statusLabel }}</strong></div>
           </div>
           <div v-else class="tryon-result-placeholder" :class="{ processing: job?.status === 'queued' || job?.status === 'running' }">
@@ -426,14 +574,11 @@ onBeforeUnmount(() => {
             <p v-if="job?.status === 'queued'">GPU 同一時間處理一個工作，可安心離開後再回來查看。</p>
             <p v-else-if="job?.status === 'running'">生成通常需要數十秒，可安心離開後再回來查看。</p>
             <p v-else-if="job?.status === 'failed'">{{ job.error || '這次試穿未能完成，請重新送出。' }}</p>
-            <p v-else>準備好兩張圖片並連接 GPU 服務後即可開始。</p>
+            <p v-else>準備好人物照片與至少一張參考圖片，並連接 GPU 服務後即可開始。</p>
           </div>
         </div>
       </section>
     </div>
 
-    <p class="tryon-attribution">
-      Powered by CatVTON · CC BY-NC-SA 4.0 · 僅供非商業用途
-    </p>
   </section>
 </template>

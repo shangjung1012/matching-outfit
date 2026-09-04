@@ -1,19 +1,19 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
 export type AppView = 'agent' | 'catalog' | 'tryon' | 'preferences'
-export type TryOnClothType = 'upper' | 'lower' | 'overall'
+export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
 export interface TryOnCapabilities {
   available: boolean
   reason: string | null
-  supported_cloth_types: TryOnClothType[]
+  supported_reference_types: TryOnReferenceType[]
   max_upload_bytes: number
 }
 
 export interface TryOnJob {
   id: string
   status: TryOnJobStatus
-  cloth_type: TryOnClothType
+  reference_types: TryOnReferenceType[]
   error: string | null
   result_url: string | null
   created_at: string

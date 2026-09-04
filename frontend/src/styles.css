@@ -327,17 +327,27 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tryon-service-banner p { margin: 3px 0 0; font-size: .72rem; }
 .tryon-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr); gap: 18px; }
 .tryon-form-card, .tryon-result-card { min-width: 0; padding: 20px; border: 1px solid #d9ddd7; border-radius: 7px; background: #fff; }
-.tryon-upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tryon-upload-section { min-width: 0; }
+.tryon-reference-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid #e2e5df; }
+.tryon-section-heading { display: grid; gap: 4px; margin-bottom: 12px; color: #505850; }
+.tryon-section-heading strong { font-size: .78rem; }
+.tryon-section-heading small { color: #7c847d; font-size: .65rem; line-height: 1.45; }
+.tryon-reference-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tryon-person-upload { width: calc(50% - 6px); }
 .tryon-upload { min-width: 0; display: grid; gap: 8px; color: #505850; font-size: .73rem; font-weight: 800; }
-.tryon-upload input { height: auto; border: 0; padding: 0; color: #666d67; background: transparent; font-size: .68rem; }
-.tryon-upload input::file-selector-button { margin-right: 8px; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; cursor: pointer; }
+.tryon-upload.disabled > span { color: #8d938e; }
 .tryon-preview { aspect-ratio: 3 / 4; overflow: hidden; display: grid; place-items: center; border: 1px dashed #bcc5bd; border-radius: 6px; color: #768078; background: #f5f7f4; }
+.tryon-upload.disabled .tryon-preview { border-color: #d5d9d5; color: #9aa09b; background: #f1f2f0; }
 .tryon-preview img { width: 100%; height: 100%; display: block; object-fit: contain; background: #eef0ed; }
 .tryon-preview > div { display: grid; justify-items: center; gap: 8px; padding: 20px; text-align: center; }
 .tryon-preview small { color: #8a908a; font-size: .65rem; font-weight: 500; }
-.tryon-type-field { margin: 20px 0 0; border: 0; padding: 0; }
-.tryon-type-field legend { margin-bottom: 9px; color: #505850; font-size: .73rem; font-weight: 800; }
-.tryon-type-field .segmented-control { width: fit-content; }
+.tryon-upload-actions { min-height: 31px; display: flex; align-items: center; gap: 7px; }
+.tryon-file-button, .tryon-remove-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; font-size: .65rem; font-weight: 700; cursor: pointer; }
+.tryon-file-button { position: relative; overflow: hidden; }
+.tryon-file-button:hover, .tryon-remove-button:hover { border-color: #9ea8a0; background: #f7f9f7; }
+.tryon-file-button.disabled { color: #969c97; background: #f1f2f0; cursor: not-allowed; }
+.tryon-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.tryon-remove-button { gap: 4px; border-color: transparent; color: #7e5a4e; background: transparent; }
 .tryon-submit { width: 100%; margin-top: 18px; }
 .tryon-limit { margin: 8px 0 0; color: #858b85; text-align: center; font-size: .65rem; }
 .tryon-result-card { display: flex; min-height: 570px; flex-direction: column; }
@@ -367,7 +377,6 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tryon-result { min-height: 100%; display: flex; flex-direction: column; gap: 12px; }
 .tryon-result img { min-height: 0; width: 100%; flex: 1; object-fit: contain; background: #f0f2ef; }
 .tryon-result > div { display: flex; align-items: center; justify-content: center; gap: 7px; color: #276044; font-size: .78rem; }
-.tryon-attribution { margin: 14px 0 0; color: #878d87; text-align: center; font-size: .65rem; }
 .spinning { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -417,7 +426,8 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .settings-label { padding-top: 0; }
   .memory-list li { align-items: flex-start; flex-direction: column; }
   .memory-actions { width: 100%; justify-content: flex-end; }
-  .tryon-layout, .tryon-upload-grid { grid-template-columns: 1fr; }
+  .tryon-layout, .tryon-reference-grid { grid-template-columns: 1fr; }
+  .tryon-person-upload { width: 100%; }
   .tryon-result-card { min-height: 420px; }
   .tryon-history-heading { align-items: flex-start; }
   .tryon-history-heading > div { align-items: flex-start; flex-direction: column; gap: 2px; }
