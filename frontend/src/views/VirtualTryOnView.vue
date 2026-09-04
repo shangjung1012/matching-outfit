@@ -771,10 +771,6 @@ onBeforeUnmount(() => {
 
           <div class="person-photo-upload" :class="{ disabled: !personLibrary.canAdd.value }">
             <div><ImagePlus :size="25" /><strong>新增人物照</strong><small>建議使用正面全身照</small></div>
-            <label>
-              <span>人物照名稱（選填）</span>
-              <input v-model="newPhotoName" maxlength="40" placeholder="例如：正面全身照" :disabled="!personLibrary.canAdd.value" />
-            </label>
             <label class="secondary-button person-upload-button" :aria-disabled="!personLibrary.canAdd.value || photoSaving">
               <LoaderCircle v-if="photoSaving" :size="16" class="spinning" />
               <Upload v-else :size="16" />
