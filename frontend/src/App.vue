@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Bookmark, Bug, MessageSquareText, ScanFace, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Bookmark, Bug, MessageSquareText, ScanFace, Search, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
+import SimilarSearchView from './views/SimilarSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
 import FavoritesView from './views/FavoritesView.vue'
 import PreferencesView from './views/PreferencesView.vue'
@@ -19,8 +20,9 @@ const debugTrace = ref<PipelineDebugSession | null>(null)
 const { loadLibrary } = useUserLibrary(userKey)
 
 const navigation = [
-  { id: 'agent' as const, label: 'Agent 搜尋', icon: MessageSquareText },
+  { id: 'agent' as const, label: '找搭配', icon: MessageSquareText },
   { id: 'debug' as const, label: '流程除錯', icon: Bug },
+  { id: 'similarity' as const, label: '找相似', icon: Search },
   { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
   { id: 'favorites' as const, label: '我的收藏', icon: Bookmark },
   { id: 'tryon' as const, label: '虛擬試穿', icon: ScanFace },
@@ -71,6 +73,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEsca
         @debug-updated="debugTrace = $event"
       />
       <DebugPipelineView v-show="activeView === 'debug'" :trace="debugTrace" />
+      <SimilarSearchView v-show="activeView === 'similarity'" />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
       <FavoritesView v-show="activeView === 'favorites'" :user-key="userKey" />
       <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />

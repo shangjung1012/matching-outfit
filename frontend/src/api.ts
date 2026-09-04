@@ -3,6 +3,8 @@ import type {
   CatalogItem,
   CatalogSemanticSearchResponse,
   ClarificationResponse,
+  ClothResult,
+  GarmentZone,
   HardRules,
   PreferenceBundle,
   QueryDraft,
@@ -122,6 +124,16 @@ export function getRecommendations(
     use_aesthetic_review: true,
     include_debug: true,
   }))
+}
+
+export function getSimilarClothes(image: File, garmentType: GarmentZone, results = 24) {
+  const form = new FormData()
+  form.append('image', image)
+  const params = new URLSearchParams({ type: garmentType, results: String(results) })
+  return request<ClothResult[]>(`/api/similarity_image?${params}`, {
+    method: 'POST',
+    body: form,
+  })
 }
 
 const prefBase = (userKey: string) => `/api/preferences/${encodeURIComponent(userKey)}`

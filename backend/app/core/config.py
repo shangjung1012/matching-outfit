@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     tryon_api_url: str = ""
     tryon_api_key: str = ""
     tryon_request_timeout_seconds: float = 300.0
-    tryon_max_upload_bytes: int = 10 * 1024 * 1024
-    tryon_max_image_pixels: int = 20_000_000
+    image_max_upload_bytes: int = 10 * 1024 * 1024
+    image_max_pixels: int = 20_000_000
     catalog_currency: str = "INR"
     article_data_dir: str = "/data/articles"
     article_allowed_domains: str = (

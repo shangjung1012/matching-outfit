@@ -1,11 +1,9 @@
 from datetime import datetime, timezone
-from io import BytesIO
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
-from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,14 +11,10 @@ from app.db.session import get_db
 from app.models.try_on_job import TryOnJob
 from app.schemas.try_on import SUPPORTED_REFERENCE_TYPES, TryOnCapabilities, TryOnJobView
 from app.services.tryon_client import TryOnError, tryon_client
+from app.services.image_inputs.validation import validate_image
 
 router = APIRouter(prefix="/try-on", tags=["virtual try-on"])
 
-IMAGE_TYPES = {
-    "JPEG": (".jpg", "image/jpeg"),
-    "PNG": (".png", "image/png"),
-    "WEBP": (".webp", "image/webp"),
-}
 JOB_STATUSES = {"queued", "running", "succeeded", "failed"}
 
 
@@ -97,36 +91,13 @@ def synchronize_job(job: TryOnJob, db: Session) -> None:
     db.refresh(job)
 
 
-async def validated_image(upload: UploadFile) -> tuple[bytes, str]:
-    content = await upload.read(settings.tryon_max_upload_bytes + 1)
-    if len(content) > settings.tryon_max_upload_bytes:
-        raise HTTPException(status_code=413, detail=f"{upload.filename or '圖片'} 超過 10 MiB")
-    try:
-        with Image.open(BytesIO(content)) as image:
-            image_format = image.format
-            width, height = image.size
-            image.verify()
-    except (
-        Image.DecompressionBombError,
-        UnidentifiedImageError,
-        OSError,
-        ValueError,
-    ) as error:
-        raise HTTPException(status_code=422, detail=f"{upload.filename or '檔案'} 不是有效圖片") from error
-    if image_format not in IMAGE_TYPES:
-        raise HTTPException(status_code=422, detail="只支援 JPEG、PNG 或 WebP 圖片")
-    if width * height > settings.tryon_max_image_pixels:
-        raise HTTPException(status_code=422, detail="圖片像素超過 20MP 限制")
-    return content, IMAGE_TYPES[image_format][1]
-
-
 @router.get("/capabilities", response_model=TryOnCapabilities)
 def capabilities() -> TryOnCapabilities:
     available, reason = tryon_client.health()
     return TryOnCapabilities(
         available=available,
         reason=reason,
-        max_upload_bytes=settings.tryon_max_upload_bytes,
+        max_upload_bytes=settings.image_max_upload_bytes,
     )
 
 
@@ -160,15 +131,25 @@ async def create_job(
     ):
         raise HTTPException(status_code=422, detail="overall 不可與 upper 或 lower 同時使用")
 
-    person_content, person_content_type = await validated_image(person_image)
+    person = await validate_image(
+        person_image,
+        max_bytes=settings.image_max_upload_bytes,
+        max_pixels=settings.image_max_pixels,
+    )
+
     references: dict[str, tuple[bytes, str]] = {}
     for reference_type, upload in present_uploads.items():
-        references[reference_type] = await validated_image(upload)
+        reference = await validate_image(
+            upload,
+            max_bytes=settings.image_max_upload_bytes,
+            max_pixels=settings.image_max_pixels,
+        )
+        references[reference_type] = (reference.content, reference.content_type)
     try:
         payload = await run_in_threadpool(
             tryon_client.create_job,
-            person_content,
-            person_content_type,
+            person.content,
+            person.content_type,
             references,
         )
         remote_job_id = uuid.UUID(str(payload["id"]))

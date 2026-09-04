@@ -1,7 +1,9 @@
 from collections import Counter
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,7 @@ from app.schemas import (
     FavoriteItemsUpdate,
     ClarificationRequest,
     ClarificationResponse,
+    ClothResult,
     HardRulesUpdate,
     HardRulesView,
     PlanRequest,
@@ -46,7 +49,10 @@ from app.schemas import (
     StylePreferenceView,
     FashionKnowledgeStatus,
 )
-from app.services.catalog_search import search_catalog, search_catalog_items
+from app.schemas.workflow import GarmentZone
+from app.services.catalog_search import search_catalog
+from app.services.clothes_similarity import find_similar_by_image
+from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
@@ -302,6 +308,31 @@ def update_favorite_items(
         added=added,
         removed=removed,
         favorite_item_ids=favorite_item_ids,
+    )
+
+
+@router.post("/similarity_image", response_model=list[ClothResult])
+async def similarity_image(
+    image: UploadFile = File(...),
+    # the number of results to return, between 1 and 50
+    results: int = Query(default=12, ge=1, le=50),
+    # type: upper_body, lower_body, one_piece, shoes, all
+    garment_type: GarmentZone | Literal["all"] = Query(default="all", alias="type"),
+    db: Session = Depends(get_db),
+) -> list[ClothResult]:
+    """Find similar garments, optionally within one catalog garment type."""
+    # validate image size
+    uploaded = await validate_image(
+        image,
+        max_bytes=settings.image_max_upload_bytes,
+        max_pixels=settings.image_max_pixels,
+    )
+    return await run_in_threadpool(
+        find_similar_by_image,  # find similar clothes
+        db,
+        uploaded.content,
+        limit=results,
+        garment_type=None if garment_type == "all" else garment_type,
     )
 
 

@@ -14,6 +14,7 @@ from app.api import try_on as try_on_api
 from app.db.session import get_db
 from app.models.base import Base
 from app.models.try_on_job import TryOnJob
+from app.services.image_inputs import validation as image_validation
 from app.services.tryon_client import TryOnError
 
 
@@ -217,7 +218,7 @@ def test_create_job_maps_decompression_bomb_to_invalid_image(
     def raise_bomb(_content):
         raise Image.DecompressionBombError("too many pixels")
 
-    monkeypatch.setattr(try_on_api.Image, "open", raise_bomb)
+    monkeypatch.setattr(image_validation.Image, "open", raise_bomb)
 
     response = test_client.post(
         "/api/try-on/jobs",

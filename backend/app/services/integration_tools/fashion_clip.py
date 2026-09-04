@@ -1,5 +1,6 @@
 """FashionCLIP adapter used to encode catalog search text and images."""
 
+from io import BytesIO
 from pathlib import Path
 
 from app.core.config import settings
@@ -37,23 +38,42 @@ class FashionClipService:
             features = features / features.norm(dim=-1, keepdim=True)
         return features.cpu().tolist()
 
-    def encode_images(self, paths: list[str]) -> list[list[float]]:
+    def _encode_open_images(self, images: list[object]) -> list[list[float]]:
         import torch
-        from PIL import Image
 
         self._load()
         assert self._model is not None and self._processor is not None and self._device is not None
-        images = [Image.open(Path(path)).convert("RGB") for path in paths]
+        inputs = self._processor(images=images, return_tensors="pt")
+        inputs = {key: value.to(self._device) for key, value in inputs.items()}
+        with torch.inference_mode():
+            features = self._model.get_image_features(**inputs)
+            features = features / features.norm(dim=-1, keepdim=True)
+        return features.cpu().tolist()
+
+    def encode_images(self, paths: list[str]) -> list[list[float]]:
+        """Encode catalog image files without retaining open image handles."""
+        from PIL import Image, ImageOps
+
+        images = []
+        for path in paths:
+            with Image.open(Path(path)) as source:
+                images.append(ImageOps.exif_transpose(source).convert("RGB"))
         try:
-            inputs = self._processor(images=images, return_tensors="pt")
-            inputs = {key: value.to(self._device) for key, value in inputs.items()}
-            with torch.inference_mode():
-                features = self._model.get_image_features(**inputs)
-                features = features / features.norm(dim=-1, keepdim=True)
-            return features.cpu().tolist()
+            return self._encode_open_images(images)
         finally:
             for image in images:
                 image.close()
+
+    def encode_image_bytes(self, content: bytes) -> list[float]:
+        """Encode one validated uploaded image held only in memory."""
+        from PIL import Image, ImageOps
+
+        with Image.open(BytesIO(content)) as source:
+            image = ImageOps.exif_transpose(source).convert("RGB")
+        try:
+            return self._encode_open_images([image])[0]
+        finally:
+            image.close()
 
 
 fashion_clip = FashionClipService()

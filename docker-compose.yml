@@ -8,7 +8,7 @@ services:
       BACKEND_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       IMAGE_DIR: ${IMAGE_DIR:-/data/images}
       FASHION_CLIP_MODEL: patrickjohncyh/fashion-clip
-      CATALOG_CURRENCY: ${CATALOG_CURRENCY:-INR}
+      CATALOG_CURRENCY: ${CATALOG_CURRENCY:-TWD}
       ARTICLE_DATA_DIR: /data/articles
       ARTICLE_ALLOWED_DOMAINS: ${ARTICLE_ALLOWED_DOMAINS:-elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,marieclairekorea.com,www.marieclairekorea.com,gqkorea.co.kr,www.gqkorea.co.kr}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

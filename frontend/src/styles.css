@@ -303,6 +303,21 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .quick-prompts { width: min(540px, 100%); display: grid; gap: 8px; }
 .quick-prompts button { padding: 12px 14px; border: 1px solid #d5d9d3; border-radius: 5px; color: #4d554e; background: #fff; text-align: left; font-size: .8rem; }
 .quick-prompts button:hover { border-color: #8ca193; color: #244f3c; background: #f7faf8; }
+.similarity-view { max-width: 680px; }
+.similarity-heading h2, .similarity-results-heading h3 { margin: 4px 0 6px; color: #29322c; font-size: 1.2rem; }
+.similarity-heading p { margin: 0; color: #6d756e; font-size: .78rem; line-height: 1.55; }
+.similarity-upload-stack { display: grid; gap: 9px; }
+.similarity-upload-block { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 2px 12px; align-items: center; border: 1px dashed #bfc9c0; border-radius: 7px; padding: 15px 17px; color: #35634d; background: #fbfcfa; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.similarity-upload-block:hover, .similarity-upload-block:focus-within { border-color: #5f9276; background: #f0f7f2; }
+.similarity-upload-block svg { grid-row: 1 / span 2; }
+.similarity-upload-block strong { color: #34433a; font-size: .78rem; }
+.similarity-upload-block small { overflow: hidden; color: #7b847c; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.similarity-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.similarity-status { margin: 0; color: #69736b; text-align: center; font-size: .74rem; }
+.similarity-results-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 10px; padding-top: 18px; border-top: 1px solid #dfe4de; }
+.similarity-results-heading h3 { font-size: 1rem; }
+.similarity-results-heading > span { color: #788178; font-size: .7rem; font-weight: 700; }
+.similarity-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .requirement-review { width: min(820px, 100%); margin: 0 auto; }
 .requirement-summary { margin: 0; border-top: 1px solid #d9ddd7; }
 .requirement-summary > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding: 16px 4px; border-bottom: 1px solid #e2e5df; }

@@ -1,5 +1,5 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
-export type AppView = 'agent' | 'debug' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
+export type AppView = 'agent' | 'similarity' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
