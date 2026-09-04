@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Bookmark, BookOpenText, Bug, ChevronDown, Compass, Fingerprint, LogOut, MessageSquareText,
   ScanFace, Search, Shirt, SlidersHorizontal, Sparkles, UserRound,
@@ -20,7 +21,9 @@ import { useDebugHistory } from './composables/useDebugHistory'
 const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{ logout: [] }>()
 
-const activeView = ref<AppView>('agent')
+const route = useRoute()
+const router = useRouter()
+const activeView = computed<AppView>(() => (route.name as AppView | undefined) ?? 'agent')
 const preferenceRevision = ref(0)
 const debugTrace = ref<PipelineDebugSession | null>(null)
 const debugHistory = useDebugHistory(props.userKey)
@@ -80,7 +83,7 @@ function toggleGroup(id: string) {
   openGroupId.value = openGroupId.value === id ? null : id
 }
 function selectView(id: AppView) {
-  activeView.value = id
+  if (route.name !== id) void router.push({ name: id })
   openGroupId.value = null
 }
 function toggleUserMenu() {
@@ -112,7 +115,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <button class="brand" title="Matching Outfit" @click="activeView = 'agent'">
+      <button class="brand" title="Matching Outfit" @click="selectView('agent')">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <rect x="3" y="3" width="13" height="13" rx="4" opacity=".55" />
