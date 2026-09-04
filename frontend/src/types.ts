@@ -1,5 +1,13 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
-export type AppView = 'agent' | 'similarity' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
+export type AppView =
+  | 'agent'
+  | 'debug'
+  | 'similarity'
+  | 'catalog'
+  | 'favorites'
+  | 'tryon'
+  | 'preferences'
+  | 'mbti'
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
@@ -424,6 +432,56 @@ export interface FashionKnowledgeSource {
   name: string
   index_url: string
   audience: 'men' | 'women'
+}
+
+// ---- Fashion MBTI ----
+
+export type MbtiAxisKey = 'C' | 'S' | 'B' | 'I' | 'M' | 'O' | 'N' | 'V'
+export type MbtiOptionId = 'A' | 'B' | 'C' | 'D'
+export type MbtiRawScores = Record<MbtiAxisKey, number>
+
+export interface FashionMbtiOption {
+  id: MbtiOptionId
+  label: string
+  scores: Partial<MbtiRawScores>
+  /** 圖片題才有：用色票組合代替照片，避免使用授權不明的圖。 */
+  swatches?: Array<{ tone: string; pattern?: string }>
+}
+
+export interface FashionMbtiQuestion {
+  id: number
+  prompt: string
+  visual?: boolean
+  options: FashionMbtiOption[]
+}
+
+export interface FashionMbtiAnswer {
+  questionId: number
+  optionId: MbtiOptionId
+}
+
+export interface FashionMbtiType {
+  code: string
+  name: string
+  representative: { name: string }
+  description: string
+}
+
+export interface FashionMbtiResult extends FashionMbtiType {
+  keywords: string[]
+  scores: {
+    comfort: number
+    style: number
+    budget: number
+    invest: number
+    modest: number
+    open: number
+    neutral: number
+    vivid: number
+  }
+  raw: MbtiRawScores
+  answers: FashionMbtiAnswer[]
+  completedAt: string
 }
 
 export interface FashionArticleAutoUpdateResponse extends FashionArticleCollectResponse {

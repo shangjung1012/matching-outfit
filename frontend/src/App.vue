@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Bookmark, Bug, MessageSquareText, ScanFace, Search, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
+import {
+  Bookmark, Bug, Fingerprint, MessageSquareText, ScanFace, Search, Shirt, SlidersHorizontal, X,
+} from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
 import SimilarSearchView from './views/SimilarSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
+import FashionMbtiView from './views/FashionMbtiView.vue'
 import FavoritesView from './views/FavoritesView.vue'
 import PreferencesView from './views/PreferencesView.vue'
 import VirtualTryOnView from './views/VirtualTryOnView.vue'
@@ -26,6 +29,7 @@ const navigation = [
   { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
   { id: 'favorites' as const, label: '我的收藏', icon: Bookmark },
   { id: 'tryon' as const, label: '虛擬試穿', icon: ScanFace },
+  { id: 'mbti' as const, label: '穿搭人格', icon: Fingerprint },
   { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
 ]
 
@@ -77,6 +81,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEsca
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
       <FavoritesView v-show="activeView === 'favorites'" :user-key="userKey" />
       <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
+      <FashionMbtiView v-if="activeView === 'mbti'" :user-key="userKey" />
       <PreferencesView
         v-show="activeView === 'preferences'"
         :key="preferenceRevision"
