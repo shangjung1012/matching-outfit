@@ -119,7 +119,6 @@ class OutfitScoreBreakdown(BaseModel):
     fashion_clip: float = Field(ge=0, le=1)
     compatibility: float = Field(ge=0, le=1)
     context_fit: float = Field(ge=0, le=1)
-    preference_adjustment: float
     aesthetic: float | None = Field(default=None, ge=0, le=1)
 
 
@@ -157,18 +156,11 @@ class RecommendationResponse(BaseModel):
 # User preferences
 #
 # Hard rules live on the ``user_hard_rules`` row and act as gates - they are
-# translated into SQL filters on ``clothes``. Soft style preferences live on
-# ``user_style_preferences`` as weighted, context-scoped taste: "explicit" from
-# the settings UI, "implicit" promoted from liked outfits. Soft rows share
-# FashionObservation's vocabulary so the planner/ranker can fold them together
-# with retrieved fashion knowledge.
+# translated into SQL filters on ``clothes``. Soft preferences are context-scoped
+# sentences authored by the user or confirmed from liked outfits. They guide LLM
+# stages but never alter rank scores directly.
 # ---------------------------------------------------------------------------
 
-PreferenceAxis = Literal[
-    "style", "color", "silhouette", "material", "article_type", "pattern", "length", "fit", "brand"
-]
-PreferencePolarity = Literal["prefer", "avoid"]
-PreferenceZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "any"]
 PreferenceSource = Literal["explicit", "implicit"]
 
 
@@ -202,25 +194,20 @@ class HardRulesUpdate(HardRules):
 
 
 class StylePreferenceBase(BaseModel):
-    axis: PreferenceAxis
-    value: str = Field(min_length=1, max_length=500)
-    zone: PreferenceZone = "any"
-    polarity: PreferencePolarity = "prefer"
-    weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    preference_text: str = Field(min_length=1, max_length=500)
     context_occasions: list[str] = Field(default_factory=list)
-    context_seasons: list[str] = Field(default_factory=list)
-    context_climates: list[str] = Field(default_factory=list)
+    context_times: list[str] = Field(default_factory=list)
+    context_situations: list[str] = Field(default_factory=list)
 
 
 class StylePreferenceCreate(StylePreferenceBase):
     source: PreferenceSource = "explicit"
-    origin: str | None = Field(default=None, max_length=255)
     origin_item_ids: list[str] = Field(default_factory=list)
 
 
 class StylePreferencePatch(BaseModel):
     is_active: bool | None = None
-    weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    preference_text: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 class StylePreferenceView(StylePreferenceCreate):
@@ -228,7 +215,6 @@ class StylePreferenceView(StylePreferenceCreate):
     user_key: str
     is_active: bool = True
     confirmed_at: datetime | None = None
-    last_applied_at: datetime | None = None
     created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

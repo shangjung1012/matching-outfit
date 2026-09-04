@@ -150,7 +150,7 @@ export function addStylePreference(userKey: string, row: StylePreferenceCreate) 
 export function patchStylePreference(
   userKey: string,
   id: number,
-  patch: { is_active?: boolean; weight?: number },
+  patch: { is_active?: boolean; preference_text?: string },
 ) {
   return request<StylePreference>(`${prefBase(userKey)}/soft/${id}`, json('PATCH', patch))
 }

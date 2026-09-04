@@ -17,7 +17,7 @@ The project has four main input sources:
 
 3. **User preferences**
    - Hard rules: price limits and attributes to avoid.
-   - Soft style preferences: weighted taste such as preferred colors, silhouettes, materials, styles, or garment types.
+   - Outfit memories: user-authored or confirmed preference sentences scoped by occasion, time, and situation.
 
 4. **Fashion articles**
    - URL lists such as `data/article_urls.example.txt`.
@@ -74,7 +74,7 @@ Main tables:
 
 - `clothes`: imported catalog items, image paths, garment zones, price metadata, and FashionCLIP image embeddings.
 - `user_hard_rules`: one row per user for hard filters such as price range and avoided colors or categories.
-- `user_style_preferences`: many rows per user for weighted soft taste, including explicit settings and confirmed implicit preferences.
+- `user_style_preferences`: context-scoped preference sentences, including user-authored entries and memories confirmed from liked outfits.
 - `fashion_articles`: article metadata and extracted summary.
 - `fashion_observations`: reusable outfit observations extracted from articles, with tags and text embeddings.
 - `fashion_rules`: curated styling rules with conditions, recommendation text, source, weight, and active flag.
@@ -90,7 +90,7 @@ user input + user preferences
   -> FashionCLIP searches catalog images/text
   -> outfit ranker combines upper/lower/one-piece candidates
   -> hard rules filter invalid items
-  -> soft preferences adjust ranking
+  -> relevant preference sentences guide query planning and the final aesthetic review
   -> optional aesthetic reviewer re-ranks shortlist
   -> frontend displays final outfits
 ```

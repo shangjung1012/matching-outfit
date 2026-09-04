@@ -9,16 +9,13 @@ defineEmits<{ confirm: []; dismiss: [] }>()
 <template>
   <section class="preference-proposal">
     <div>
-      <span class="section-kicker">Preference update</span>
       <h3>要把這次的喜好記下來嗎？</h3>
       <ul v-if="proposal.proposals.length" class="proposal-rows">
         <li v-for="(row, index) in proposal.proposals" :key="index">
-          <span class="soft-pref-tag prefer">偏好句</span>
-          <span>{{ row.value }}</span>
+          <span>{{ row.preference_text }}</span>
         </li>
       </ul>
       <p v-else>沒有可新增的偏好項目。</p>
-      <p v-if="proposal.proposals.length">{{ proposal.explanation }}</p>
     </div>
     <div class="proposal-actions">
       <button class="secondary-button" @click="$emit('dismiss')"><X :size="16" />先不要</button>

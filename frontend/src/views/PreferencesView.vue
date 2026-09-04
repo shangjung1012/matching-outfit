@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { Plus, Save, SlidersHorizontal, Trash2 } from 'lucide-vue-next'
+import { Brain, Check, Pencil, Plus, Save, ShieldCheck, Trash2, X } from 'lucide-vue-next'
 import {
   addStylePreference,
   deleteStylePreference,
@@ -10,20 +10,9 @@ import {
 } from '../api'
 import ColorPreferenceEditor from '../components/ColorPreferenceEditor.vue'
 import TagInput from '../components/TagInput.vue'
-import type {
-  HardRules,
-  PreferenceAxis,
-  PreferencePolarity,
-  PreferenceZone,
-  StylePreference,
-} from '../types'
+import type { HardRules, StylePreference } from '../types'
 
 const props = defineProps<{ userKey: string }>()
-
-const AXES: PreferenceAxis[] = [
-  'style', 'color', 'silhouette', 'material', 'article_type', 'pattern', 'length', 'fit', 'brand',
-]
-const ZONES: PreferenceZone[] = ['any', 'upper_body', 'lower_body', 'one_piece', 'accessory']
 
 function emptyHard(): HardRules {
   return {
@@ -36,31 +25,21 @@ function emptyHard(): HardRules {
   }
 }
 
-const LIST_KEYS = [
-  'avoid_colours', 'avoid_article_types', 'avoid_master_categories',
-] as const
-
 const hard = reactive<HardRules>(emptyHard())
 const soft = ref<StylePreference[]>([])
+const newPreference = reactive({ text: '', occasion: '', time: '', situation: '' })
+const editingId = ref<number | null>(null)
+const editingText = ref('')
 const loading = ref(false)
 const savingHard = ref(false)
 const message = ref('')
 const error = ref('')
 
-const newRow = reactive<{
-  axis: PreferenceAxis
-  term: string
-  zone: PreferenceZone
-  polarity: PreferencePolarity
-  weight: number
-}>({ axis: 'style', term: '', zone: 'any', polarity: 'prefer', weight: 0.3 })
-
-/** Merge an API payload onto `hard`, never letting a list field become null/undefined. */
 function applyHard(source: Partial<HardRules> | null | undefined): void {
   Object.assign(hard, emptyHard(), source ?? {})
-  for (const key of LIST_KEYS) {
-    if (!Array.isArray(hard[key])) hard[key] = []
-  }
+  if (!Array.isArray(hard.avoid_colours)) hard.avoid_colours = []
+  if (!Array.isArray(hard.avoid_article_types)) hard.avoid_article_types = []
+  if (!Array.isArray(hard.avoid_master_categories)) hard.avoid_master_categories = []
 }
 
 async function load() {
@@ -84,7 +63,7 @@ async function saveHard() {
   try {
     const saved = await saveHardRules(props.userKey, { ...hard })
     applyHard(saved)
-    message.value = '硬性條件已儲存，之後搜尋時會直接過濾掉不符合的單品。'
+    message.value = '購物條件已儲存'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '儲存失敗'
   } finally {
@@ -93,32 +72,45 @@ async function saveHard() {
 }
 
 async function addSoft() {
-  if (!newRow.term.trim()) return
+  const preferenceText = newPreference.text.trim()
+  if (!preferenceText) return
   error.value = ''
   try {
     const row = await addStylePreference(props.userKey, {
-      axis: newRow.axis,
-      value: newRow.term.trim().toLowerCase(),
-      zone: newRow.zone,
-      polarity: newRow.polarity,
-      weight: newRow.weight,
+      preference_text: preferenceText,
       source: 'explicit',
-      origin: 'settings',
       origin_item_ids: [],
-      context_occasions: [],
-      context_seasons: [],
-      context_climates: [],
+      context_occasions: newPreference.occasion.trim() ? [newPreference.occasion.trim()] : [],
+      context_times: newPreference.time.trim() ? [newPreference.time.trim()] : [],
+      context_situations: newPreference.situation.trim() ? [newPreference.situation.trim()] : [],
     })
     soft.value = [...soft.value.filter((item) => item.id !== row.id), row]
-    newRow.term = ''
+    Object.assign(newPreference, { text: '', occasion: '', time: '', situation: '' })
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '新增失敗'
   }
 }
 
 async function toggleActive(row: StylePreference) {
-  const updated = await patchStylePreference(props.userKey, row.id, { is_active: !row.is_active })
+  const updated = await patchStylePreference(props.userKey, row.id, {
+    is_active: !row.is_active,
+  })
   soft.value = soft.value.map((item) => (item.id === row.id ? updated : item))
+}
+
+function beginEdit(row: StylePreference) {
+  editingId.value = row.id
+  editingText.value = row.preference_text
+}
+
+async function saveEdit(row: StylePreference) {
+  const text = editingText.value.trim()
+  if (!text) return
+  const updated = await patchStylePreference(props.userKey, row.id, {
+    preference_text: text,
+  })
+  soft.value = soft.value.map((item) => (item.id === row.id ? updated : item))
+  editingId.value = null
 }
 
 async function removeSoft(row: StylePreference) {
@@ -126,111 +118,120 @@ async function removeSoft(row: StylePreference) {
   soft.value = soft.value.filter((item) => item.id !== row.id)
 }
 
+function preferenceContexts(row: StylePreference): string[] {
+  return [
+    ...row.context_occasions,
+    ...row.context_times,
+    ...row.context_situations,
+  ]
+}
+
 onMounted(load)
 </script>
 
 <template>
   <section class="page-view preferences-view">
-    <header class="view-heading">
+    <header class="view-heading preferences-heading">
       <div>
-        <span class="section-kicker">Profile</span>
-        <h2>我的穿搭偏好</h2>
-        <p>User ID：{{ userKey }}</p>
+        <h2>偏好設定</h2>
+        <p>{{ userKey }}</p>
       </div>
     </header>
 
-    <div v-if="loading" class="loading-state">正在載入偏好…</div>
+    <div v-if="loading" class="loading-state">正在載入</div>
     <div v-else class="preference-form">
-      <!-- ============ HARD：硬性條件（直接過濾） ============ -->
-      <section class="form-section">
-        <div class="form-section-heading">
-          <h3>硬性條件（Gate）</h3>
-          <p>不符合的單品會在搜尋階段直接被排除。</p>
-        </div>
+      <section class="settings-section">
+        <header class="settings-section-heading">
+          <ShieldCheck :size="20" />
+          <h3>購物條件</h3>
+        </header>
 
-        <div class="two-column-section">
-          <div>
-            <div class="form-section-heading"><h4>價格範圍</h4></div>
+        <div class="settings-list">
+          <div class="settings-row price-settings-row">
+            <div class="settings-label"><strong>價格範圍</strong></div>
             <div class="price-inputs">
-              <label>最低<input v-model.number="hard.price_min" type="number" min="0" /></label>
-              <label>最高<input v-model.number="hard.price_max" type="number" min="0" /></label>
+              <label>最低價格<input v-model.number="hard.price_min" type="number" min="0" /></label>
+              <label>最高價格<input v-model.number="hard.price_max" type="number" min="0" /></label>
             </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-label"><strong>排除顏色</strong></div>
+            <ColorPreferenceEditor v-model="hard.avoid_colours" />
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-label"><strong>排除衣服類型</strong></div>
+            <TagInput v-model="hard.avoid_article_types" placeholder="輸入衣服類型" />
+          </div>
+
+          <div class="settings-row">
+            <label class="settings-label" for="required-details"><strong>其他必要條件</strong></label>
+            <textarea id="required-details" v-model="hard.notes" rows="3" />
           </div>
         </div>
 
-        <div class="form-section-heading"><h4>避免的顏色</h4></div>
-        <ColorPreferenceEditor v-model="hard.avoid_colours" />
-
-        <div class="form-section-heading"><h4>避免的衣服類型</h4></div>
-        <TagInput v-model="hard.avoid_article_types" placeholder="例如 Skirts" />
-
-        <label class="notes-field">硬性備註（Agent 必須遵守）
-          <textarea v-model="hard.notes" rows="3" placeholder="例如：一定要有口袋" />
-        </label>
-
-        <button class="primary-button save-button" :disabled="savingHard" @click="saveHard">
-          <Save :size="17" />{{ savingHard ? '儲存中…' : '儲存硬性條件' }}
-        </button>
+        <div class="settings-actions">
+          <button class="primary-button" :disabled="savingHard" @click="saveHard">
+            <Save :size="17" />{{ savingHard ? '儲存中' : '儲存變更' }}
+          </button>
+        </div>
       </section>
 
-      <!-- ============ SOFT：軟性偏好（加權評分） ============ -->
-      <section class="form-section">
-        <div class="form-section-heading">
-          <h3>軟性偏好（加權）</h3>
-          <p>不會淘汰單品，只在排序時加減分。可隨時關閉或刪除。</p>
-        </div>
+      <section class="settings-section">
+        <header class="settings-section-heading">
+          <Brain :size="20" />
+          <h3>穿搭記憶</h3>
+        </header>
 
-        <ul v-if="soft.length" class="soft-pref-list">
+        <ul v-if="soft.length" class="memory-list">
           <li v-for="row in soft" :key="row.id" :class="{ inactive: !row.is_active }">
-            <span class="soft-pref-tag" :class="row.polarity">
-              {{ row.polarity === 'prefer' ? '偏好' : '避免' }}
-            </span>
-            <span class="soft-pref-body">
-              <template v-if="row.origin === 'liked-outfit-sentence'">
-                {{ row.value }}
+            <div class="memory-content">
+              <template v-if="editingId === row.id">
+                <textarea v-model="editingText" rows="3" />
+                <div class="memory-edit-actions">
+                  <button class="icon-button" title="取消編輯" @click="editingId = null"><X :size="15" /></button>
+                  <button class="icon-button dark" title="儲存偏好" @click="saveEdit(row)"><Check :size="15" /></button>
+                </div>
               </template>
               <template v-else>
-                <strong>{{ row.axis }}</strong> = {{ row.value }}
-                <em v-if="row.zone !== 'any'">（{{ row.zone }}）</em>
+                <p>{{ row.preference_text }}</p>
+                <div v-if="preferenceContexts(row).length" class="memory-contexts">
+                  <span v-for="context in preferenceContexts(row)" :key="context">{{ context }}</span>
+                </div>
               </template>
-              <span class="soft-pref-weight">權重 {{ row.weight.toFixed(2) }}</span>
-              <span v-if="row.source === 'implicit'" class="soft-pref-src">從收藏學到</span>
-            </span>
-            <span class="soft-pref-actions">
-              <button class="secondary-button" @click="toggleActive(row)">
-                {{ row.is_active ? '停用' : '啟用' }}
-              </button>
-              <button class="icon-button" title="刪除" @click="removeSoft(row)"><Trash2 :size="15" /></button>
-            </span>
+            </div>
+            <div class="memory-actions">
+              <button
+                class="preference-toggle"
+                :class="{ active: row.is_active }"
+                role="switch"
+                :aria-checked="row.is_active"
+                :title="row.is_active ? '停用' : '啟用'"
+                @click="toggleActive(row)"
+              ><span /></button>
+              <button class="icon-button" title="編輯" @click="beginEdit(row)"><Pencil :size="15" /></button>
+              <button class="icon-button danger" title="刪除" @click="removeSoft(row)"><Trash2 :size="15" /></button>
+            </div>
           </li>
         </ul>
-        <p v-else class="empty-hint">還沒有軟性偏好。</p>
+        <div v-else class="memory-empty"><Brain :size="24" /><span>尚無穿搭記憶</span></div>
 
-        <div class="soft-pref-add">
-          <select v-model="newRow.axis">
-            <option v-for="axis in AXES" :key="axis" :value="axis">{{ axis }}</option>
-          </select>
-          <input v-model="newRow.term" placeholder="值，例如 japanese / light / linen" @keyup.enter="addSoft" />
-          <select v-model="newRow.zone">
-            <option v-for="zone in ZONES" :key="zone" :value="zone">{{ zone }}</option>
-          </select>
-          <select v-model="newRow.polarity">
-            <option value="prefer">偏好</option>
-            <option value="avoid">避免</option>
-          </select>
-          <label class="weight-input">權重
-            <input v-model.number="newRow.weight" type="number" min="0" max="1" step="0.05" />
-          </label>
-          <button class="primary-button" @click="addSoft"><Plus :size="15" />新增</button>
+        <div class="memory-create">
+          <label>新增偏好<textarea v-model="newPreference.text" rows="3" /></label>
+          <div class="memory-context-inputs">
+            <label>場合<input v-model="newPreference.occasion" /></label>
+            <label>時間<input v-model="newPreference.time" /></label>
+            <label>情境<input v-model="newPreference.situation" /></label>
+          </div>
+          <button class="secondary-button" :disabled="!newPreference.text.trim()" @click="addSoft">
+            <Plus :size="16" />新增偏好
+          </button>
         </div>
       </section>
 
       <p v-if="message" class="success-banner">{{ message }}</p>
       <p v-if="error" class="error-banner">{{ error }}</p>
-    </div>
-
-    <div v-if="!loading && error && !soft.length" class="empty-view">
-      <SlidersHorizontal :size="32" /><h3>{{ error }}</h3>
     </div>
   </section>
 </template>

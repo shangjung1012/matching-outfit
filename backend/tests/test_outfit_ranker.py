@@ -12,15 +12,14 @@ from app.api.routes import outfit_memory_proposals
 from app.services.outfit_ranker import rank_outfits, select_diverse
 
 
-def style_pref(axis: str, value: str, polarity: str, weight: float = 0.5) -> UserStylePreference:
+def style_pref(text: str) -> UserStylePreference:
     return UserStylePreference(
         user_key="demo",
-        axis=axis,
-        value=value,
-        zone="any",
-        polarity=polarity,
-        weight=weight,
+        preference_text=text,
         is_active=True,
+        context_occasions=[],
+        context_times=[],
+        context_situations=[],
     )
 
 
@@ -70,19 +69,15 @@ def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:
     proposals = outfit_memory_proposals({70: upper, 71: lower}, payload)
 
     assert len(proposals) == 1
-    assert proposals[0].axis == "style"
-    assert proposals[0].origin == "liked-outfit-sentence"
-    assert "秋天參加戶外婚禮" in proposals[0].value
-    assert "Silk Shirt、Wide Leg Trousers" in proposals[0].value
+    assert "秋天參加戶外婚禮" in proposals[0].preference_text
+    assert "Silk Shirt、Wide Leg Trousers" in proposals[0].preference_text
     assert proposals[0].context_occasions == ["戶外婚禮"]
 
 
 def test_outfit_memories_are_filtered_by_current_context() -> None:
-    wedding_memory = style_pref("style", "婚禮偏好句", "prefer")
-    wedding_memory.origin = "liked-outfit-sentence"
+    wedding_memory = style_pref("婚禮偏好句")
     wedding_memory.context_occasions = ["戶外婚禮"]
-    work_memory = style_pref("style", "上班偏好句", "prefer")
-    work_memory.origin = "liked-outfit-sentence"
+    work_memory = style_pref("上班偏好句")
     work_memory.context_occasions = ["上班"]
 
     selected = relevant_style_preferences(
@@ -123,25 +118,6 @@ def test_ranker_collects_and_deduplicates_query_reference_urls() -> None:
         {"title": "上身指南", "url": "https://example.com/upper"},
         {"title": "下身指南", "url": "https://example.com/lower"},
     ]
-
-
-def test_ranker_uses_user_color_preferences_after_fashion_clip_retrieval() -> None:
-    groups = [
-        group(
-            "upper_body",
-            [cloth(1, "upper_body", "Black", 0.8), cloth(2, "upper_body", "Red", 0.8)],
-        ),
-        group("lower_body", [cloth(3, "lower_body", "Beige", 0.8)]),
-    ]
-    style_preferences = [
-        style_pref("color", "black", "prefer"),
-        style_pref("color", "red", "avoid"),
-    ]
-
-    recommendations = rank_outfits(groups, style_preferences=style_preferences)
-
-    assert recommendations[0].items[0].base_colour == "Black"
-    assert any("Preferred color" in reason for reason in recommendations[0].reasons)
 
 
 def test_ranker_includes_accessory_when_formula_requested_one() -> None:

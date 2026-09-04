@@ -2,13 +2,7 @@ from itertools import combinations, product
 from typing import Literal
 from uuid import uuid4
 
-from app.models.user_preference import UserStylePreference
 from app.schemas import ClothResult, OutfitRecommendation, OutfitScoreBreakdown, QuerySearchResult
-
-# Soft-preference axes the ranker can actually check against catalog metadata.
-# Visual axes (style / silhouette / material / pattern / length / fit) have no
-# matching Cloth column - they are honoured at query-planning time instead.
-SCORABLE_PREFERENCE_AXES = {"color", "article_type", "brand"}
 
 NEUTRAL_COLORS = {
     "black", "white", "grey", "gray", "charcoal", "beige", "cream",
@@ -26,44 +20,6 @@ STRICT_CONTEXT_TERMS = {
 }
 CASUAL_ARTICLE_TYPES = {"tshirts", "shorts", "track pants", "sweatshirts", "leggings"}
 FORMAL_ARTICLE_TYPES = {"blazers", "shirts", "trousers", "dresses", "sarees", "waistcoat"}
-
-
-def _item_matches_axis(item: ClothResult, axis: str, value: str) -> bool:
-    value = value.strip().lower()
-    if axis == "color":
-        return (item.base_colour or "").strip().lower() == value
-    if axis == "article_type":
-        return (item.article_type or "").strip().lower() == value
-    if axis == "brand":
-        return (item.brand_name or "").strip().lower() == value
-    return False
-
-
-def _preference_adjustment(
-    items: list[ClothResult], style_preferences: list[UserStylePreference] | None
-) -> tuple[float, list[str]]:
-    """Weighted soft-preference nudge, averaged over the outfit's items.
-
-    Hard rules are already enforced as SQL filters in ``search_catalog`` and do
-    not reach here. ``prefer`` rows add ``+weight``, ``avoid`` rows subtract it
-    (scaled so a default weight of 0.3 is roughly a +/-0.045 nudge per match).
-    """
-    if not style_preferences or not items:
-        return 0.0, []
-    adjustment = 0.0
-    reasons: list[str] = []
-    for preference in style_preferences:
-        if not preference.is_active or preference.axis not in SCORABLE_PREFERENCE_AXES:
-            continue
-        sign = 1.0 if preference.polarity == "prefer" else -1.0
-        for item in items:
-            if preference.zone != "any" and item.garment_zone != preference.zone:
-                continue
-            if _item_matches_axis(item, preference.axis, preference.value):
-                adjustment += sign * preference.weight * 0.15
-                verb = "Preferred" if preference.polarity == "prefer" else "Avoided"
-                reasons.append(f"{verb} {preference.axis}: {preference.value}")
-    return adjustment / len(items), list(dict.fromkeys(reasons))
 
 
 def _color_pair_score(first: str | None, second: str | None) -> float:
@@ -115,17 +71,15 @@ def _context_fit_score(items: list[ClothResult], user_context: str) -> tuple[flo
 def _recommendation(
     kind: Literal["separates", "one_piece"],
     items: list[ClothResult],
-    style_preferences: list[UserStylePreference] | None,
     coverage_reason: str,
     user_context: str,
 ) -> OutfitRecommendation:
     similarity = sum(item.similarity for item in items) / len(items)
     compatibility = _compatibility_score(items)
     context_fit, context_reasons = _context_fit_score(items, user_context)
-    preference_score, preference_reasons = _preference_adjustment(items, style_preferences)
     match_score = max(
         0.0,
-        min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit + preference_score),
+        min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit),
     )
     references = list(
         {
@@ -144,11 +98,10 @@ def _recommendation(
             fashion_clip=round(similarity, 4),
             compatibility=round(compatibility, 4),
             context_fit=round(context_fit, 4),
-            preference_adjustment=round(preference_score, 4),
         ),
         reasons=[
             "FashionCLIP candidate relevance", coverage_reason,
-            *context_reasons, *preference_reasons,
+            *context_reasons,
         ],
         references=references,
     )
@@ -157,7 +110,6 @@ def _recommendation(
 def rank_outfits(
     groups: list[QuerySearchResult],
     limit: int = 20,
-    style_preferences: list[UserStylePreference] | None = None,
     user_context: str = "",
 ) -> list[OutfitRecommendation]:
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
@@ -189,7 +141,7 @@ def rank_outfits(
         items = [upper, lower, *([accessory] if accessory else [])]
         recommendations.append(
             _recommendation(
-                "separates", items, style_preferences,
+                "separates", items,
                 "Upper and lower body candidate coverage", user_context,
             )
         )
@@ -197,7 +149,7 @@ def rank_outfits(
         items = [item, *([accessory] if accessory else [])]
         recommendations.append(
             _recommendation(
-                "one_piece", items, style_preferences,
+                "one_piece", items,
                 "One-piece candidate coverage", user_context,
             )
         )

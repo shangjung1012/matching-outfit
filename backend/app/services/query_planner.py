@@ -194,8 +194,8 @@ class QueryOutputNormalizer:
     ) -> set[str]:
         sources = [user_input.lower()]
         for row in style_preferences or []:
-            if row.is_active and row.axis == "color" and row.polarity == "prefer":
-                sources.append(row.value.lower())
+            if row.is_active:
+                sources.append(row.preference_text.lower())
         allowed: set[str] = set()
         for color, aliases in COLOR_ALIASES.items():
             if any(

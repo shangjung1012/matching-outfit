@@ -91,7 +91,6 @@ export interface OutfitRecommendation {
     fashion_clip: number
     compatibility: number
     context_fit: number
-    preference_adjustment: number
     aesthetic: number | null
   } | null
   aesthetic_review: {
@@ -138,13 +137,8 @@ export interface RecommendationResponse {
   knowledge_note: string
 }
 
-// ---- User preferences: hard gates + soft weighted taste ----
+// ---- User preferences ----
 
-export type PreferenceAxis =
-  | 'style' | 'color' | 'silhouette' | 'material'
-  | 'article_type' | 'pattern' | 'length' | 'fit' | 'brand'
-export type PreferencePolarity = 'prefer' | 'avoid'
-export type PreferenceZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'any'
 export type PreferenceSource = 'explicit' | 'implicit'
 
 export interface HardRules {
@@ -158,17 +152,12 @@ export interface HardRules {
 }
 
 export interface StylePreferenceCreate {
-  axis: PreferenceAxis
-  value: string
-  zone: PreferenceZone
-  polarity: PreferencePolarity
-  weight: number
+  preference_text: string
   source: PreferenceSource
-  origin: string | null
   origin_item_ids: string[]
   context_occasions: string[]
-  context_seasons: string[]
-  context_climates: string[]
+  context_times: string[]
+  context_situations: string[]
 }
 
 export interface StylePreference extends StylePreferenceCreate {
@@ -176,7 +165,6 @@ export interface StylePreference extends StylePreferenceCreate {
   user_key: string
   is_active: boolean
   confirmed_at: string | null
-  last_applied_at: string | null
   created_at: string | null
 }
 

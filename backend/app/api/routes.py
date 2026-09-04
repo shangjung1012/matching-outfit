@@ -183,36 +183,23 @@ def upsert_style_preference(
     *,
     confirmed: bool = False,
 ) -> tuple[UserStylePreference, bool]:
-    """Insert a soft preference, or merge into the existing slot.
-
-    The slot key mirrors the ``uq_user_style_preference_slot`` constraint
-    (user_key, axis, value, zone, polarity). A repeated confirmation reactivates
-    the row, nudges its weight up, and unions the context lists.
-    """
+    """Insert a preference sentence or merge an exact duplicate."""
     existing = db.scalar(
         select(UserStylePreference).where(
             UserStylePreference.user_key == user_key,
-            UserStylePreference.axis == row.axis,
-            UserStylePreference.value == row.value,
-            UserStylePreference.zone == row.zone,
-            UserStylePreference.polarity == row.polarity,
+            UserStylePreference.preference_text == row.preference_text,
         )
     )
     now = datetime.now(timezone.utc)
     if existing is None:
         created = UserStylePreference(
             user_key=user_key,
-            axis=row.axis,
-            value=row.value,
-            zone=row.zone,
-            polarity=row.polarity,
-            weight=row.weight,
+            preference_text=row.preference_text,
             source=row.source,
-            origin=row.origin,
             origin_item_ids=row.origin_item_ids,
             context_occasions=row.context_occasions,
-            context_seasons=row.context_seasons,
-            context_climates=row.context_climates,
+            context_times=row.context_times,
+            context_situations=row.context_situations,
             is_active=True,
             confirmed_at=now if confirmed else None,
         )
@@ -220,10 +207,9 @@ def upsert_style_preference(
         return created, True
 
     existing.is_active = True
-    existing.weight = min(1.0, max(existing.weight, row.weight) + (0.05 if confirmed else 0.0))
     existing.context_occasions = sorted({*existing.context_occasions, *row.context_occasions})
-    existing.context_seasons = sorted({*existing.context_seasons, *row.context_seasons})
-    existing.context_climates = sorted({*existing.context_climates, *row.context_climates})
+    existing.context_times = sorted({*existing.context_times, *row.context_times})
+    existing.context_situations = sorted({*existing.context_situations, *row.context_situations})
     existing.origin_item_ids = sorted({*existing.origin_item_ids, *row.origin_item_ids})
     if confirmed:
         existing.confirmed_at = now
@@ -252,17 +238,12 @@ def outfit_memory_proposals(
             sentence = f"{sentence[:497]}..."
         proposals.append(
             StylePreferenceCreate(
-                axis="style",
-                value=sentence,
-                zone="any",
-                polarity="prefer",
-                weight=0.3,
+                preference_text=sentence,
                 source="implicit",
-                origin="liked-outfit-sentence",
                 origin_item_ids=[str(cloth.id) for cloth in clothes],
                 context_occasions=[payload.occasion] if payload.occasion else [],
-                context_seasons=[payload.time] if payload.time else [],
-                context_climates=[payload.context] if payload.context else [],
+                context_times=[payload.time] if payload.time else [],
+                context_situations=[payload.context] if payload.context else [],
             )
         )
     return proposals
@@ -391,9 +372,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
     style_preferences = relevant_style_preferences(
         style_preferences_for(db, payload.user_key), payload.user_input
     )
-    outfit_memories = [
-        row.value for row in style_preferences if row.origin == "liked-outfit-sentence"
-    ]
+    outfit_memories = [row.preference_text for row in style_preferences]
     memory_context = " ".join(outfit_memories)
     ranking_context = (
         f"{payload.user_input} {observation_context} "
@@ -408,7 +387,6 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
     ranked_pool = rank_outfits(
         groups,
         limit=min(750, max(200, payload.shortlist_count * 20)),
-        style_preferences=style_preferences,
         user_context=payload.user_input,
     )
     shortlist = select_diverse(ranked_pool, payload.shortlist_count)
@@ -527,8 +505,8 @@ def patch_style_preference(
         raise HTTPException(status_code=404, detail="Style preference not found")
     if payload.is_active is not None:
         row.is_active = payload.is_active
-    if payload.weight is not None:
-        row.weight = payload.weight
+    if payload.preference_text is not None:
+        row.preference_text = payload.preference_text
     db.commit()
     db.refresh(row)
     return StylePreferenceView.model_validate(row)
