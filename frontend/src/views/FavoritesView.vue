@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Bookmark, Check } from 'lucide-vue-next'
+import { Bookmark, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { proposeSoftFromItem } from '../api'
 import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import ProductCard from '../components/ProductCard.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
-import type { FavoriteItem, StylePreferenceProposal } from '../types'
+import type {
+  FavoriteItem,
+  FavoriteOutfit,
+  StylePreferenceProposal,
+} from '../types'
+import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{ userKey: string }>()
 const {
   favoriteItems,
   favoriteItemIds,
+  favoriteOutfits,
   favoritesLoading,
   isPreferred,
   loadFavorites,
@@ -26,6 +32,7 @@ const actionLoading = ref(false)
 const error = ref('')
 const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceStatus = ref('')
+const expandedItemIds = ref(new Set<number>())
 
 const sortedFavorites = computed(() => {
   const rows = [...favoriteItems.value]
@@ -44,6 +51,18 @@ const sortedFavorites = computed(() => {
   }
   return rows.sort((left, right) => byDate(right) - byDate(left))
 })
+
+function pairingsFor(itemId: number): FavoriteOutfit[] {
+  return favoriteOutfits.value.filter(
+    (outfit) => outfit.items.some((item) => item.id === itemId),
+  )
+}
+
+function togglePairings(itemId: number) {
+  const next = new Set(expandedItemIds.value)
+  next.has(itemId) ? next.delete(itemId) : next.add(itemId)
+  expandedItemIds.value = next
+}
 
 async function runAction(task: () => Promise<void>) {
   actionLoading.value = true
@@ -144,7 +163,45 @@ onMounted(() => {
         favorite-enabled
         @toggle-preference="togglePreference"
         @toggle-favorite="removeFavorite"
-      />
+      >
+        <div v-if="pairingsFor(row.item.id).length" class="favorite-pairings">
+          <button
+            type="button"
+            class="favorite-pairings-toggle"
+            :aria-expanded="expandedItemIds.has(row.item.id)"
+            @click="togglePairings(row.item.id)"
+          >
+            <span>查看搭配（{{ pairingsFor(row.item.id).length }}）</span>
+            <ChevronUp v-if="expandedItemIds.has(row.item.id)" :size="16" />
+            <ChevronDown v-else :size="16" />
+          </button>
+          <div
+            v-if="expandedItemIds.has(row.item.id)"
+            class="favorite-pairing-groups"
+          >
+            <section
+              v-for="(outfit, outfitIndex) in pairingsFor(row.item.id)"
+              :key="outfit.id"
+              class="favorite-pairing-group"
+            >
+              <strong v-if="pairingsFor(row.item.id).length > 1">
+                搭配 {{ outfitIndex + 1 }}
+              </strong>
+              <div
+                v-for="partner in outfit.items.filter((item) => item.id !== row.item.id)"
+                :key="partner.id"
+                class="favorite-pairing-item"
+              >
+                <img :src="partner.image_url" :alt="partner.product_display_name" />
+                <div>
+                  <span>{{ partner.product_display_name }}</span>
+                  <small>{{ formatCurrency(partner.price, partner.currency) }}</small>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </ProductCard>
     </div>
     <div v-else class="empty-view">
       <Bookmark :size="34" />

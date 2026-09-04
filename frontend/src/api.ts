@@ -185,6 +185,17 @@ export function updateFavoriteItems(
   )
 }
 
+export function updateFavoriteOutfit(
+  userKey: string,
+  itemIds: number[],
+  favorited: boolean,
+) {
+  return request<FavoriteCollection>(
+    `/api/favorites/${encodeURIComponent(userKey)}/outfits`,
+    json('PUT', { item_ids: itemIds, favorited }),
+  )
+}
+
 export function getCatalog(zone = '') {
   const params = new URLSearchParams({ limit: '100' })
   if (zone) params.set('zone', zone)

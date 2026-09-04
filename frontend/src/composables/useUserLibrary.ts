@@ -7,21 +7,28 @@ import {
   getPreferenceBundle,
   patchStylePreference,
   updateFavoriteItems,
+  updateFavoriteOutfit,
 } from '../api'
 import type {
   FavoriteItem,
+  FavoriteOutfit,
   PreferenceBundle,
   StylePreference,
   StylePreferenceCreate,
 } from '../types'
 
 const favoriteItems = ref<FavoriteItem[]>([])
+const favoriteOutfits = ref<FavoriteOutfit[]>([])
 const stylePreferences = ref<StylePreference[]>([])
 const favoritesLoading = ref(false)
 const preferencesLoading = ref(false)
 
 function normalizedOrigin(itemIds: Array<number | string>): string {
   return [...new Set(itemIds.map(String))].sort().join(':')
+}
+
+function normalizedOutfit(itemIds: number[]): string {
+  return [...new Set(itemIds)].sort((left, right) => left - right).join(':')
 }
 
 function replacePreference(updated: StylePreference): void {
@@ -39,7 +46,9 @@ export function useUserLibrary(userKey: string) {
   async function loadFavorites(): Promise<void> {
     favoritesLoading.value = true
     try {
-      favoriteItems.value = (await getFavorites(userKey)).items
+      const collection = await getFavorites(userKey)
+      favoriteItems.value = collection.items
+      favoriteOutfits.value = collection.outfits
     } finally {
       favoritesLoading.value = false
     }
@@ -63,6 +72,19 @@ export function useUserLibrary(userKey: string) {
   async function setFavoriteItems(itemIds: number[], favorited: boolean): Promise<void> {
     await updateFavoriteItems(userKey, itemIds, favorited)
     await loadFavorites()
+  }
+
+  function isOutfitFavorited(itemIds: number[]): boolean {
+    const signature = normalizedOutfit(itemIds)
+    return favoriteOutfits.value.some(
+      (outfit) => normalizedOutfit(outfit.items.map((item) => item.id)) === signature,
+    )
+  }
+
+  async function setFavoriteOutfit(itemIds: number[], favorited: boolean): Promise<void> {
+    const collection = await updateFavoriteOutfit(userKey, itemIds, favorited)
+    favoriteItems.value = collection.items
+    favoriteOutfits.value = collection.outfits
   }
 
   function isPreferred(itemIds: Array<number | string>): boolean {
@@ -114,6 +136,7 @@ export function useUserLibrary(userKey: string) {
   return {
     favoriteItems,
     favoriteItemIds,
+    favoriteOutfits,
     favoritesLoading,
     stylePreferences,
     preferencesLoading,
@@ -121,6 +144,8 @@ export function useUserLibrary(userKey: string) {
     loadPreferences,
     loadLibrary,
     setFavoriteItems,
+    isOutfitFavorited,
+    setFavoriteOutfit,
     isPreferred,
     confirmPreferences,
     deactivatePreferenceOrigin,

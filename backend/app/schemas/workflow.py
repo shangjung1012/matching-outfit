@@ -437,14 +437,32 @@ class FavoriteItem(BaseModel):
     favorited_at: datetime
 
 
+class FavoriteOutfit(BaseModel):
+    id: int
+    favorited_at: datetime
+    items: list[CatalogItem] = Field(min_length=2)
+
+
 class FavoriteCollection(BaseModel):
     user_key: str
     items: list[FavoriteItem] = Field(default_factory=list)
+    outfits: list[FavoriteOutfit] = Field(default_factory=list)
 
 
 class FavoriteItemsUpdate(BaseModel):
     item_ids: list[int] = Field(min_length=1, max_length=100)
     favorited: bool
+
+
+class FavoriteOutfitUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=2, max_length=100)
+    favorited: bool
+
+    @model_validator(mode="after")
+    def _require_two_distinct_items(self) -> "FavoriteOutfitUpdate":
+        if len(set(self.item_ids)) < 2:
+            raise ValueError("An outfit requires at least two distinct item IDs")
+        return self
 
 
 class FavoriteItemsMutationResponse(BaseModel):

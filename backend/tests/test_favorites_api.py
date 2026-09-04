@@ -9,7 +9,11 @@ from app.api.routes import router
 from app.db.session import get_db
 from app.models.base import Base
 from app.models.cloth import Cloth
-from app.models.user_favorite import UserFavoriteItem
+from app.models.user_favorite import (
+    UserFavoriteItem,
+    UserFavoriteOutfit,
+    UserFavoriteOutfitItem,
+)
 from app.models.user_preference import UserStylePreference
 
 
@@ -22,7 +26,13 @@ def client():
     )
     Base.metadata.create_all(
         engine,
-        tables=[Cloth.__table__, UserFavoriteItem.__table__, UserStylePreference.__table__],
+        tables=[
+            Cloth.__table__,
+            UserFavoriteItem.__table__,
+            UserFavoriteOutfit.__table__,
+            UserFavoriteOutfitItem.__table__,
+            UserStylePreference.__table__,
+        ],
     )
     test_session: sessionmaker[Session] = sessionmaker(
         bind=engine,
@@ -54,6 +64,15 @@ def client():
                     price=900,
                     currency="INR",
                 ),
+                Cloth(
+                    id=3,
+                    product_display_name="Blue Denim Jacket",
+                    garment_zone="upper_body",
+                    image_path="/data/images/3.jpg",
+                    image_url="/media/3.jpg",
+                    price=1800,
+                    currency="INR",
+                ),
             ]
         )
         db.commit()
@@ -77,7 +96,7 @@ def test_favorites_are_idempotent_ordered_and_isolated_by_user(client) -> None:
 
     empty = test_client.get("/api/favorites/alice")
     assert empty.status_code == 200
-    assert empty.json() == {"user_key": "alice", "items": []}
+    assert empty.json() == {"user_key": "alice", "items": [], "outfits": []}
 
     added = test_client.put(
         "/api/favorites/alice/items",
@@ -101,6 +120,130 @@ def test_favorites_are_idempotent_ordered_and_isolated_by_user(client) -> None:
     assert [row["item"]["id"] for row in favorites] == [2, 1]
     assert all(row["favorited_at"] for row in favorites)
     assert test_client.get("/api/favorites/bob").json()["items"] == []
+
+
+def test_outfit_favorites_preserve_order_and_are_set_idempotent(client) -> None:
+    test_client, test_session = client
+
+    added = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [1, 2, 2], "favorited": True},
+    )
+    assert added.status_code == 200
+    payload = added.json()
+    assert {row["item"]["id"] for row in payload["items"]} == {1, 2}
+    assert len(payload["outfits"]) == 1
+    assert [item["id"] for item in payload["outfits"][0]["items"]] == [1, 2]
+
+    duplicate = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [2, 1], "favorited": True},
+    )
+    assert duplicate.status_code == 200
+    assert len(duplicate.json()["outfits"]) == 1
+    assert [item["id"] for item in duplicate.json()["outfits"][0]["items"]] == [1, 2]
+
+    with test_session() as db:
+        assert db.scalar(select(func.count()).select_from(UserFavoriteOutfit)) == 1
+        favorite_rows = list(db.scalars(select(UserFavoriteItem)))
+        assert all(row.is_direct is False for row in favorite_rows)
+
+    assert test_client.get("/api/favorites/bob").json()["outfits"] == []
+
+
+def test_outfit_favorites_support_multiple_bidirectional_pairings(client) -> None:
+    test_client, _ = client
+    for item_ids in ([1, 2], [3, 1]):
+        response = test_client.put(
+            "/api/favorites/alice/outfits",
+            json={"item_ids": item_ids, "favorited": True},
+        )
+        assert response.status_code == 200
+
+    collection = test_client.get("/api/favorites/alice").json()
+    assert len(collection["outfits"]) == 2
+    outfits_by_set = {
+        frozenset(item["id"] for item in outfit["items"]): outfit
+        for outfit in collection["outfits"]
+    }
+    assert set(outfits_by_set) == {frozenset({1, 2}), frozenset({1, 3})}
+    assert sum(
+        1 for outfit in collection["outfits"]
+        if any(item["id"] == 1 for item in outfit["items"])
+    ) == 2
+
+
+def test_removing_outfit_only_cleans_orphaned_indirect_items(client) -> None:
+    test_client, _ = client
+    test_client.put(
+        "/api/favorites/alice/items",
+        json={"item_ids": [1], "favorited": True},
+    )
+    for item_ids in ([1, 2], [2, 3]):
+        test_client.put(
+            "/api/favorites/alice/outfits",
+            json={"item_ids": item_ids, "favorited": True},
+        )
+
+    first_removed = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [2, 1], "favorited": False},
+    )
+    assert first_removed.status_code == 200
+    assert {row["item"]["id"] for row in first_removed.json()["items"]} == {1, 2, 3}
+    assert [
+        {item["id"] for item in outfit["items"]}
+        for outfit in first_removed.json()["outfits"]
+    ] == [{2, 3}]
+
+    second_removed = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [2, 3], "favorited": False},
+    )
+    assert second_removed.status_code == 200
+    assert [row["item"]["id"] for row in second_removed.json()["items"]] == [1]
+    assert second_removed.json()["outfits"] == []
+
+
+def test_removing_single_item_dissolves_outfits_and_preserves_partners(client) -> None:
+    test_client, test_session = client
+    test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [1, 2], "favorited": True},
+    )
+
+    removed = test_client.put(
+        "/api/favorites/alice/items",
+        json={"item_ids": [1], "favorited": False},
+    )
+    assert removed.status_code == 200
+    assert removed.json()["favorite_item_ids"] == [2]
+    collection = test_client.get("/api/favorites/alice").json()
+    assert [row["item"]["id"] for row in collection["items"]] == [2]
+    assert collection["outfits"] == []
+    with test_session() as db:
+        partner = db.scalar(
+            select(UserFavoriteItem).where(UserFavoriteItem.cloth_id == 2)
+        )
+        assert partner is not None and partner.is_direct is True
+
+
+def test_outfit_validation_and_missing_items_are_atomic(client) -> None:
+    test_client, test_session = client
+    too_small = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [1, 1], "favorited": True},
+    )
+    assert too_small.status_code == 422
+
+    missing = test_client.put(
+        "/api/favorites/alice/outfits",
+        json={"item_ids": [1, 999], "favorited": True},
+    )
+    assert missing.status_code == 404
+    with test_session() as db:
+        assert db.scalar(select(func.count()).select_from(UserFavoriteItem)) == 0
+        assert db.scalar(select(func.count()).select_from(UserFavoriteOutfit)) == 0
 
 
 def test_batch_remove_and_missing_item_are_atomic(client) -> None:

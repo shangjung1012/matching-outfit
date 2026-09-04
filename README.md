@@ -46,7 +46,7 @@ Optional external services:
 
 ### Frontend
 
-The frontend is a Vue 3 + Vite app. It provides catalog browsing, persistent item favorites, preference editing, recommendation flow, and virtual try-on screens.
+The frontend is a Vue 3 + Vite app. It provides catalog browsing, persistent item and outfit favorites, saved-pairing discovery, preference editing, recommendation flow, and virtual try-on screens.
 
 Default URL:
 
@@ -77,7 +77,8 @@ Main tables:
 - `clothes`: imported catalog items, image paths, garment zones, price metadata, and FashionCLIP image embeddings.
 - `user_hard_rules`: one row per user for personal profile data and hard filters such as price range and avoided colors or categories.
 - `user_style_preferences`: context-scoped preference sentences, including user-authored entries and memories confirmed from liked outfits.
-- `user_favorite_items`: per-user catalog bookmarks; bookmarking an outfit stores each garment independently.
+- `user_favorite_items`: per-user catalog bookmarks, including whether an item was saved directly or brought in by an outfit.
+- `user_favorite_outfits` and `user_favorite_outfit_items`: saved outfit groups and their ordered item relationships, used to show every previously saved pairing in both directions.
 - `fashion_articles`: article metadata and extracted summary.
 - `fashion_observations`: reusable outfit observations extracted from articles, with tags and text embeddings.
 - `fashion_rules`: curated styling rules with conditions, recommendation text, source, weight, and active flag.

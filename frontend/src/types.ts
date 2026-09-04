@@ -155,9 +155,16 @@ export interface FavoriteItem {
   favorited_at: string
 }
 
+export interface FavoriteOutfit {
+  id: number
+  favorited_at: string
+  items: CatalogItem[]
+}
+
 export interface FavoriteCollection {
   user_key: string
   items: FavoriteItem[]
+  outfits: FavoriteOutfit[]
 }
 
 export interface FavoriteItemsMutationResponse {

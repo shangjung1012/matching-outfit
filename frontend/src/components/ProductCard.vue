@@ -59,6 +59,7 @@ defineEmits<{
         <strong>{{ formatCurrency(item.price, item.currency) }}</strong>
         <span v-if="showSimilarity && 'similarity' in item">{{ Math.round(item.similarity * 100) }}% match</span>
       </div>
+      <slot />
     </div>
   </article>
 </template>

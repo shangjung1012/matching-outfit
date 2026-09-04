@@ -12,7 +12,11 @@ from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
-from app.models.user_favorite import UserFavoriteItem
+from app.models.user_favorite import (
+    UserFavoriteItem,
+    UserFavoriteOutfit,
+    UserFavoriteOutfitItem,
+)
 from app.preferences.context import (
     build_planner_preference_context,
     outfit_context_embedding_text,
@@ -24,6 +28,8 @@ from app.schemas import (
     CatalogSemanticSearchResponse,
     FavoriteCollection,
     FavoriteItem,
+    FavoriteOutfit,
+    FavoriteOutfitUpdate,
     FavoriteItemsMutationResponse,
     FavoriteItemsUpdate,
     ClarificationRequest,
@@ -235,21 +241,65 @@ def semantic_catalog_search(
     )
 
 
-@router.get("/favorites/{user_key}", response_model=FavoriteCollection)
-def get_favorites(user_key: str, db: Session = Depends(get_db)) -> FavoriteCollection:
+def favorite_outfit_signature(item_ids: list[int]) -> str:
+    return ",".join(str(item_id) for item_id in sorted(set(item_ids)))
+
+
+def favorite_collection_for(db: Session, user_key: str) -> FavoriteCollection:
     rows = db.execute(
         select(UserFavoriteItem, Cloth)
         .join(Cloth, Cloth.id == UserFavoriteItem.cloth_id)
         .where(UserFavoriteItem.user_key == user_key)
         .order_by(UserFavoriteItem.created_at.desc(), UserFavoriteItem.id.desc())
     ).all()
+    outfits = list(
+        db.scalars(
+            select(UserFavoriteOutfit)
+            .where(UserFavoriteOutfit.user_key == user_key)
+            .order_by(UserFavoriteOutfit.created_at.desc(), UserFavoriteOutfit.id.desc())
+        )
+    )
+    outfit_items: dict[int, list[CatalogItem]] = {outfit.id: [] for outfit in outfits}
+    if outfits:
+        item_rows = db.execute(
+            select(UserFavoriteOutfitItem.outfit_id, Cloth)
+            .join(
+                UserFavoriteItem,
+                UserFavoriteItem.id == UserFavoriteOutfitItem.favorite_item_id,
+            )
+            .join(Cloth, Cloth.id == UserFavoriteItem.cloth_id)
+            .where(
+                UserFavoriteOutfitItem.outfit_id.in_([outfit.id for outfit in outfits])
+            )
+            .order_by(
+                UserFavoriteOutfitItem.outfit_id,
+                UserFavoriteOutfitItem.position,
+            )
+        ).all()
+        for outfit_id, cloth in item_rows:
+            outfit_items[outfit_id].append(catalog_item_view(cloth))
+
     return FavoriteCollection(
         user_key=user_key,
         items=[
             FavoriteItem(item=catalog_item_view(cloth), favorited_at=favorite.created_at)
             for favorite, cloth in rows
         ],
+        outfits=[
+            FavoriteOutfit(
+                id=outfit.id,
+                favorited_at=outfit.created_at,
+                items=outfit_items[outfit.id],
+            )
+            for outfit in outfits
+            if len(outfit_items[outfit.id]) >= 2
+        ],
     )
+
+
+@router.get("/favorites/{user_key}", response_model=FavoriteCollection)
+def get_favorites(user_key: str, db: Session = Depends(get_db)) -> FavoriteCollection:
+    return favorite_collection_for(db, user_key)
 
 
 @router.put(
@@ -271,23 +321,67 @@ def update_favorite_items(
             detail=f"Catalog items not found: {', '.join(map(str, missing_ids))}",
         )
 
-    existing_ids = set(
+    existing_rows = list(
         db.scalars(
-            select(UserFavoriteItem.cloth_id).where(
+            select(UserFavoriteItem).where(
                 UserFavoriteItem.user_key == user_key,
                 UserFavoriteItem.cloth_id.in_(item_ids),
             )
-        ).all()
+        )
     )
+    existing_by_cloth = {row.cloth_id: row for row in existing_rows}
+    existing_ids = set(existing_by_cloth)
     added = removed = 0
     if payload.favorited:
         for item_id in item_ids:
-            if item_id not in existing_ids:
-                db.add(UserFavoriteItem(user_key=user_key, cloth_id=item_id))
+            favorite = existing_by_cloth.get(item_id)
+            if favorite is None:
+                db.add(
+                    UserFavoriteItem(
+                        user_key=user_key, cloth_id=item_id, is_direct=True
+                    )
+                )
                 added += 1
+            else:
+                favorite.is_direct = True
     else:
         removed = len(existing_ids)
         if existing_ids:
+            favorite_ids = [row.id for row in existing_rows]
+            affected_outfit_ids = list(
+                db.scalars(
+                    select(UserFavoriteOutfitItem.outfit_id)
+                    .where(
+                        UserFavoriteOutfitItem.favorite_item_id.in_(favorite_ids)
+                    )
+                    .distinct()
+                )
+            )
+            if affected_outfit_ids:
+                preserved_favorite_ids = set(
+                    db.scalars(
+                        select(UserFavoriteOutfitItem.favorite_item_id).where(
+                            UserFavoriteOutfitItem.outfit_id.in_(affected_outfit_ids),
+                            UserFavoriteOutfitItem.favorite_item_id.not_in(favorite_ids),
+                        )
+                    )
+                )
+                for favorite in db.scalars(
+                    select(UserFavoriteItem).where(
+                        UserFavoriteItem.id.in_(preserved_favorite_ids)
+                    )
+                ):
+                    favorite.is_direct = True
+                db.execute(
+                    delete(UserFavoriteOutfitItem).where(
+                        UserFavoriteOutfitItem.outfit_id.in_(affected_outfit_ids)
+                    )
+                )
+                db.execute(
+                    delete(UserFavoriteOutfit).where(
+                        UserFavoriteOutfit.id.in_(affected_outfit_ids)
+                    )
+                )
             db.execute(
                 delete(UserFavoriteItem).where(
                     UserFavoriteItem.user_key == user_key,
@@ -309,6 +403,96 @@ def update_favorite_items(
         removed=removed,
         favorite_item_ids=favorite_item_ids,
     )
+
+
+@router.put("/favorites/{user_key}/outfits", response_model=FavoriteCollection)
+def update_favorite_outfit(
+    user_key: str,
+    payload: FavoriteOutfitUpdate,
+    db: Session = Depends(get_db),
+) -> FavoriteCollection:
+    item_ids = list(dict.fromkeys(payload.item_ids))
+    found_ids = set(
+        db.scalars(select(Cloth.id).where(Cloth.id.in_(item_ids))).all()
+    )
+    missing_ids = sorted(set(item_ids) - found_ids)
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Catalog items not found: {', '.join(map(str, missing_ids))}",
+        )
+
+    signature = favorite_outfit_signature(item_ids)
+    outfit = db.scalar(
+        select(UserFavoriteOutfit).where(
+            UserFavoriteOutfit.user_key == user_key,
+            UserFavoriteOutfit.item_signature == signature,
+        )
+    )
+    if payload.favorited and outfit is None:
+        favorite_rows = list(
+            db.scalars(
+                select(UserFavoriteItem).where(
+                    UserFavoriteItem.user_key == user_key,
+                    UserFavoriteItem.cloth_id.in_(item_ids),
+                )
+            )
+        )
+        favorites_by_cloth = {row.cloth_id: row for row in favorite_rows}
+        for item_id in item_ids:
+            if item_id not in favorites_by_cloth:
+                favorite = UserFavoriteItem(
+                    user_key=user_key, cloth_id=item_id, is_direct=False
+                )
+                db.add(favorite)
+                favorites_by_cloth[item_id] = favorite
+        db.flush()
+
+        outfit = UserFavoriteOutfit(
+            user_key=user_key,
+            item_signature=signature,
+        )
+        db.add(outfit)
+        db.flush()
+        db.add_all(
+            [
+                UserFavoriteOutfitItem(
+                    outfit_id=outfit.id,
+                    favorite_item_id=favorites_by_cloth[item_id].id,
+                    position=position,
+                )
+                for position, item_id in enumerate(item_ids)
+            ]
+        )
+    elif not payload.favorited and outfit is not None:
+        member_ids = list(
+            db.scalars(
+                select(UserFavoriteOutfitItem.favorite_item_id).where(
+                    UserFavoriteOutfitItem.outfit_id == outfit.id
+                )
+            )
+        )
+        db.execute(
+            delete(UserFavoriteOutfitItem).where(
+                UserFavoriteOutfitItem.outfit_id == outfit.id
+            )
+        )
+        db.delete(outfit)
+        db.flush()
+
+        for favorite in db.scalars(
+            select(UserFavoriteItem).where(UserFavoriteItem.id.in_(member_ids))
+        ):
+            still_grouped = db.scalar(
+                select(UserFavoriteOutfitItem.id)
+                .where(UserFavoriteOutfitItem.favorite_item_id == favorite.id)
+                .limit(1)
+            )
+            if not favorite.is_direct and still_grouped is None:
+                db.delete(favorite)
+
+    db.commit()
+    return favorite_collection_for(db, user_key)
 
 
 @router.post("/similarity_image", response_model=list[ClothResult])

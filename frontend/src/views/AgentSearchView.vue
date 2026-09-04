@@ -37,7 +37,9 @@ const emit = defineEmits<{
 const {
   favoriteItemIds,
   isPreferred,
+  isOutfitFavorited,
   setFavoriteItems,
+  setFavoriteOutfit,
   confirmPreferences,
   deactivatePreferenceOrigin,
 } = useUserLibrary(props.userKey)
@@ -309,8 +311,10 @@ function outfitIsPreferred(outfit: OutfitRecommendation): boolean {
 }
 
 function outfitIsFavorited(outfit: OutfitRecommendation): boolean {
-  return outfit.items.length > 0
-    && outfit.items.every((item) => favoriteItemIds.value.has(item.id))
+  const itemIds = outfitItemIds(outfit)
+  return itemIds.length === 1
+    ? favoriteItemIds.value.has(itemIds[0])
+    : isOutfitFavorited(itemIds)
 }
 
 async function togglePreference(outfit: OutfitRecommendation) {
@@ -338,7 +342,12 @@ async function toggleFavorite(outfit: OutfitRecommendation) {
   if (loading.value) return
   const itemIds = outfitItemIds(outfit)
   await run(async () => {
-    await setFavoriteItems(itemIds, !outfitIsFavorited(outfit))
+    const favorited = !outfitIsFavorited(outfit)
+    if (itemIds.length === 1) {
+      await setFavoriteItems(itemIds, favorited)
+    } else {
+      await setFavoriteOutfit(itemIds, favorited)
+    }
   })
 }
 

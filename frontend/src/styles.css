@@ -426,6 +426,17 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .favorites-heading { align-items: center; }
 .favorites-sort { display: flex; align-items: center; gap: 9px; color: #626a63; font-size: .72rem; font-weight: 700; }
 .favorites-sort select { height: 40px; border: 1px solid #cdd2cc; border-radius: 5px; padding: 0 34px 0 11px; color: #303731; background: #fff; }
+.favorite-pairings { margin: 13px -13px -13px; border-top: 1px solid #e1e5df; }
+.favorite-pairings-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; padding: 11px 13px; color: #315d49; background: #f7faf7; font-size: .7rem; font-weight: 750; cursor: pointer; }
+.favorite-pairings-toggle:hover { background: #eef5f0; }
+.favorite-pairing-groups { display: grid; gap: 10px; padding: 0 13px 13px; background: #f7faf7; }
+.favorite-pairing-group { display: grid; gap: 7px; padding-top: 9px; border-top: 1px solid #dde5df; }
+.favorite-pairing-group > strong { color: #657068; font-size: .62rem; }
+.favorite-pairing-item { min-width: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 9px; }
+.favorite-pairing-item img { width: 48px; height: 58px; display: block; object-fit: cover; border-radius: 4px; background: #e9ece8; }
+.favorite-pairing-item div { min-width: 0; display: grid; gap: 4px; }
+.favorite-pairing-item span { overflow: hidden; color: #353c36; font-size: .68rem; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.favorite-pairing-item small { color: #69726b; font-size: .63rem; }
 
 /* Preferences */
 .preferences-view { max-width: 1060px; }
