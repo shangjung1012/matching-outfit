@@ -50,16 +50,13 @@ __all__ = [
     "SearchResponse",
     "UserPreferenceUpdate",
     "UserPreferenceView",
-<<<<<<< Updated upstream
     "TryOnCapabilities",
     "TryOnClothType",
     "TryOnJobStatus",
     "TryOnJobView",
-=======
     "FashionKnowledgeStatus",
     "StylingCatalogRequest",
     "StylingCatalogResponse",
     "StylingDemoRequest",
     "StylingDemoResponse",
->>>>>>> Stashed changes
 ]
