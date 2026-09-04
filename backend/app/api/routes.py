@@ -2,7 +2,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
+from app.models.user_favorite import UserFavoriteItem
 from app.preferences.context import (
     build_planner_preference_context,
     outfit_context_embedding_text,
@@ -19,6 +20,10 @@ from app.schemas import (
     CatalogResponse,
     CatalogSemanticSearchRequest,
     CatalogSemanticSearchResponse,
+    FavoriteCollection,
+    FavoriteItem,
+    FavoriteItemsMutationResponse,
+    FavoriteItemsUpdate,
     ClarificationRequest,
     ClarificationResponse,
     HardRulesUpdate,
@@ -36,6 +41,7 @@ from app.schemas import (
     StylePreferencePatch,
     StylePreferenceProposal,
     StylePreferenceProposalRequest,
+    StylePreferenceItemProposalRequest,
     StylePreferenceView,
     FashionKnowledgeStatus,
 )
@@ -142,6 +148,31 @@ def semantic_fashion_knowledge(
     )
 
 
+def catalog_item_view(cloth: Cloth) -> CatalogItem:
+    return CatalogItem(
+        id=cloth.id,
+        source_item_id=cloth.source_item_id,
+        product_display_name=cloth.product_display_name,
+        garment_zone=cloth.garment_zone,
+        image_url=cloth.image_url,
+        price=cloth.price,
+        original_price=cloth.original_price,
+        discounted_price=cloth.discounted_price,
+        currency=cloth.currency,
+        brand_name=cloth.brand_name,
+        age_group=cloth.age_group,
+        gender=cloth.gender,
+        master_category=cloth.master_category,
+        sub_category=cloth.sub_category,
+        article_type=cloth.article_type,
+        base_colour=cloth.base_colour,
+        season=cloth.season,
+        year=cloth.year,
+        usage=cloth.usage,
+        has_embedding=cloth.embedding is not None,
+    )
+
+
 @router.get("/catalog", response_model=CatalogResponse)
 def list_catalog(
     zone: str | None = Query(default=None),
@@ -166,31 +197,7 @@ def list_catalog(
     clothes = db.scalars(select(Cloth).where(*filters).order_by(Cloth.id).offset(offset).limit(limit))
     return CatalogResponse(
         total=total,
-        items=[
-            CatalogItem(
-                id=cloth.id,
-                source_item_id=cloth.source_item_id,
-                product_display_name=cloth.product_display_name,
-                garment_zone=cloth.garment_zone,
-                image_url=cloth.image_url,
-                price=cloth.price,
-                original_price=cloth.original_price,
-                discounted_price=cloth.discounted_price,
-                currency=cloth.currency,
-                brand_name=cloth.brand_name,
-                age_group=cloth.age_group,
-                gender=cloth.gender,
-                master_category=cloth.master_category,
-                sub_category=cloth.sub_category,
-                article_type=cloth.article_type,
-                base_colour=cloth.base_colour,
-                season=cloth.season,
-                year=cloth.year,
-                usage=cloth.usage,
-                has_embedding=cloth.embedding is not None,
-            )
-            for cloth in clothes
-        ],
+        items=[catalog_item_view(cloth) for cloth in clothes],
     )
 
 
@@ -221,6 +228,82 @@ def semantic_catalog_search(
     )
 
 
+@router.get("/favorites/{user_key}", response_model=FavoriteCollection)
+def get_favorites(user_key: str, db: Session = Depends(get_db)) -> FavoriteCollection:
+    rows = db.execute(
+        select(UserFavoriteItem, Cloth)
+        .join(Cloth, Cloth.id == UserFavoriteItem.cloth_id)
+        .where(UserFavoriteItem.user_key == user_key)
+        .order_by(UserFavoriteItem.created_at.desc(), UserFavoriteItem.id.desc())
+    ).all()
+    return FavoriteCollection(
+        user_key=user_key,
+        items=[
+            FavoriteItem(item=catalog_item_view(cloth), favorited_at=favorite.created_at)
+            for favorite, cloth in rows
+        ],
+    )
+
+
+@router.put(
+    "/favorites/{user_key}/items", response_model=FavoriteItemsMutationResponse
+)
+def update_favorite_items(
+    user_key: str,
+    payload: FavoriteItemsUpdate,
+    db: Session = Depends(get_db),
+) -> FavoriteItemsMutationResponse:
+    item_ids = list(dict.fromkeys(payload.item_ids))
+    found_ids = set(
+        db.scalars(select(Cloth.id).where(Cloth.id.in_(item_ids))).all()
+    )
+    missing_ids = sorted(set(item_ids) - found_ids)
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Catalog items not found: {', '.join(map(str, missing_ids))}",
+        )
+
+    existing_ids = set(
+        db.scalars(
+            select(UserFavoriteItem.cloth_id).where(
+                UserFavoriteItem.user_key == user_key,
+                UserFavoriteItem.cloth_id.in_(item_ids),
+            )
+        ).all()
+    )
+    added = removed = 0
+    if payload.favorited:
+        for item_id in item_ids:
+            if item_id not in existing_ids:
+                db.add(UserFavoriteItem(user_key=user_key, cloth_id=item_id))
+                added += 1
+    else:
+        removed = len(existing_ids)
+        if existing_ids:
+            db.execute(
+                delete(UserFavoriteItem).where(
+                    UserFavoriteItem.user_key == user_key,
+                    UserFavoriteItem.cloth_id.in_(existing_ids),
+                )
+            )
+    db.commit()
+
+    favorite_item_ids = list(
+        db.scalars(
+            select(UserFavoriteItem.cloth_id)
+            .where(UserFavoriteItem.user_key == user_key)
+            .order_by(UserFavoriteItem.cloth_id)
+        ).all()
+    )
+    return FavoriteItemsMutationResponse(
+        user_key=user_key,
+        added=added,
+        removed=removed,
+        favorite_item_ids=favorite_item_ids,
+    )
+
+
 def hard_rules_for(db: Session, user_key: str) -> UserHardRule | None:
     return db.scalar(select(UserHardRule).where(UserHardRule.user_key == user_key))
 
@@ -241,12 +324,21 @@ def upsert_style_preference(
     *,
     confirmed: bool = False,
 ) -> tuple[UserStylePreference, bool]:
-    """Insert a preference sentence or merge an exact duplicate."""
-    existing = db.scalar(
+    """Insert a preference sentence or merge an exact text-and-origin duplicate."""
+    candidates = db.scalars(
         select(UserStylePreference).where(
             UserStylePreference.user_key == user_key,
             UserStylePreference.preference_text == row.preference_text,
         )
+    ).all()
+    origin_key = sorted(set(row.origin_item_ids))
+    existing = next(
+        (
+            candidate
+            for candidate in candidates
+            if sorted(set(candidate.origin_item_ids)) == origin_key
+        ),
+        None,
     )
     now = datetime.now(timezone.utc)
     if existing is None:
@@ -315,6 +407,25 @@ def outfit_memory_proposals(
             )
         )
     return proposals
+
+
+def item_preference_proposal(cloth: Cloth) -> StylePreferenceCreate:
+    attributes = [
+        value.strip()
+        for value in (cloth.base_colour, cloth.article_type, cloth.usage)
+        if value and value.strip()
+    ]
+    sentence = f"使用者喜歡「{cloth.product_display_name}」"
+    if attributes:
+        sentence += f"；偏好的商品特徵包含 {'、'.join(attributes)}"
+    sentence += "。"
+    if len(sentence) > 500:
+        sentence = f"{sentence[:497]}..."
+    return StylePreferenceCreate(
+        preference_text=sentence,
+        source="implicit",
+        origin_item_ids=[str(cloth.id)],
+    )
 
 
 @router.post("/query-plans", response_model=PlanResponse)
@@ -662,6 +773,23 @@ def propose_style_preferences(
     return StylePreferenceProposal(
         proposals=proposals,
         explanation="每一筆都是完整需求與所選搭配組成的偏好句，確認後才會儲存。",
+    )
+
+
+@router.post(
+    "/preferences/{user_key}/soft/from-item", response_model=StylePreferenceProposal
+)
+def propose_style_preference_from_item(
+    user_key: str,
+    payload: StylePreferenceItemProposalRequest,
+    db: Session = Depends(get_db),
+) -> StylePreferenceProposal:
+    cloth = db.get(Cloth, payload.item_id)
+    if cloth is None:
+        raise HTTPException(status_code=404, detail="Catalog item not found")
+    return StylePreferenceProposal(
+        proposals=[item_preference_proposal(cloth)],
+        explanation="確認後會把這件商品的名稱與特徵加入偏好。",
     )
 
 

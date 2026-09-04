@@ -1,5 +1,5 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
-export type AppView = 'agent' | 'catalog' | 'tryon' | 'preferences'
+export type AppView = 'agent' | 'catalog' | 'favorites' | 'tryon' | 'preferences'
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
@@ -140,6 +140,23 @@ export interface CatalogSemanticSearchResponse {
   items: ClothResult[]
   total: number
   model: string
+}
+
+export interface FavoriteItem {
+  item: CatalogItem
+  favorited_at: string
+}
+
+export interface FavoriteCollection {
+  user_key: string
+  items: FavoriteItem[]
+}
+
+export interface FavoriteItemsMutationResponse {
+  user_key: string
+  added: number
+  removed: number
+  favorite_item_ids: number[]
 }
 
 export interface OutfitRecommendation {

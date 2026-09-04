@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { MessageSquareText, ScanFace, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Bookmark, MessageSquareText, ScanFace, Shirt, SlidersHorizontal, X } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
+import FavoritesView from './views/FavoritesView.vue'
 import PreferencesView from './views/PreferencesView.vue'
 import VirtualTryOnView from './views/VirtualTryOnView.vue'
 import KnowledgeManagementView from './views/KnowledgeManagementView.vue'
+import { useUserLibrary } from './composables/useUserLibrary'
 import type { AppView } from './types'
 
 const activeView = ref<AppView>('agent')
 const knowledgeOpen = ref(false)
 const userKey = 'demo-user'
 const preferenceRevision = ref(0)
+const { loadLibrary } = useUserLibrary(userKey)
 
 const navigation = [
   { id: 'agent' as const, label: 'Agent 搜尋', icon: MessageSquareText },
   { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
+  { id: 'favorites' as const, label: '我的收藏', icon: Bookmark },
   { id: 'tryon' as const, label: '虛擬試穿', icon: ScanFace },
   { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
 ]
@@ -24,7 +28,10 @@ function closeKnowledgeOnEscape(event: KeyboardEvent) {
   if (event.key === 'Escape') knowledgeOpen.value = false
 }
 
-onMounted(() => window.addEventListener('keydown', closeKnowledgeOnEscape))
+onMounted(() => {
+  window.addEventListener('keydown', closeKnowledgeOnEscape)
+  void loadLibrary().catch(() => undefined)
+})
 onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEscape))
 </script>
 
@@ -60,6 +67,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEsca
         @open-knowledge="knowledgeOpen = true"
       />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
+      <FavoritesView v-show="activeView === 'favorites'" :user-key="userKey" />
       <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
       <PreferencesView
         v-show="activeView === 'preferences'"
