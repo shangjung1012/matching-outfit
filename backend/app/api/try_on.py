@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.try_on_job import TryOnJob
-from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobView
-from app.services.catvton_client import CatVTONError, catvton_client
+from app.schemas.try_on import SUPPORTED_REFERENCE_TYPES, TryOnCapabilities, TryOnJobView
+from app.services.tryon_client import TryOnError, tryon_client
 
 router = APIRouter(prefix="/try-on", tags=["virtual try-on"])
 
@@ -40,7 +40,7 @@ def job_view(job: TryOnJob) -> TryOnJobView:
     return TryOnJobView(
         id=job.id,
         status=job.status,
-        cloth_type=job.cloth_type,
+        reference_types=job.reference_types,
         error=job.error_message,
         result_url=result_url,
         created_at=job.created_at,
@@ -59,8 +59,23 @@ def parse_remote_datetime(value: object) -> datetime | None:
 def apply_remote_status(job: TryOnJob, payload: dict) -> None:
     status = payload.get("status")
     if status not in JOB_STATUSES:
-        raise CatVTONError("CatVTON 工作狀態無效")
+        raise TryOnError("TryOn 工作狀態無效")
+    reference_types = payload.get("reference_types")
+    if (
+        not isinstance(reference_types, list)
+        or not reference_types
+        or any(reference_type not in SUPPORTED_REFERENCE_TYPES for reference_type in reference_types)
+        or reference_types
+        != [
+            reference_type
+            for reference_type in SUPPORTED_REFERENCE_TYPES
+            if reference_type in reference_types
+        ]
+        or ("overall" in reference_types and ("upper" in reference_types or "lower" in reference_types))
+    ):
+        raise TryOnError("TryOn 參考圖片類型無效")
     job.status = status
+    job.reference_types = reference_types
     job.error_message = payload.get("error") if isinstance(payload.get("error"), str) else None
     job.expires_at = parse_remote_datetime(payload.get("expires_at"))
 
@@ -69,11 +84,11 @@ def synchronize_job(job: TryOnJob, db: Session) -> None:
     if job.remote_job_id is None:
         return
     try:
-        payload = catvton_client.get_job(job.remote_job_id)
-    except CatVTONError as error:
+        payload = tryon_client.get_job(job.remote_job_id)
+    except TryOnError as error:
         if error.status_code == 404:
             job.status = "failed"
-            job.error_message = "遠端 CatVTON 工作不存在或已過期"
+            job.error_message = "遠端 TryOn 工作不存在或已過期"
             db.commit()
             return
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -102,7 +117,7 @@ async def validated_image(upload: UploadFile) -> tuple[bytes, str]:
 
 @router.get("/capabilities", response_model=TryOnCapabilities)
 def capabilities() -> TryOnCapabilities:
-    available, reason = catvton_client.health()
+    available, reason = tryon_client.health()
     return TryOnCapabilities(
         available=available,
         reason=reason,
@@ -113,30 +128,52 @@ def capabilities() -> TryOnCapabilities:
 @router.post("/jobs", response_model=TryOnJobView, status_code=202)
 async def create_job(
     person_image: UploadFile = File(...),
-    cloth_image: UploadFile = File(...),
-    cloth_type: TryOnClothType = Form(...),
+    upper_image: UploadFile | None = File(default=None),
+    lower_image: UploadFile | None = File(default=None),
+    overall_image: UploadFile | None = File(default=None),
+    shoe_image: UploadFile | None = File(default=None),
+    bag_image: UploadFile | None = File(default=None),
     user_key: str = Form(default="demo-user", min_length=1, max_length=120),
     db: Session = Depends(get_db),
 ) -> TryOnJobView:
+    uploads = {
+        "upper": upper_image,
+        "lower": lower_image,
+        "overall": overall_image,
+        "shoe": shoe_image,
+        "bag": bag_image,
+    }
+    present_uploads = {
+        reference_type: upload
+        for reference_type, upload in uploads.items()
+        if upload is not None
+    }
+    if not present_uploads:
+        raise HTTPException(status_code=422, detail="至少需要一張參考圖片")
+    if "overall" in present_uploads and (
+        "upper" in present_uploads or "lower" in present_uploads
+    ):
+        raise HTTPException(status_code=422, detail="overall 不可與 upper 或 lower 同時使用")
+
     person_content, person_content_type = await validated_image(person_image)
-    cloth_content, cloth_content_type = await validated_image(cloth_image)
+    references: dict[str, tuple[bytes, str]] = {}
+    for reference_type, upload in present_uploads.items():
+        references[reference_type] = await validated_image(upload)
     try:
         payload = await run_in_threadpool(
-            catvton_client.create_job,
+            tryon_client.create_job,
             person_content,
             person_content_type,
-            cloth_content,
-            cloth_content_type,
-            cloth_type,
+            references,
         )
         remote_job_id = uuid.UUID(str(payload["id"]))
-    except (CatVTONError, KeyError, TypeError, ValueError) as error:
-        detail = str(error) if isinstance(error, CatVTONError) else "CatVTON 建立工作時回傳無效資料"
+    except (TryOnError, KeyError, TypeError, ValueError) as error:
+        detail = str(error) if isinstance(error, TryOnError) else "TryOn 建立工作時回傳無效資料"
         raise HTTPException(status_code=503, detail=detail) from error
 
     job = TryOnJob(
         user_key=user_key,
-        cloth_type=cloth_type,
+        reference_types=list(references),
         status="queued",
         remote_job_id=remote_job_id,
     )
@@ -148,8 +185,8 @@ async def create_job(
     except Exception:
         db.rollback()
         try:
-            await run_in_threadpool(catvton_client.delete_job, remote_job_id)
-        except CatVTONError:
+            await run_in_threadpool(tryon_client.delete_job, remote_job_id)
+        except TryOnError:
             pass
         raise
     return job_view(job)
@@ -175,8 +212,8 @@ def get_result(job_id: uuid.UUID, db: Session = Depends(get_db)) -> Response:
     if job.status != "succeeded" or job.remote_job_id is None:
         raise HTTPException(status_code=409, detail="試穿結果尚未完成")
     try:
-        content, content_type = catvton_client.get_result(job.remote_job_id)
-    except CatVTONError as error:
+        content, content_type = tryon_client.get_result(job.remote_job_id)
+    except TryOnError as error:
         if error.status_code == 410:
             raise HTTPException(status_code=410, detail="試穿結果已過期") from error
         raise HTTPException(status_code=503, detail=str(error)) from error

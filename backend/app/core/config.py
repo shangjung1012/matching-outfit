@@ -8,9 +8,9 @@ class Settings(BaseSettings):
     fashion_clip_model: str = "patrickjohncyh/fashion-clip"
     embedding_batch_size: int = 16
 
-    catvton_api_url: str = ""
-    catvton_api_key: str = ""
-    catvton_request_timeout_seconds: float = 300.0
+    tryon_api_url: str = ""
+    tryon_api_key: str = ""
+    tryon_request_timeout_seconds: float = 300.0
     tryon_max_upload_bytes: int = 10 * 1024 * 1024
     tryon_max_image_pixels: int = 20_000_000
     catalog_currency: str = "INR"
