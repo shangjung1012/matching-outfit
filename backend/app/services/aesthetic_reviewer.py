@@ -143,6 +143,7 @@ class AestheticReviewer:
                     "items": [
                         {
                             "zone": item.garment_zone,
+                            "is_reference": item.is_reference,
                             "name": item.product_display_name,
                             "color": item.base_colour,
                             "article_type": item.article_type,

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.fashion_knowledge import OutfitObservation
 
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
+PlannerGarmentZone = Literal["upper_body", "lower_body", "one_piece"]
 Audience = Literal["men", "women", "unisex"]
 RequirementField = Literal[
     "location",
@@ -279,6 +280,8 @@ class PlanRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     audience: Audience | None = None
     requirements: RequirementSummary | None = None
+    # The catalog zones this plan is allowed to retrieve. None keeps the default full outfit plan.
+    search_garment_zones: list[PlannerGarmentZone] | None = Field(default=None, min_length=1, max_length=3)
     include_debug: bool = False
 
 
@@ -349,6 +352,8 @@ class ClothResult(BaseModel):
     base_colour: str | None
     article_type: str | None
     similarity: float
+    # A request-scoped image supplied by the user, rather than a row in `clothes`.
+    is_reference: bool = False
     references: list[ReferenceLink] = Field(default_factory=list)
     image_path: str | None = Field(default=None, exclude=True, repr=False)
 

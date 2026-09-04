@@ -151,12 +151,9 @@ these as overridable background for season/material suitability, never as visual
 search words. Explicit raw user requests override defaults. Calendar season is not
 live weather; do not invent temperature, rain, or a dress code from it.
 
-Your task is to transform the user's request and supplied FashionIntent into exactly
-twelve concise English FashionCLIP product queries:
-
-- five upper_body queries,
-- five lower_body queries,
-- two one_piece queries.
+Your task is to transform the user's request and supplied FashionIntent into concise
+English FashionCLIP product queries. `required_query_counts` in the input is the
+authoritative contract: return only those garment zones and exactly those counts.
 
 You are a retrieval planner, not a creative stylist.
 
@@ -642,7 +639,7 @@ unless maximal styling was explicitly requested.
 F-G ONE-PIECE DIRECTIONS
 --------------------------------------------------
 
-Create exactly two one_piece directions:
+Only if `required_query_counts` requests one_piece, create its required number of one_piece directions:
 
 F
 G
@@ -815,14 +812,12 @@ FINAL SELF-CHECK
 
 Before output, verify:
 
-1. There are exactly 12 queries.
-2. upper_body appears exactly 5 times.
-3. lower_body appears exactly 5 times.
-4. one_piece appears exactly 2 times.
-5. Direction IDs are A-E for separates and F-G for one-piece.
-6. Each A-E pair is visually compatible.
-7. Each query describes exactly one product.
-8. Each query is visually searchable.
+1. Every zone and count exactly matches `required_query_counts`; no extra zone appears.
+2. Direction IDs are unique within a requested zone; paired upper/lower directions use matching IDs when both zones are requested.
+3. A one_piece direction appears only when one_piece is requested.
+4. Each requested upper/lower pair is visually compatible.
+5. Each query describes exactly one product.
+6. Each query is visually searchable.
 9. Each query is at most 22 English words.
 10. No forbidden query term appears.
 11. No unsupported named color appears.

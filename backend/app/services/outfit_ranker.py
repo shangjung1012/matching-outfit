@@ -75,7 +75,10 @@ def _recommendation(
     user_context: str,
     direction_id: str | None = None,
 ) -> OutfitRecommendation:
-    similarity = sum(item.similarity for item in items) / len(items)
+    # A user-uploaded reference is fixed, not a search result. Its placeholder
+    # similarity must not inflate or deflate the catalog candidate's relevance.
+    catalog_items = [item for item in items if not item.is_reference]
+    similarity = sum(item.similarity for item in catalog_items) / len(catalog_items)
     compatibility = _compatibility_score(items)
     context_fit, context_reasons = _context_fit_score(items, user_context)
     match_score = max(
@@ -105,6 +108,7 @@ def rank_outfits(
     groups: list[QuerySearchResult],
     limit: int = 20,
     user_context: str = "",
+    reference_item: ClothResult | None = None,
 ) -> list[OutfitRecommendation]:
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
     pooled_by_direction: dict[str, dict[str, dict[int, ClothResult]]] = {}
@@ -133,6 +137,27 @@ def rank_outfits(
     recommendations: list[OutfitRecommendation] = []
     accessories = by_zone.get("accessory", [])[:3]
     accessory_options: list[ClothResult | None] = accessories if accessories else [None]
+    if reference_item is not None:
+        counterpart_zone = (
+            "lower_body" if reference_item.garment_zone == "upper_body" else "upper_body"
+        )
+        for candidate in by_zone.get(counterpart_zone, []):
+            items = (
+                [reference_item, candidate]
+                if reference_item.garment_zone == "upper_body"
+                else [candidate, reference_item]
+            )
+            recommendations.append(
+                _recommendation(
+                    "separates",
+                    items,
+                    "User-uploaded garment paired with catalog candidate",
+                    user_context,
+                )
+            )
+        return _balanced_direction_candidates(
+            sorted(recommendations, key=lambda result: result.score, reverse=True), limit
+        )
     matched_directions = {
         direction_id: pools
         for direction_id, pools in pooled_by_direction.items()
@@ -254,7 +279,9 @@ def select_diverse(
 
     def identities(recommendation: OutfitRecommendation) -> set[str]:
         return {
-            normalized(item.image_path or item.image_url) for item in recommendation.items
+            normalized(item.image_path or item.image_url)
+            for item in recommendation.items
+            if not item.is_reference
         }
 
     def style_signature(recommendation: OutfitRecommendation) -> tuple:
@@ -280,7 +307,7 @@ def select_diverse(
 
     def add(recommendation: OutfitRecommendation) -> None:
         selected.append(recommendation)
-        used_item_ids.update(item.id for item in recommendation.items)
+        used_item_ids.update(item.id for item in recommendation.items if not item.is_reference)
         used_assets.update(identities(recommendation))
         used_outfit_styles.add(style_signature(recommendation))
         used_color_profiles.add(color_profile(recommendation))
@@ -370,7 +397,7 @@ def select_diverse(
             non_repeating = [
                 recommendation
                 for recommendation in candidates
-                if {item.id for item in recommendation.items}.isdisjoint(used_item_ids)
+                if {item.id for item in recommendation.items if not item.is_reference}.isdisjoint(used_item_ids)
                 and identities(recommendation).isdisjoint(used_assets)
             ]
             add_with_count((non_repeating or candidates)[0])
@@ -385,7 +412,7 @@ def select_diverse(
                 continue
             if not within_kind_target(recommendation):
                 continue
-            item_ids = {item.id for item in recommendation.items}
+            item_ids = {item.id for item in recommendation.items if not item.is_reference}
             if require_new_items and (
                 not item_ids.isdisjoint(used_item_ids)
                 or not identities(recommendation).isdisjoint(used_assets)

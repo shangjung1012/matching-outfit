@@ -1,4 +1,5 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
+export type PlannerGarmentZone = 'upper_body' | 'lower_body' | 'one_piece'
 export type AppView =
   | 'agent'
   | 'knowledge'
@@ -164,6 +165,7 @@ export interface ClothResult {
   base_colour: string | null
   article_type: string | null
   similarity: number
+  is_reference?: boolean
   references: ReferenceLink[]
 }
 

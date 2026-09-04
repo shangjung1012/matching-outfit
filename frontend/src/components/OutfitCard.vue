@@ -12,6 +12,7 @@ const props = defineProps<{
   userRequest?: string
   stylingGuide?: StylingGuide | null
   queries?: QueryDraft[]
+  referencePreviewUrl?: string
 }>()
 
 defineEmits<{ togglePreference: []; toggleFavorite: [] }>()
@@ -47,9 +48,9 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
   <article class="recommendation-card">
     <div class="recommendation-visual" :class="{ single: outfit.items.length === 1 }">
       <div v-for="item in outfit.items" :key="item.id" class="recommendation-item">
-        <a :href="item.image_url" target="_blank" rel="noopener noreferrer" :aria-label="`查看 ${item.product_display_name} 原始商品圖片`">
-          <img :src="item.image_url" :alt="item.product_display_name" />
-          <span class="outfit-original-image"><ExternalLink :size="12" />查看原圖</span>
+        <a :href="item.is_reference ? (referencePreviewUrl || '#') : item.image_url" target="_blank" rel="noopener noreferrer" :aria-label="`查看 ${item.product_display_name} 原始商品圖片`">
+          <img :src="item.is_reference ? referencePreviewUrl : item.image_url" :alt="item.product_display_name" />
+          <span class="outfit-original-image"><ExternalLink :size="12" />{{ item.is_reference ? '你的單品' : '查看原圖' }}</span>
         </a>
       </div>
     </div>

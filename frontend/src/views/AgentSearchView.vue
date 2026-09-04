@@ -23,6 +23,7 @@ import type {
   PipelineDebugSession,
   QueryDraft,
   QueryPlanDebug,
+  PlannerGarmentZone,
   RecommendationDebug,
   RequirementSummary,
   StylePreferenceProposal,
@@ -99,6 +100,9 @@ const reviewNote = ref('')
 const knowledgeNote = ref('')
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
+const referenceImage = ref<File | null>(null)
+const referenceType = ref<'upper_body' | 'lower_body'>('upper_body')
+const referencePreviewUrl = ref('')
 let messageId = 2
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 let activeController: AbortController | null = null
@@ -122,6 +126,25 @@ const composerPlaceholder = computed(() => {
   if (stage.value === 'review') return '補充調整，例如：不要裙子、再正式一點'
   return '若要搜尋其他穿搭，請開啟新的對話'
 })
+
+function chooseReferenceImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const image = input.files?.[0] ?? null
+  if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
+  referenceImage.value = image
+  referencePreviewUrl.value = image ? URL.createObjectURL(image) : ''
+}
+
+function clearReferenceImage() {
+  if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
+  referenceImage.value = null
+  referencePreviewUrl.value = ''
+}
+
+function requestedCatalogZones(): PlannerGarmentZone[] | null {
+  if (!referenceImage.value) return null
+  return [referenceType.value === 'upper_body' ? 'lower_body' : 'upper_body']
+}
 
 type RequirementDisplayField = Exclude<
   keyof RequirementSummary,
@@ -353,6 +376,7 @@ async function requestRefinement(
       currentRequirements,
       currentFashionIntent,
       selectedAudience,
+      requestedCatalogZones(),
       signal,
     ),
     (response) => {
@@ -385,6 +409,7 @@ async function requestPlanning(
       props.userKey,
       currentRequirements,
       selectedAudience,
+      requestedCatalogZones(),
       signal,
     ),
     (response) => {
@@ -436,6 +461,8 @@ async function requestRecommendations(
       selectedAudience,
       signal,
       fashionIntent.value,
+      referenceImage.value,
+      referenceImage.value ? referenceType.value : null,
     ),
     (response) => {
       recommendations.value = response.recommendations
@@ -514,6 +541,7 @@ function startNewConversation() {
   recommendationDebug.value = null
   reviewNote.value = ''
   knowledgeNote.value = ''
+  clearReferenceImage()
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -552,7 +580,7 @@ function updateQueryText(id: string, text: string) {
 }
 
 function outfitItemIds(outfit: OutfitRecommendation): number[] {
-  return outfit.items.map((item) => item.id)
+  return outfit.items.filter((item) => !item.is_reference).map((item) => item.id)
 }
 
 function outfitIsPreferred(outfit: OutfitRecommendation): boolean {
@@ -636,7 +664,10 @@ async function confirmProposal() {
   })
 }
 
-onBeforeUnmount(() => cancelAgentRequest(false))
+onBeforeUnmount(() => {
+  cancelAgentRequest(false)
+  clearReferenceImage()
+})
 </script>
 
 <template>
@@ -725,6 +756,24 @@ onBeforeUnmount(() => cancelAgentRequest(false))
             <option value="men">男裝</option>
             <option value="unisex">不限性別</option>
           </select>
+        </div>
+        <div v-if="stage !== 'results'" class="reference-image-control">
+          <label for="outfit-reference-image">指定一件已有的衣物（選填）</label>
+          <div class="reference-image-fields">
+            <select v-model="referenceType" :disabled="agentBusy">
+              <option value="upper_body">上衣：幫我找下身</option>
+              <option value="lower_body">下身：幫我找上衣</option>
+            </select>
+            <input
+              id="outfit-reference-image"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              :disabled="agentBusy"
+              @change="chooseReferenceImage"
+            />
+            <button v-if="referenceImage" type="button" :disabled="agentBusy" @click="clearReferenceImage">移除</button>
+          </div>
+          <img v-if="referencePreviewUrl" :src="referencePreviewUrl" class="reference-image-preview" alt="指定搭配單品預覽" />
         </div>
         <textarea
           v-model="draft"
@@ -915,6 +964,7 @@ onBeforeUnmount(() => cancelAgentRequest(false))
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
             :queries="queries"
+            :reference-preview-url="referencePreviewUrl"
             @toggle-preference="togglePreference(outfit)"
             @toggle-favorite="toggleFavorite(outfit)"
           />
@@ -946,6 +996,7 @@ onBeforeUnmount(() => cancelAgentRequest(false))
               :user-request="originalRequest"
               :styling-guide="stylingGuide"
               :queries="queries"
+              :reference-preview-url="referencePreviewUrl"
               :preferred="outfitIsPreferred(outfit)"
               :favorited="outfitIsFavorited(outfit)"
               :action-loading="actionLoading"

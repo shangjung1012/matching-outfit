@@ -1,9 +1,14 @@
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import tempfile
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from pydantic import ValidationError
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -76,6 +81,78 @@ from app.services.outfit_ranker import select_diverse
 from app.services.requirement_context import with_context_defaults
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class RecommendationInput:
+    payload: SearchRequest
+    reference_content: bytes | None = None
+    reference_type: Literal["upper_body", "lower_body"] | None = None
+
+
+async def recommendation_input(request: Request) -> RecommendationInput:
+    """Accept the legacy JSON request or an image-bearing multipart request."""
+    try:
+        if request.headers.get("content-type", "").startswith("multipart/form-data"):
+            form = await request.form()
+            raw_payload = form.get("payload")
+            if not isinstance(raw_payload, str):
+                raise HTTPException(status_code=422, detail="multipart request requires a JSON payload field")
+            reference_image = form.get("reference_image")
+            reference_type = form.get("reference_type")
+            if reference_image is not None and not hasattr(reference_image, "read"):
+                raise HTTPException(status_code=422, detail="reference_image 必須是圖片檔案")
+            if reference_image is None and reference_type is not None:
+                raise HTTPException(status_code=422, detail="reference_type 必須搭配 reference_image")
+            if reference_type not in (None, "upper_body", "lower_body"):
+                raise HTTPException(status_code=422, detail="reference_type 只支援 upper_body 或 lower_body")
+            validated = None
+            if reference_image is not None:
+                validated = await validate_image(
+                    reference_image,  # type: ignore[arg-type]
+                    max_bytes=settings.image_max_upload_bytes,
+                    max_pixels=settings.image_max_pixels,
+                )
+            return RecommendationInput(
+                payload=SearchRequest.model_validate_json(raw_payload),
+                reference_content=validated.content if validated is not None else None,
+                reference_type=reference_type,
+            )
+        return RecommendationInput(payload=SearchRequest.model_validate(await request.json()))
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail=json.loads(error.json())) from error
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="payload 必須是有效 JSON") from error
+
+
+def uploaded_reference_item(content: bytes, garment_zone: Literal["upper_body", "lower_body"]) -> tuple[ClothResult, Path]:
+    """Create a request-scoped pseudo catalog item for the ranker and VLM."""
+    with tempfile.NamedTemporaryFile(
+        prefix="matching-outfit-reference-", suffix=".image", delete=False
+    ) as temporary:
+        temporary.write(content)
+        path = Path(temporary.name)
+    return (
+        ClothResult(
+            id=-1,
+            source_item_id=None,
+            product_display_name="你的上傳上衣" if garment_zone == "upper_body" else "你的上傳下身",
+            garment_zone=garment_zone,
+            # The browser keeps the local preview. The file path is only exposed to the VLM.
+            image_url="uploaded-reference",
+            price=0,
+            base_colour=None,
+            article_type=None,
+            similarity=1.0,
+            is_reference=True,
+            image_path=str(path),
+        ),
+        path,
+    )
+
+
+def remove_temporary_reference(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 def fashion_knowledge_store() -> FashionKnowledgeStore:
@@ -685,6 +762,7 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             style_preferences=style_preferences,
             requirements=payload.requirements,
             fashion_intent=intent,
+            search_garment_zones=payload.search_garment_zones,
             intent_fallback_used=fallback_used,
             include_debug=payload.include_debug,
             observations=observations,
@@ -753,6 +831,7 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             existing_queries=selected,
             refinement=payload.user_input,
             fashion_intent=intent,
+            search_garment_zones=payload.search_garment_zones,
             intent_fallback_used=fallback_used,
             include_debug=payload.include_debug,
             observations=observations,
@@ -780,7 +859,29 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchRespo
 
 
 @router.post("/recommendations", response_model=RecommendationResponse)
-def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> RecommendationResponse:
+def recommendations(
+    background_tasks: BackgroundTasks,
+    request_input: RecommendationInput = Depends(recommendation_input),
+    db: Session = Depends(get_db),
+) -> RecommendationResponse:
+    payload = request_input.payload
+    reference_item: ClothResult | None = None
+    if request_input.reference_content is not None and request_input.reference_type is not None:
+        reference_item, temporary_path = uploaded_reference_item(
+            request_input.reference_content, request_input.reference_type
+        )
+        background_tasks.add_task(remove_temporary_reference, temporary_path)
+        counterpart_zone = (
+            "lower_body"
+            if request_input.reference_type == "upper_body"
+            else "upper_body"
+        )
+        counterpart_queries = [
+            query for query in payload.queries if query.garment_zone == counterpart_zone
+        ]
+        if not counterpart_queries:
+            raise HTTPException(status_code=422, detail=f"沒有可用的 {counterpart_zone} 搜尋條件")
+        payload = payload.model_copy(update={"queries": counterpart_queries})
     payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
     hard = hard_rules_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, hard)
@@ -794,6 +895,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         groups,
         limit=min(750, max(200, payload.shortlist_count * 20)),
         user_context=payload.user_input,
+        reference_item=reference_item,
     )
     shortlist = select_diverse(ranked_pool, payload.shortlist_count)
     debug = (

@@ -37,8 +37,15 @@ FASHION_INTENT_INTERPRETER_PROMPT = (
     PROMPTS_DIR / "FashionIntentInterpreter.txt"
 ).read_text(encoding="utf-8").strip()
 logger = logging.getLogger(__name__)
-QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
-QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
+DEFAULT_QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
+SEARCH_ZONE_QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
+
+
+def query_counts_for(search_garment_zones: list[str] | None) -> dict[str, int]:
+    """Return the planner contract for the catalog zones requested this turn."""
+    if search_garment_zones is None:
+        return dict(DEFAULT_QUERY_COUNTS)
+    return {zone: SEARCH_ZONE_QUERY_COUNTS[zone] for zone in search_garment_zones}
 REQUIREMENT_VALUE_FIELDS = (
     "location",
     "target_date",
@@ -129,7 +136,7 @@ class KnowledgeQueryDraft(StrictModel):
     excluded_query_terms: list[str] = Field(default_factory=list)
     aesthetic_direction: list[str] = Field(default_factory=list)
     styling_guide: StylingGuide
-    queries: list[PlannedCatalogQuery] = Field(min_length=12, max_length=12)
+    queries: list[PlannedCatalogQuery] = Field(min_length=1, max_length=12)
     planning_note: str
 
 
@@ -448,7 +455,7 @@ class RepairedCatalogQuery(StrictModel):
 
 
 class EnglishQueryRepair(StrictModel):
-    queries: list[RepairedCatalogQuery] = Field(min_length=12, max_length=12)
+    queries: list[RepairedCatalogQuery] = Field(min_length=1, max_length=12)
 
 
 @dataclass(frozen=True)
@@ -602,43 +609,64 @@ class QueryOutputNormalizer:
     @staticmethod
     def validate_distribution(
         queries: list[PlannedCatalogQuery],
+        query_counts: dict[str, int],
     ) -> dict[str, list[PlannedCatalogQuery]]:
-        by_zone = {zone: [] for zone in QUERY_ZONES}
+        by_zone = {zone: [] for zone in query_counts}
         for query in queries:
+            if query.garment_zone not in by_zone:
+                raise RuntimeError(f"Query planner returned unrequested zone: {query.garment_zone}")
             by_zone[query.garment_zone].append(query)
         counts = {zone: len(items) for zone, items in by_zone.items()}
-        if any(counts[zone] != QUERY_COUNTS[zone] for zone in QUERY_ZONES):
+        if any(counts[zone] != query_counts[zone] for zone in query_counts):
             summary = ", ".join(f"{zone}={count}" for zone, count in counts.items())
-            raise RuntimeError(
-                "Query planner must return upper_body=5, lower_body=5, "
-                f"one_piece=2; {summary}"
-            )
+            required = ", ".join(f"{zone}={count}" for zone, count in query_counts.items())
+            raise RuntimeError(f"Query planner must return {required}; {summary}")
         return by_zone
 
     @staticmethod
     def normalized_direction_ids(
         by_zone: dict[str, list[PlannedCatalogQuery]],
+        query_counts: dict[str, int],
     ) -> dict[str, list[str]]:
-        upper_ids = [query.direction_id for query in by_zone["upper_body"]]
-        lower_ids = [query.direction_id for query in by_zone["lower_body"]]
-        if len(set(upper_ids)) == 5 and set(upper_ids) == set(lower_ids):
+        direction_ids: dict[str, list[str]] = {}
+        upper_ids = [query.direction_id for query in by_zone.get("upper_body", [])]
+        lower_ids = [query.direction_id for query in by_zone.get("lower_body", [])]
+        if {"upper_body", "lower_body"}.issubset(query_counts) and (
+            len(set(upper_ids)) == query_counts["upper_body"]
+            and set(upper_ids) == set(lower_ids)
+        ):
             separates = {
                 "upper_body": upper_ids,
                 "lower_body": lower_ids,
             }
-        else:
+        elif {"upper_body", "lower_body"}.issubset(query_counts):
             # Preserve pairing even if the model returns duplicate or mismatched IDs.
             separates = {
-                "upper_body": list("ABCDE"),
-                "lower_body": list("ABCDE"),
+                "upper_body": list("ABCDE")[:query_counts["upper_body"]],
+                "lower_body": list("ABCDE")[:query_counts["lower_body"]],
             }
-        one_piece_ids = [query.direction_id for query in by_zone["one_piece"]]
-        if len(set(one_piece_ids)) != 2:
-            one_piece_ids = list("FG")
-        return {**separates, "one_piece": one_piece_ids}
+        else:
+            separates = {
+                zone: (
+                    [query.direction_id for query in by_zone[zone]]
+                    if len({query.direction_id for query in by_zone[zone]}) == query_counts[zone]
+                    else list("ABCDE")[:query_counts[zone]]
+                )
+                for zone in ("upper_body", "lower_body")
+                if zone in query_counts
+            }
+        direction_ids.update(separates)
+        if "one_piece" in query_counts:
+            one_piece_ids = [query.direction_id for query in by_zone["one_piece"]]
+            direction_ids["one_piece"] = (
+                one_piece_ids
+                if len(set(one_piece_ids)) == query_counts["one_piece"]
+                else list("FG")[:query_counts["one_piece"]]
+            )
+        return direction_ids
 
     def _repair_invalid_queries(
-        self, result: KnowledgeQueryDraft
+        self, result: KnowledgeQueryDraft, query_counts: dict[str, int]
     ) -> dict[str, list[RepairedCatalogQuery]]:
         """Ask the repair stage for 12 English replacements, or preserve original output."""
         repair_payload = {
@@ -647,11 +675,16 @@ class QueryOutputNormalizer:
             "excluded_query_terms": result.excluded_query_terms,
             "aesthetic_direction": result.aesthetic_direction,
             "queries": [query.model_dump(mode="json") for query in result.queries],
+            "required_query_counts": query_counts,
         }
         try:
             repaired = self.llm.parse(
                 stage="query_repair",
-                instructions=QUERY_REPAIR_SYSTEM_PROMPT,
+                instructions=(
+                    f"{QUERY_REPAIR_SYSTEM_PROMPT}\n\n"
+                    "CURRENT REQUEST OVERRIDE: return only the requested zones with "
+                    f"exactly {', '.join(f'{zone}={count}' for zone, count in query_counts.items())}."
+                ),
                 content=[
                     {
                         "type": "input_text",
@@ -660,7 +693,7 @@ class QueryOutputNormalizer:
                 ],
                 schema=EnglishQueryRepair,
             )
-            return self.validate_distribution(repaired.queries)
+            return self.validate_distribution(repaired.queries, query_counts)
         except (RuntimeError, ValueError):
             # A repair failure must not discard usable English from the primary plan.
             return {}
@@ -674,20 +707,22 @@ class QueryOutputNormalizer:
         style_preferences: list[UserStylePreference] | None,
         requirements: RequirementSummary | None = None,
         hard: UserHardRule | None = None,
+        query_counts: dict[str, int] | None = None,
     ) -> NormalizedQueries:
         """Repair invalid output, then enforce local safeguards before embedding search."""
+        query_counts = query_counts or dict(DEFAULT_QUERY_COUNTS)
         original_by_zone = {
             # preprocess each query (6 total)
             # remove non-English characters, trim whitespace, and flag queries that need repair
             zone: [self._preprocess_query(query.text) for query in by_zone[zone]]
-            for zone in QUERY_ZONES
+            for zone in query_counts
         }
         repair_attempted = any(
             query.needs_repair
             for queries in original_by_zone.values()
             for query in queries
         )
-        repaired_by_zone = self._repair_invalid_queries(result) if repair_attempted else {}
+        repaired_by_zone = self._repair_invalid_queries(result, query_counts) if repair_attempted else {}
         allowed_named_colors = self._allowed_named_colors(user_input, style_preferences)
         forbidden_terms = self._forbidden_query_terms(
             user_input, requirements, hard, style_preferences
@@ -696,7 +731,7 @@ class QueryOutputNormalizer:
         # verified from the raw request, saved hard rules, or preferences are safe.
 
         normalized: dict[str, list[str]] = {}
-        for zone in QUERY_ZONES:
+        for zone in query_counts:
             normalized[zone] = []
             for index, original in enumerate(original_by_zone[zone]):
                 repaired = (
@@ -829,11 +864,13 @@ class QueryPlanner:
         existing_queries: list[QueryDraft] | None = None,
         refinement: str | None = None,
         fashion_intent: FashionIntent | None = None,
+        search_garment_zones: list[str] | None = None,
         intent_fallback_used: bool = False,
         include_debug: bool = False,
         observations: list[OutfitObservation] | None = None,
         knowledge_retrieval_note: str = "",
     ) -> PlanResponse:
+        query_counts = query_counts_for(search_garment_zones)
         # get preference payload for LLM
         preference_payload = build_planner_preference_context(hard, style_preferences)
 
@@ -854,18 +891,25 @@ class QueryPlanner:
             "fashion_intent": (
                 fashion_intent.model_dump(mode="json") if fashion_intent else None
             ),
+            "required_query_counts": query_counts,
         }
 
-        # Call the LLM to generate 12 catalog-retrieval queries.
+        requested_distribution = ", ".join(
+            f"{zone}={count}" for zone, count in query_counts.items()
+        )
         result = self.llm.parse(
             stage="query_planning",
-            instructions=QUERY_PLANNER_SYSTEM_PROMPT,
+            instructions=(
+                f"{QUERY_PLANNER_SYSTEM_PROMPT}\n\n"
+                "CURRENT REQUEST OVERRIDE: return queries only for the requested catalog "
+                f"zones, with exactly {requested_distribution}. Do not return any other zone."
+            ),
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=KnowledgeQueryDraft,
         )
 
         # Validate
-        by_zone = self.normalizer.validate_distribution(result.queries)
+        by_zone = self.normalizer.validate_distribution(result.queries, query_counts)
 
         # Normalizer
         normalization_input = " ".join(
@@ -878,8 +922,9 @@ class QueryPlanner:
             style_preferences,
             requirements,
             hard,
+            query_counts,
         )
-        direction_ids = self.normalizer.normalized_direction_ids(by_zone)
+        direction_ids = self.normalizer.normalized_direction_ids(by_zone, query_counts)
 
         queries = [
             QueryDraft(
@@ -889,8 +934,8 @@ class QueryPlanner:
                 rationale=by_zone[zone][index].rationale,
                 direction_id=direction_ids[zone][index],
             )
-            for zone in QUERY_ZONES
-            for index in range(QUERY_COUNTS[zone])
+            for zone in query_counts
+            for index in range(query_counts[zone])
         ]
         styling_guide = self._guide_with_intent(result.styling_guide, fashion_intent)
         used_ids = list(dict.fromkeys(
@@ -919,7 +964,7 @@ class QueryPlanner:
         # lists, otherwise unchanged queries are incorrectly reported as edits.
         final_by_zone = {
             zone: [query for query in queries if query.garment_zone == zone]
-            for zone in QUERY_ZONES
+            for zone in query_counts
         }
         normalizer_changes = [
             {
@@ -928,7 +973,7 @@ class QueryPlanner:
                 "before": before.text,
                 "after": after.text,
             }
-            for zone in QUERY_ZONES
+            for zone in query_counts
             for before, after in zip(by_zone[zone], final_by_zone[zone], strict=True)
             if before.text != after.text
         ]

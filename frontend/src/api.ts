@@ -5,6 +5,7 @@ import type {
   ClarificationResponse,
   ClothResult,
   GarmentZone,
+  PlannerGarmentZone,
   HardRules,
   PreferenceBundle,
   QueryDraft,
@@ -62,6 +63,7 @@ export function createQueryPlan(
   userKey: string,
   requirements: RequirementSummary | null,
   audience?: Audience,
+  searchGarmentZones?: PlannerGarmentZone[] | null,
   signal?: AbortSignal,
 ) {
   return request<QueryPlanResponse>('/api/query-plans', withSignal(json('POST', {
@@ -69,6 +71,7 @@ export function createQueryPlan(
     user_key: userKey,
     audience: audience || null,
     requirements,
+    search_garment_zones: searchGarmentZones || null,
     include_debug: true,
   }), signal))
 }
@@ -96,6 +99,7 @@ export function refineQueryPlan(
   requirements: RequirementSummary | null,
   fashionIntent: FashionIntent | null,
   audience?: Audience,
+  searchGarmentZones?: PlannerGarmentZone[] | null,
   signal?: AbortSignal,
 ) {
   return request<QueryPlanResponse>('/api/query-plans/refine', withSignal(json('POST', {
@@ -106,6 +110,7 @@ export function refineQueryPlan(
     audience: audience || null,
     requirements,
     fashion_intent: fashionIntent,
+    search_garment_zones: searchGarmentZones || null,
     include_debug: true,
   }), signal))
 }
@@ -119,8 +124,10 @@ export function getRecommendations(
   audience?: Audience,
   signal?: AbortSignal,
   fashionIntent?: FashionIntent | null,
+  referenceImage?: File | null,
+  referenceType?: 'upper_body' | 'lower_body' | null,
 ) {
-  return request<RecommendationResponse>('/api/recommendations', withSignal(json('POST', {
+  const payload = {
     queries,
     top_k: 10,
     user_key: userKey,
@@ -133,7 +140,18 @@ export function getRecommendations(
     final_count: 10,
     use_aesthetic_review: true,
     include_debug: true,
-  }), signal))
+  }
+  if (referenceImage && referenceType) {
+    const form = new FormData()
+    form.append('payload', JSON.stringify(payload))
+    form.append('reference_image', referenceImage)
+    form.append('reference_type', referenceType)
+    return request<RecommendationResponse>('/api/recommendations', withSignal({
+      method: 'POST',
+      body: form,
+    }, signal))
+  }
+  return request<RecommendationResponse>('/api/recommendations', withSignal(json('POST', payload), signal))
 }
 
 export function getSimilarClothes(image: File, garmentType: GarmentZone, results = 24) {
