@@ -203,7 +203,7 @@ class HardRulesUpdate(HardRules):
 
 class StylePreferenceBase(BaseModel):
     axis: PreferenceAxis
-    value: str = Field(min_length=1, max_length=80)
+    value: str = Field(min_length=1, max_length=500)
     zone: PreferenceZone = "any"
     polarity: PreferencePolarity = "prefer"
     weight: float = Field(default=0.3, ge=0.0, le=1.0)
@@ -241,10 +241,11 @@ class PreferenceBundle(BaseModel):
 
 class StylePreferenceProposalRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
-    item_ids: list[int] = Field(min_length=1)
-    context_occasions: list[str] = Field(default_factory=list)
-    context_seasons: list[str] = Field(default_factory=list)
-    context_climates: list[str] = Field(default_factory=list)
+    user_request: str = Field(min_length=2, max_length=1200)
+    outfit_item_ids: list[list[int]] = Field(min_length=1)
+    occasion: str = Field(default="", max_length=300)
+    time: str = Field(default="", max_length=300)
+    context: str = Field(default="", max_length=500)
 
 
 class StylePreferenceProposal(BaseModel):

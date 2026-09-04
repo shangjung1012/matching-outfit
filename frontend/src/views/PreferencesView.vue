@@ -186,8 +186,13 @@ onMounted(load)
               {{ row.polarity === 'prefer' ? '偏好' : '避免' }}
             </span>
             <span class="soft-pref-body">
-              <strong>{{ row.axis }}</strong> = {{ row.value }}
-              <em v-if="row.zone !== 'any'">（{{ row.zone }}）</em>
+              <template v-if="row.origin === 'liked-outfit-sentence'">
+                {{ row.value }}
+              </template>
+              <template v-else>
+                <strong>{{ row.axis }}</strong> = {{ row.value }}
+                <em v-if="row.zone !== 'any'">（{{ row.zone }}）</em>
+              </template>
               <span class="soft-pref-weight">權重 {{ row.weight.toFixed(2) }}</span>
               <span v-if="row.source === 'implicit'" class="soft-pref-src">從收藏學到</span>
             </span>

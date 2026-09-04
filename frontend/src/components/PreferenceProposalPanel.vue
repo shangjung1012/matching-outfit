@@ -13,14 +13,12 @@ defineEmits<{ confirm: []; dismiss: [] }>()
       <h3>要把這次的喜好記下來嗎？</h3>
       <ul v-if="proposal.proposals.length" class="proposal-rows">
         <li v-for="(row, index) in proposal.proposals" :key="index">
-          <span class="soft-pref-tag" :class="row.polarity">
-            {{ row.polarity === 'prefer' ? '偏好' : '避免' }}
-          </span>
-          <strong>{{ row.axis }}</strong> = {{ row.value }}
-          <em v-if="row.zone !== 'any'">（{{ row.zone }}）</em>
+          <span class="soft-pref-tag prefer">偏好句</span>
+          <span>{{ row.value }}</span>
         </li>
       </ul>
       <p v-else>沒有可新增的偏好項目。</p>
+      <p v-if="proposal.proposals.length">{{ proposal.explanation }}</p>
     </div>
     <div class="proposal-actions">
       <button class="secondary-button" @click="$emit('dismiss')"><X :size="16" />先不要</button>

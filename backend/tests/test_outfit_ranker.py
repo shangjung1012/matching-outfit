@@ -1,5 +1,14 @@
 from app.models.user_preference import UserStylePreference
-from app.schemas import ClothResult, QueryDraft, QuerySearchResult, ReferenceLink
+from app.models.cloth import Cloth
+from app.preferences.context import relevant_style_preferences
+from app.schemas import (
+    ClothResult,
+    QueryDraft,
+    QuerySearchResult,
+    ReferenceLink,
+    StylePreferenceProposalRequest,
+)
+from app.api.routes import outfit_memory_proposals
 from app.services.outfit_ranker import rank_outfits, select_diverse
 
 
@@ -44,6 +53,43 @@ def group(
             item.model_copy(update={"references": references or []}) for item in clothes
         ],
     )
+
+
+def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:
+    upper = Cloth(id=70, product_display_name="Silk Shirt")
+    lower = Cloth(id=71, product_display_name="Wide Leg Trousers")
+    payload = StylePreferenceProposalRequest(
+        user_key="demo",
+        user_request="秋天參加戶外婚禮，希望正式但方便走動",
+        outfit_item_ids=[[70, 71]],
+        occasion="戶外婚禮",
+        time="秋天傍晚",
+        context="戶外草地，需要走動",
+    )
+
+    proposals = outfit_memory_proposals({70: upper, 71: lower}, payload)
+
+    assert len(proposals) == 1
+    assert proposals[0].axis == "style"
+    assert proposals[0].origin == "liked-outfit-sentence"
+    assert "秋天參加戶外婚禮" in proposals[0].value
+    assert "Silk Shirt、Wide Leg Trousers" in proposals[0].value
+    assert proposals[0].context_occasions == ["戶外婚禮"]
+
+
+def test_outfit_memories_are_filtered_by_current_context() -> None:
+    wedding_memory = style_pref("style", "婚禮偏好句", "prefer")
+    wedding_memory.origin = "liked-outfit-sentence"
+    wedding_memory.context_occasions = ["戶外婚禮"]
+    work_memory = style_pref("style", "上班偏好句", "prefer")
+    work_memory.origin = "liked-outfit-sentence"
+    work_memory.context_occasions = ["上班"]
+
+    selected = relevant_style_preferences(
+        [wedding_memory, work_memory], "秋天參加戶外婚禮"
+    )
+
+    assert selected == [wedding_memory]
 
 
 def test_ranker_collects_and_deduplicates_query_reference_urls() -> None:

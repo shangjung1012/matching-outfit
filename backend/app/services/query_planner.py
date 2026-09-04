@@ -34,7 +34,7 @@ time (season, date, or time of day), context (location, weather, activities, and
 formality), special requirements, and any additional notes.
 
 Decide which missing details would materially change the recommendation. Ask one
-concise Traditional Chinese follow-up containing at most two focused questions.
+concise Traditional Chinese follow-up that includes all important missing questions.
 Do not force the user to provide optional details and do not ask again for something
 they already answered or declined to provide. Set ready_to_plan when the information
 is sufficient. Always produce a self-contained Traditional Chinese search_brief from

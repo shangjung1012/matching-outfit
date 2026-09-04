@@ -35,7 +35,7 @@ const messages = ref<ChatMessage[]>([
 const draft = ref('')
 const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
-const likedIds = ref(new Set<number>())
+const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
 const proposalDismissed = ref(false)
 const preferenceUpdated = ref(false)
@@ -51,7 +51,7 @@ let messageId = 2
 
 const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
 const shouldAskPreference = computed(
-  () => stage.value === 'results' && likedIds.value.size > 0 && !proposal.value && !proposalDismissed.value && !preferenceUpdated.value,
+  () => stage.value === 'results' && likedOutfitIds.value.size > 0 && !proposal.value && !proposalDismissed.value && !preferenceUpdated.value,
 )
 const hasUserDetails = computed(() => messages.value.some((message) => message.role === 'user'))
 const composerPlaceholder = computed(() => {
@@ -162,7 +162,7 @@ function startNewConversation() {
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
-  likedIds.value = new Set()
+  likedOutfitIds.value = new Set()
   proposal.value = null
   proposalDismissed.value = false
   preferenceUpdated.value = false
@@ -179,7 +179,7 @@ async function searchOutfits() {
       audience.value || undefined,
     )
     recommendations.value = response.recommendations
-    likedIds.value = new Set()
+    likedOutfitIds.value = new Set()
     proposal.value = null
     proposalDismissed.value = false
     preferenceUpdated.value = false
@@ -201,10 +201,10 @@ function updateQueryText(id: string, text: string) {
   if (query) query.text = text
 }
 
-function toggleLike(id: number) {
-  const next = new Set(likedIds.value)
+function toggleLike(id: string) {
+  const next = new Set(likedOutfitIds.value)
   next.has(id) ? next.delete(id) : next.add(id)
-  likedIds.value = next
+  likedOutfitIds.value = next
   proposal.value = null
   proposalDismissed.value = false
   preferenceUpdated.value = false
@@ -212,14 +212,16 @@ function toggleLike(id: number) {
 
 async function buildProposal() {
   await run(async () => {
-    const likedItems = new Set<number>()
-    for (const outfit of recommendations.value) {
-      for (const item of outfit.items) {
-        if (likedIds.value.has(item.id)) likedItems.add(item.id)
-      }
-    }
-    proposal.value = await proposeSoftFromOutfit(props.userKey, Array.from(likedItems))
-    addMessage('agent', '我整理了這次按愛心反映出的偏好，你可以先確認再更新。')
+    const likedOutfits = recommendations.value.filter((outfit) =>
+      likedOutfitIds.value.has(outfit.id),
+    )
+    proposal.value = await proposeSoftFromOutfit(
+      props.userKey,
+      likedOutfits.map((outfit) => outfit.items.map((item) => item.id)),
+      originalRequest.value,
+      requirements.value,
+    )
+    addMessage('agent', '我把完整需求與你喜歡的整套搭配整理成偏好句，你可以先確認再更新。')
   })
 }
 
@@ -255,7 +257,7 @@ async function confirmProposal() {
         <div v-if="shouldAskPreference" class="message agent action-message">
           <span class="message-avatar"><Heart :size="13" /></span>
           <div>
-            <p>你對 {{ likedIds.size }} 件衣服按了愛心，要用這些選擇更新個人偏好嗎？</p>
+            <p>你喜歡了 {{ likedOutfitIds.size }} 套搭配，要用這些選擇更新個人偏好嗎？</p>
             <button :disabled="loading" @click="buildProposal">查看更新內容</button>
           </div>
         </div>
@@ -361,9 +363,9 @@ async function confirmProposal() {
             :key="outfit.id"
             :outfit="outfit"
             :rank="index + 1"
-            :liked-ids="likedIds"
+            :liked="likedOutfitIds.has(outfit.id)"
             :featured="index === 0"
-            @toggle-like="toggleLike"
+            @toggle-like="toggleLike(outfit.id)"
           />
         </div>
         <div v-else class="empty-view">

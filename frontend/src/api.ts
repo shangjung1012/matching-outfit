@@ -5,6 +5,7 @@ import type {
   HardRules,
   PreferenceBundle,
   QueryDraft,
+  RequirementSummary,
   StylePreference,
   StylePreferenceCreate,
   StylePreferenceProposal,
@@ -101,15 +102,17 @@ const prefBase = (userKey: string) => `/api/preferences/${encodeURIComponent(use
 
 export function proposeSoftFromOutfit(
   userKey: string,
-  itemIds: number[],
-  context: { occasions?: string[]; seasons?: string[]; climates?: string[] } = {},
+  outfitItemIds: number[][],
+  userRequest: string,
+  requirements: RequirementSummary | null,
 ) {
   return request<StylePreferenceProposal>(`${prefBase(userKey)}/soft/from-outfit`, json('POST', {
     user_key: userKey,
-    item_ids: itemIds,
-    context_occasions: context.occasions ?? [],
-    context_seasons: context.seasons ?? [],
-    context_climates: context.climates ?? [],
+    user_request: userRequest,
+    outfit_item_ids: outfitItemIds,
+    occasion: requirements?.occasion ?? '',
+    time: requirements?.time ?? '',
+    context: requirements?.context ?? '',
   }))
 }
 

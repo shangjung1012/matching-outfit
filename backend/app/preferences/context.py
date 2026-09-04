@@ -3,6 +3,31 @@
 from app.models.user_preference import UserHardRule, UserStylePreference
 
 
+def relevant_style_preferences(
+    rows: list[UserStylePreference], user_context: str
+) -> list[UserStylePreference]:
+    """Keep explicit/legacy preferences and context-matching outfit memories."""
+    normalized_context = user_context.strip().lower()
+    selected: list[UserStylePreference] = []
+    for row in rows:
+        if row.origin != "liked-outfit-sentence":
+            selected.append(row)
+            continue
+        scopes = [
+            *(row.context_occasions or []),
+            *(row.context_seasons or []),
+            *(row.context_climates or []),
+        ]
+        if not scopes or any(
+            scope.strip().lower() in normalized_context
+            or normalized_context in scope.strip().lower()
+            for scope in scopes
+            if scope.strip()
+        ):
+            selected.append(row)
+    return selected
+
+
 def build_planner_preference_context(
     hard: UserHardRule | None,
     style_preferences: list[UserStylePreference] | None,
@@ -23,6 +48,16 @@ def build_planner_preference_context(
     avoid: list[dict] = []
     for row in style_preferences or []:
         if not row.is_active:
+            continue
+        if row.origin == "liked-outfit-sentence":
+            payload.setdefault("outfit_memories", []).append(
+                {
+                    "preference_sentence": row.value,
+                    "occasions": row.context_occasions or [],
+                    "times_or_seasons": row.context_seasons or [],
+                    "contexts": row.context_climates or [],
+                }
+            )
             continue
         entry = {"axis": row.axis, "value": row.value, "zone": row.zone}
         (prefer if row.polarity == "prefer" else avoid).append(entry)

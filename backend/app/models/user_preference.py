@@ -95,7 +95,7 @@ class UserStylePreference(Base):
     # axis: "style" | "color" | "silhouette" | "material" | "article_type"
     #       | "pattern" | "length" | "fit" | "brand"
     axis: Mapped[str] = mapped_column(String(32))
-    value: Mapped[str] = mapped_column(String(80))          # normalised term, e.g. "japanese", "light", "wide_leg"
+    value: Mapped[str] = mapped_column(String(500))  # term or a confirmed outfit-memory sentence
     zone: Mapped[str] = mapped_column(String(16), default="any")  # which garment slot this applies to ("any" = whole outfit)
     polarity: Mapped[str] = mapped_column(String(8), default="prefer")  # "prefer" | "avoid"
     weight: Mapped[float] = mapped_column(Float, default=0.3)  # 0..1, same scale as FashionObservation.confidence

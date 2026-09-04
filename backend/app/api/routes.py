@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
+from app.preferences.context import relevant_style_preferences
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
@@ -175,15 +176,6 @@ def style_preferences_for(
     return list(db.scalars(statement.order_by(UserStylePreference.id)))
 
 
-def _pref_zone(garment_zone: str | None) -> str:
-    return garment_zone if garment_zone in {
-        "upper_body",
-        "lower_body",
-        "one_piece",
-        "accessory",
-    } else "any"
-
-
 def upsert_style_preference(
     db: Session,
     user_key: str,
@@ -238,51 +230,39 @@ def upsert_style_preference(
     return existing, False
 
 
-def style_proposals_from_clothes(
-    clothes: list[Cloth], payload: StylePreferenceProposalRequest
+def outfit_memory_proposals(
+    clothes_by_id: dict[int, Cloth], payload: StylePreferenceProposalRequest
 ) -> list[StylePreferenceCreate]:
-    context = {
-        "context_occasions": payload.context_occasions,
-        "context_seasons": payload.context_seasons,
-        "context_climates": payload.context_climates,
-    }
-    origin_item_ids = [str(cloth.id) for cloth in clothes]
-    colours: Counter[tuple[str, str]] = Counter()
-    article_types: Counter[tuple[str, str]] = Counter()
-    for cloth in clothes:
-        zone = _pref_zone(cloth.garment_zone)
-        if cloth.base_colour:
-            colours[(zone, cloth.base_colour.strip().lower())] += 1
-        if cloth.article_type:
-            article_types[(zone, cloth.article_type.strip().lower())] += 1
-
     proposals: list[StylePreferenceCreate] = []
-    for (zone, value), _ in colours.most_common(4):
-        proposals.append(
-            StylePreferenceCreate(
-                axis="color",
-                value=value,
-                zone=zone,
-                polarity="prefer",
-                weight=0.2,
-                source="implicit",
-                origin="liked-outfit",
-                origin_item_ids=origin_item_ids,
-                **context,
-            )
+    seen_outfits: set[tuple[int, ...]] = set()
+    for item_ids in payload.outfit_item_ids:
+        identity = tuple(dict.fromkeys(item_ids))
+        if not identity or identity in seen_outfits:
+            continue
+        seen_outfits.add(identity)
+        clothes = [clothes_by_id[item_id] for item_id in identity if item_id in clothes_by_id]
+        if not clothes:
+            continue
+        outfit_description = "、".join(cloth.product_display_name for cloth in clothes)
+        sentence = (
+            f"在「{payload.user_request.strip()}」的需求下，"
+            f"使用者喜歡由 {outfit_description} 組成的整套搭配。"
         )
-    for (zone, value), _ in article_types.most_common(4):
+        if len(sentence) > 500:
+            sentence = f"{sentence[:497]}..."
         proposals.append(
             StylePreferenceCreate(
-                axis="article_type",
-                value=value,
-                zone=zone,
+                axis="style",
+                value=sentence,
+                zone="any",
                 polarity="prefer",
-                weight=0.2,
+                weight=0.3,
                 source="implicit",
-                origin="liked-outfit",
-                origin_item_ids=origin_item_ids,
-                **context,
+                origin="liked-outfit-sentence",
+                origin_item_ids=[str(cloth.id) for cloth in clothes],
+                context_occasions=[payload.occasion] if payload.occasion else [],
+                context_seasons=[payload.time] if payload.time else [],
+                context_climates=[payload.context] if payload.context else [],
             )
         )
     return proposals
@@ -291,7 +271,9 @@ def style_proposals_from_clothes(
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
     preference = hard_rules_for(db, payload.user_key)
-    style_preferences = style_preferences_for(db, payload.user_key)
+    style_preferences = relevant_style_preferences(
+        style_preferences_for(db, payload.user_key), payload.user_input
+    )
     audience = infer_audience(payload.user_input, payload.audience)
     try:
         observations = semantic_fashion_knowledge(
@@ -336,7 +318,9 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
     preference = hard_rules_for(db, payload.user_key)
-    style_preferences = style_preferences_for(db, payload.user_key)
+    style_preferences = relevant_style_preferences(
+        style_preferences_for(db, payload.user_key), combined
+    )
     audience = infer_audience(combined, payload.audience)
     try:
         # 先嘗試把 user input + original 去找 fashion knowledge
@@ -403,9 +387,18 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             if observation.signal_type != "editorial_example"
         ]
     )
-    ranking_context = f"{payload.user_input} {observation_context}".strip()
     hard = hard_rules_for(db, payload.user_key)
-    style_preferences = style_preferences_for(db, payload.user_key)
+    style_preferences = relevant_style_preferences(
+        style_preferences_for(db, payload.user_key), payload.user_input
+    )
+    outfit_memories = [
+        row.value for row in style_preferences if row.origin == "liked-outfit-sentence"
+    ]
+    memory_context = " ".join(outfit_memories)
+    ranking_context = (
+        f"{payload.user_input} {observation_context} "
+        f"Relevant confirmed outfit preferences: {memory_context}"
+    ).strip()
     try:
         groups = search_catalog(
             db, payload.queries, payload.top_k, audience=audience, hard=hard
@@ -563,10 +556,19 @@ def propose_style_preferences(
     """Decompose a liked outfit into candidate soft rows. Nothing is persisted."""
     if payload.user_key != user_key:
         raise HTTPException(status_code=400, detail="user_key in path and body must match")
-    clothes = db.scalars(select(Cloth).where(Cloth.id.in_(payload.item_ids))).all()
+    requested_ids = {
+        item_id for outfit in payload.outfit_item_ids for item_id in outfit
+    }
+    clothes = db.scalars(select(Cloth).where(Cloth.id.in_(requested_ids))).all()
     if not clothes:
         raise HTTPException(status_code=404, detail="No matching clothes found")
-    return StylePreferenceProposal(proposals=style_proposals_from_clothes(list(clothes), payload))
+    proposals = outfit_memory_proposals(
+        {cloth.id: cloth for cloth in clothes}, payload
+    )
+    return StylePreferenceProposal(
+        proposals=proposals,
+        explanation="每一筆都是完整需求與所選搭配組成的偏好句，確認後才會儲存。",
+    )
 
 
 @router.post(

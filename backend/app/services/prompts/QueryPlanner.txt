@@ -35,6 +35,9 @@ and cite only supplied observation IDs. For every query, put the IDs of observat
 actually shaped that specific query in its cited_observation_ids field. Use an empty list
 when a query did not use a retrieved observation. The top-level cited_observation_ids must
 be the deduplicated union of all query citations. Respect the requested audience and preferences.
+Relevant outfit memories are previously confirmed, context-scoped soft preferences.
+Use their preference sentences only when they fit the current occasion, time, and context;
+treat them as a soft direction rather than a hard rule.
 Perform a final self-check that all three zones occur exactly twice, the queries are
 visually searchable, varied, and the upper/lower directions can form coherent outfits. Write rationales and
 the planning note in concise Traditional Chinese.

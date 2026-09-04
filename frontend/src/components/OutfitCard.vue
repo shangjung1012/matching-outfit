@@ -6,11 +6,11 @@ import { formatCurrency } from '../utils/currency'
 defineProps<{
   outfit: OutfitRecommendation
   rank: number
-  likedIds: Set<number>
+  liked: boolean
   featured?: boolean
 }>()
 
-defineEmits<{ toggleLike: [id: number] }>()
+defineEmits<{ toggleLike: [] }>()
 </script>
 
 <template>
@@ -18,14 +18,6 @@ defineEmits<{ toggleLike: [id: number] }>()
     <div class="recommendation-visual" :class="{ single: outfit.items.length === 1 }">
       <div v-for="item in outfit.items" :key="item.id" class="recommendation-item">
         <img :src="item.image_url" :alt="item.product_display_name" />
-        <button
-          class="heart-button"
-          :class="{ active: likedIds.has(item.id) }"
-          :title="likedIds.has(item.id) ? '取消喜歡' : '喜歡這件商品'"
-          @click="$emit('toggleLike', item.id)"
-        >
-          <Heart :size="18" :fill="likedIds.has(item.id) ? 'currentColor' : 'none'" />
-        </button>
       </div>
     </div>
     <div class="recommendation-body">
@@ -57,6 +49,14 @@ defineEmits<{ toggleLike: [id: number] }>()
           }}
         </strong>
         <span>{{ outfit.items.length }} 件商品</span>
+        <button
+          class="outfit-heart-button"
+          :class="{ active: liked }"
+          :title="liked ? '取消喜歡這套搭配' : '喜歡這套搭配'"
+          @click="$emit('toggleLike')"
+        >
+          <Heart :size="17" :fill="liked ? 'currentColor' : 'none'" />
+        </button>
       </div>
     </div>
     <div v-if="outfit.references.length" class="recommendation-references">

@@ -212,8 +212,8 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .recommendation-item { position: relative; min-width: 0; overflow: hidden; }
 .recommendation-item + .recommendation-item { border-left: 1px solid #d9ddd7; }
 .recommendation-item img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.heart-button { position: absolute; right: 9px; bottom: 9px; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #d8ddd7; border-radius: 50%; color: #4d554e; background: #fffffff0; }
-.heart-button.active { border-color: #d8a4a4; color: #a34048; background: #fff5f5; }
+.outfit-heart-button { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #d8ddd7; border-radius: 50%; color: #4d554e; background: #fff; }
+.outfit-heart-button.active { border-color: #d8a4a4; color: #a34048; background: #fff5f5; }
 .recommendation-body { min-width: 0; display: flex; flex-direction: column; padding: 17px; }
 .recommendation-rank { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .recommendation-rank span { color: #7c827c; font-size: .68rem; font-weight: 800; }
@@ -225,7 +225,7 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .recommendation-tags span { padding: 4px 7px; color: #626962; background: #f0f2ee; font-size: .64rem; }
 .recommendation-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 15px; border-top: 1px solid #e2e5df; }
 .recommendation-footer strong { font-size: .88rem; }
-.recommendation-footer span { color: #7d837d; font-size: .68rem; }
+.recommendation-footer span { margin-left: auto; color: #7d837d; font-size: .68rem; }
 .recommendation-references { grid-column: 1 / -1; min-width: 0; padding: 13px 17px 15px; border-top: 1px solid #e2e5df; background: #fafbf9; }
 .recommendation-reference-title { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; color: #4e6759; font-size: .7rem; }
 .recommendation-references ul { display: grid; gap: 5px; margin: 0; padding-left: 19px; }
@@ -303,7 +303,7 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .weight-input { display: flex; align-items: center; gap: 5px; font-size: .68rem; color: #7b817b; }
 .weight-input input { width: 62px; }
 .proposal-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
-.proposal-rows li { display: flex; align-items: center; gap: 7px; font-size: .73rem; }
+.proposal-rows li { display: flex; align-items: flex-start; gap: 7px; font-size: .73rem; line-height: 1.55; }
 .empty-hint { color: #7b817b; font-size: .73rem; margin: 0 0 12px; }
 
 /* Virtual try-on */
