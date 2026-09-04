@@ -7,16 +7,11 @@ export interface FashionMbtiAnswer {
   optionId: 'A' | 'B' | 'C' | 'D'
 }
 
-export interface MbtiSwatch {
-  tone: SwatchTone
-  pattern?: SwatchPattern
-}
-
 export interface FashionMbtiOption {
   id: 'A' | 'B' | 'C' | 'D'
   label: string
   scores: Partial<Record<MbtiAxisKey, number>>
-  swatches?: MbtiSwatch[]
+  image?: string
 }
 
 export interface FashionMbtiQuestion {
@@ -102,55 +97,8 @@ const AXIS_KEYWORD: Record<MbtiAxisKey, string> = {
   V: '彩色',
 }
 
-/** 圖片題色票。正式版若有商品圖，可直接用商品圖取代 swatches。 */
-const SWATCH_TONES = {
-  ink: '#252525',
-  charcoal: '#525252',
-  white: '#f3f1eb',
-  cream: '#ece3d4',
-  sand: '#cfb99a',
-  taupe: '#9e8f80',
-  denim: '#57708f',
-  olive: '#717653',
-  cobalt: '#3157a4',
-  teal: '#368a86',
-  coral: '#db705d',
-  pink: '#dc8fa5',
-  plum: '#754b68',
-  butter: '#e1bd61',
-} as const
-
-type SwatchTone = keyof typeof SWATCH_TONES
-type SwatchPattern = 'solid' | 'stripe' | 'check' | 'grain'
-
-function swatch(tone: SwatchTone, pattern: SwatchPattern = 'solid'): MbtiSwatch {
-  return { tone, pattern }
-}
-
-export function swatchStyle(item: { tone: string; pattern?: string }): Record<string, string> {
-  const base = SWATCH_TONES[item.tone as SwatchTone] ?? SWATCH_TONES.taupe
-
-  if (item.pattern === 'stripe') {
-    return {
-      background: `repeating-linear-gradient(90deg, ${base} 0 4px, #f3f1ea 4px 8px)`,
-    }
-  }
-
-  if (item.pattern === 'check') {
-    return {
-      background: `repeating-linear-gradient(90deg, ${base} 0 7px, transparent 7px 14px),
-        repeating-linear-gradient(0deg, ${base} 0 7px, #f3f1ea 7px 14px)`,
-    }
-  }
-
-  if (item.pattern === 'grain') {
-    return {
-      background: `linear-gradient(135deg, ${base} 0%, ${base} 48%, #f3f1ea 48%, #f3f1ea 52%, ${base} 52%)`,
-    }
-  }
-
-  return { background: base }
-}
+const questionImage = (fileName: string) =>
+  `${import.meta.env.BASE_URL}images/fashion-mbti/${fileName}`
 
 /**
  * 十題設計：
@@ -280,12 +228,12 @@ export const MBTI_QUESTIONS: FashionMbtiQuestion[] = [
       },
       {
         id: 'C',
-        label: '無袖或短袖＋短下身，再帶件薄外套，外面走路比較舒服',
+        label: '短袖＋長下身，再帶件薄外套，熱的時候可以脫掉外套，冷的時候全身也不會太冷',
         scores: { O: 2, C: 1, V: 1 },
       },
       {
         id: 'D',
-        label: '短版或無袖＋短下身，冷氣房再套襯衫或外套，整套比較有層次',
+        label: '短袖＋短下身，冷氣房再套襯衫或外套，整套比較有層次',
         scores: { O: 3, S: 1, V: 1 },
       },
     ],
@@ -306,7 +254,7 @@ export const MBTI_QUESTIONS: FashionMbtiQuestion[] = [
       },
       {
         id: 'C',
-        label: '背心或短版上衣＋短褲／短裙，照片好看、天氣熱也比較舒服',
+        label: '背心或短版上衣＋短褲或短裙，照片好看、天氣熱也比較舒服',
         scores: { O: 2, S: 1, V: 1 },
       },
       {
@@ -344,37 +292,6 @@ export const MBTI_QUESTIONS: FashionMbtiQuestion[] = [
   },
   {
     id: 8,
-    prompt: '【圖片題】假設四套都很適合你的身形，也都在你的預算內，週末逛街你最想直接穿哪一套？',
-    visual: true,
-    options: [
-      {
-        id: 'A',
-        label: '黑白灰為主、長下身、鞋子也很簡單的一套',
-        scores: { N: 3, M: 2, C: 1 },
-        swatches: [swatch('ink'), swatch('white'), swatch('charcoal'), swatch('taupe')],
-      },
-      {
-        id: 'B',
-        label: '米色／丹寧為主，版型輕鬆，帶一個小配色重點',
-        scores: { N: 1, V: 1, C: 2, M: 1 },
-        swatches: [swatch('cream'), swatch('denim'), swatch('sand'), swatch('olive')],
-      },
-      {
-        id: 'C',
-        label: '基本色搭一個明顯亮色，比例比較俐落、露膚也多一點',
-        scores: { V: 2, O: 2, S: 1 },
-        swatches: [swatch('white'), swatch('cobalt'), swatch('denim'), swatch('coral')],
-      },
-      {
-        id: 'D',
-        label: '兩到三個顏色一起出現，剪裁和配件都比較有存在感',
-        scores: { V: 3, S: 2, O: 1, I: 1 },
-        swatches: [swatch('cobalt'), swatch('coral'), swatch('butter'), swatch('pink')],
-      },
-    ],
-  },
-  {
-    id: 9,
     prompt: '旅行前你發現行李重量快超標，只能再帶一套衣服。你最後會塞哪一套進去？',
     options: [
       {
@@ -400,43 +317,100 @@ export const MBTI_QUESTIONS: FashionMbtiQuestion[] = [
     ],
   },
   {
-    id: 10,
-    prompt: '【圖片題】同一件你很喜歡的上衣推出四個版本，你第一眼最容易被哪個吸引？',
+    id: 9,
+    prompt: '假設你是女生，四套都很適合你的身形，也都在你的預算內，週末逛街你最想直接穿哪一套？',
     visual: true,
     options: [
       {
         id: 'A',
-        label: '黑／灰，正常版型，領口和袖長都比較保守',
-        scores: { N: 3, M: 2, B: 1 },
-        swatches: [swatch('ink'), swatch('charcoal'), swatch('taupe'), swatch('white')],
+        label: '黑白灰為主、長下身、鞋子也很簡單的一套',
+        scores: { N: 3, M: 2, C: 1 },
+        image: questionImage('8A.jpg'),
       },
       {
         id: 'B',
-        label: '米白／深藍，材質舒服，版型有一點變化但很好日常穿',
-        scores: { N: 2, C: 2, I: 1 },
-        swatches: [swatch('cream'), swatch('denim'), swatch('sand'), swatch('ink')],
+        label: '米色跟丹寧色為主，版型輕鬆，帶一個小配色重點',
+        scores: { N: 1, V: 1, C: 2, M: 1 },
+        image: questionImage('8B.jpg'),
       },
       {
         id: 'C',
-        label: '藍／綠／粉等有顏色的版本，剪裁稍微俐落或短一點',
+        label: '基本色搭一個明顯亮色，比例比較俐落、露膚也多一點',
+        scores: { V: 2, O: 2, S: 1 },
+        image: questionImage('8C.jpg'),
+      },
+      {
+        id: 'D',
+        label: '兩到三個顏色一起出現，剪裁和配件都比較有存在感',
+        scores: { V: 3, S: 2, O: 1, I: 1 },
+        image: questionImage('8D.jpg'),
+      },
+    ],
+  },
+  {
+    id: 10,
+    prompt: '以下四種款式的上衣，你第一眼最容易被哪個吸引？',
+    visual: true,
+    options: [
+      {
+        id: 'A',
+        label: '黑或灰，正常版型，領口和袖長都比較保守',
+        scores: { N: 3, M: 2, B: 1 },
+        image: questionImage('10A.png'),
+      },
+      {
+        id: 'B',
+        label: '米白或深藍，材質舒服，版型有一點變化但很好日常穿',
+        scores: { N: 2, C: 2, I: 1 },
+        image: questionImage('10B.png'),
+      },
+      {
+        id: 'C',
+        label: '藍綠粉等有顏色的版本，剪裁稍微俐落或短一點',
         scores: { V: 2, O: 1, S: 1 },
-        swatches: [swatch('cobalt'), swatch('teal'), swatch('pink'), swatch('plum')],
+        image: questionImage('10C.png'),
       },
       {
         id: 'D',
         label: '最亮或最少見的顏色，設計感也最強，就算不好搭也會想試',
         scores: { V: 3, S: 2, I: 1, O: 1 },
-        swatches: [swatch('coral'), swatch('butter'), swatch('cobalt'), swatch('pink')],
+        image: questionImage('10D.png'),
       },
     ],
   },
+  {
+    id: 11,
+    prompt: '假設你是男生，平常去上班或者上課時，你會最常穿哪一種穿搭？',
+    visual: true,
+    options: [
+      {
+        id: 'A',
+        label: '舒服、包覆、素色',
+        scores: { C: 3, M: 2, N: 2, B: 1 },
+        image: questionImage('11A.jpg'),
+      },
+      {
+        id: 'B',
+        label: '基本款之上多一點材質跟細節',
+        scores: { B: 2, S: 1, C: 1, N: 1 },
+        image: questionImage('11B.jpg'),
+      },
+      {
+        id: 'C',
+        label: '高質感、精緻剪裁',
+        scores: { I: 3, S: 1, M: 1, N: 1 },
+        image: questionImage('11C.jpg'),
+      },
+      {
+        id: 'D',
+        label: '強造型感',
+        scores: { S: 3, V: 2, O: 1, I: 2 },
+        image: questionImage('11D.jpg'),
+      },
+    ],
+  }
 ]
 
-/**
- * 16 種人格。
- * representative 使用「風格角色」而非名人，因為 B/I 包含價格／消費偏好，
- * 不應從名人的公開穿搭直接推定其真實消費習慣。
- */
 export const MBTI_TYPES: Record<string, FashionMbtiType> = {
   CBMN: {
     code: 'CBMN',

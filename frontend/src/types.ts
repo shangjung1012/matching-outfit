@@ -555,8 +555,7 @@ export interface FashionMbtiOption {
   id: MbtiOptionId
   label: string
   scores: Partial<MbtiRawScores>
-  /** 圖片題才有：用色票組合代替照片，避免使用授權不明的圖。 */
-  swatches?: Array<{ tone: string; pattern?: string }>
+  image?: string
 }
 
 export interface FashionMbtiQuestion {

@@ -1017,8 +1017,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   letter-spacing: .1em;
 }
 .mbti-options.visual button.picked { border-color: #245a45; box-shadow: inset 0 0 0 1px #245a45; }
-.mbti-swatches { display: grid; grid-template-columns: repeat(4, 1fr); height: 108px; margin: 10px 0 0; }
-.mbti-swatches i { display: block; height: 100%; }
+.mbti-option-image { display: block; width: 100%; aspect-ratio: 4 / 3; margin-top: 10px; object-fit: cover; }
 .mbti-options.visual .mbti-option-label { padding: 14px 14px 16px; font-size: .82rem; line-height: 1.6; }
 .mbti-quiz-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 26px; }
 .mbti-quiz-footer small { color: #a2a9a1; font-size: .67rem; letter-spacing: .03em; }
@@ -1238,7 +1237,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .mbti-bar { grid-template-columns: 92px minmax(0, 1fr) 92px; gap: 4px 10px; }
   .mbti-question h2 { margin-bottom: 24px; }
   .mbti-options.visual { grid-template-columns: 1fr; }
-  .mbti-swatches { height: 84px; }
+  .mbti-option-image { aspect-ratio: 16 / 10; }
   .mbti-result { grid-template-columns: 1fr; gap: 30px; }
   .mbti-card-preview { position: static; order: -1; justify-items: stretch; }
   .mbti-card-preview canvas { max-width: 100%; }

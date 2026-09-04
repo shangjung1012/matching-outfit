@@ -7,7 +7,6 @@ import {
   computeMbtiResult,
   loadMbtiState,
   saveMbtiState,
-  swatchStyle,
 } from '../data/fashionMbti'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import { renderMbtiCard, saveMbtiCard } from '../utils/mbtiCard'
@@ -318,13 +317,12 @@ onBeforeUnmount(() => {
               >
                 <span class="mbti-option-mark">{{ option.id }}</span>
                 <span class="mbti-option-body">
-                  <span v-if="option.swatches" class="mbti-swatches">
-                    <i
-                      v-for="(item, position) in option.swatches"
-                      :key="position"
-                      :style="swatchStyle(item)"
-                    />
-                  </span>
+                  <img
+                    v-if="option.image"
+                    class="mbti-option-image"
+                    :src="option.image"
+                    :alt="`選項 ${option.id}`"
+                  />
                   <span class="mbti-option-label">{{ option.label }}</span>
                 </span>
               </button>
