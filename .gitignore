@@ -12,5 +12,10 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Local catalog data and downloaded model artifacts
+data/images/*
+!data/images/.gitkeep
+data/*.csv
+
 .DS_Store
 Thumbs.db

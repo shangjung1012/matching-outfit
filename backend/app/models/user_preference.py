@@ -18,6 +18,8 @@ class UserPreference(Base):
     preferred_styles: Mapped[list[str]] = mapped_column(JSON, default=list)
     preferred_categories: Mapped[list[str]] = mapped_column(JSON, default=list)
     preferred_usages: Mapped[list[str]] = mapped_column(JSON, default=list)
+    favorite_article_types: Mapped[list[str]] = mapped_column(JSON, default=list)
+    disliked_article_types: Mapped[list[str]] = mapped_column(JSON, default=list)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = mapped_column(

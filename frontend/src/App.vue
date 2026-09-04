@@ -1,67 +1,58 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { MessageSquareText, Shirt, SlidersHorizontal } from 'lucide-vue-next'
+import AgentSearchView from './views/AgentSearchView.vue'
+import CatalogView from './views/CatalogView.vue'
+import PreferencesView from './views/PreferencesView.vue'
+import type { AppView } from './types'
 
-const prompt = ref('幫我準備一套正式場合的服裝，預算 3000 元')
-const apiStatus = ref('Not checked')
-const isLoading = ref(false)
-const errorMessage = ref('')
+const activeView = ref<AppView>('agent')
+const userKey = 'demo-user'
+const preferenceRevision = ref(0)
 
-async function checkApiHealth() {
-  isLoading.value = true
-  errorMessage.value = ''
-
-  try {
-    const response = await fetch('/api/health')
-
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
-    }
-
-    const body = await response.json()
-    apiStatus.value = body.status
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Unknown error'
-  } finally {
-    isLoading.value = false
-  }
-}
+const navigation = [
+  { id: 'agent' as const, label: 'Agent 搜尋', icon: MessageSquareText },
+  { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
+  { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
+]
 </script>
 
 <template>
-  <main class="app-shell">
-    <section class="workspace">
-      <div class="request-panel">
-        <p class="eyebrow">Natural-language outfit advisor</p>
-        <h1>Matching Outfit</h1>
+  <div class="app-shell">
+    <header class="app-header">
+      <button class="brand" title="Matching Outfit" @click="activeView = 'agent'">
+        <span>MO</span>
+        <div><strong>Matching Outfit</strong><small>Styling workspace</small></div>
+      </button>
 
-        <label>
-          Shopping request
-          <textarea v-model="prompt" rows="5" />
-        </label>
-
-        <button type="button" :disabled="isLoading" @click="checkApiHealth">
-          {{ isLoading ? 'Checking...' : 'Check backend' }}
+      <nav class="main-navigation" aria-label="主要功能">
+        <button
+          v-for="item in navigation"
+          :key="item.id"
+          :class="{ active: activeView === item.id }"
+          @click="activeView = item.id"
+        >
+          <component :is="item.icon" :size="17" />{{ item.label }}
         </button>
+      </nav>
 
-        <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-      </div>
+      <button class="user-menu" title="目前登入使用者" @click="activeView = 'preferences'">
+        <span>J</span><div><strong>Jenny</strong><small>{{ userKey }}</small></div>
+      </button>
+    </header>
 
-      <div class="result-panel">
-        <p class="eyebrow">Current scaffold</p>
-        <h2>Backend status: {{ apiStatus }}</h2>
-        <div class="items">
-          <article class="item-card">
-            <span>model</span>
-            <h3>Cloth</h3>
-            <p>Stores catalog fields from styles.csv plus an integer price.</p>
-          </article>
-          <article class="item-card">
-            <span>model</span>
-            <h3>UserPreference</h3>
-            <p>Stores colors, price range, style, category, and usage preferences.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-  </main>
+    <div class="app-content">
+      <AgentSearchView
+        v-show="activeView === 'agent'"
+        :user-key="userKey"
+        @preference-updated="preferenceRevision++"
+      />
+      <CatalogView v-show="activeView === 'catalog'" />
+      <PreferencesView
+        v-show="activeView === 'preferences'"
+        :key="preferenceRevision"
+        :user-key="userKey"
+      />
+    </div>
+  </div>
 </template>
