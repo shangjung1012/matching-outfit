@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef } from 'vue'
 import {
-  AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp, CloudSun,
-  ImagePlus, MapPin, MessageSquare, MessageSquarePlus, RotateCcw, Send, Shirt,
-  Sparkles, Square, Thermometer, Umbrella, X,
+  AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp,
+  ImagePlus, MessageSquare, MessageSquarePlus, RotateCcw, Send, Shirt,
+  Sparkles, Square, X,
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
@@ -151,6 +151,7 @@ type RequirementDisplayField = Exclude<
 const requirementLabels: Record<RequirementDisplayField, string> = {
   location: '地點',
   target_date: '日期（台灣時間）',
+  outfit_budget_max: '整套預算上限',
   occasions: '場合',
   seasons: '季節',
   times_of_day: '時段',
@@ -170,12 +171,17 @@ const quickPrompts = [
 
 function requirementValue(field: RequirementDisplayField): string {
   const value = requirements.value?.[field]
+  if (field === 'outfit_budget_max') {
+    return typeof value === 'number'
+      ? `NT$ ${value.toLocaleString('zh-TW')} 內（整套）`
+      : '尚未提供'
+  }
   if (Array.isArray(value)) {
     return value.length
       ? value.map((tag) => requirements.value?.tag_translations[tag] || tag).join('、')
       : '尚未提供'
   }
-  return value?.trim() || '尚未提供'
+  return typeof value === 'string' && value.trim() ? value.trim() : '尚未提供'
 }
 
 function prefersReducedMotion(): boolean {
@@ -732,24 +738,6 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="agent-workspace">
-      <section v-if="requirements?.weather" class="weather-card">
-        <div class="weather-card-icon"><CloudSun :size="24" /></div>
-        <div class="weather-card-main">
-          <div class="weather-card-title">
-            <strong>{{ requirements.weather.location }}</strong>
-            <span>{{ requirements.weather.target_date }}</span>
-            <small v-if="requirements.weather.location_assumed">預設地點</small>
-          </div>
-          <div v-if="requirements.weather.status === 'available'" class="weather-metrics">
-            <span><Thermometer :size="15" />{{ requirements.weather.temperature_min_c }}～{{ requirements.weather.temperature_max_c }}°C</span>
-            <span><Umbrella :size="15" />{{ requirements.weather.precipitation_probability_max ?? '—' }}%</span>
-            <span><MapPin :size="15" />{{ requirements.weather.location }}</span>
-          </div>
-          <p v-else>{{ requirements.weather.note }}</p>
-        </div>
-        <a :href="requirements.weather.source_url" target="_blank" rel="noopener noreferrer">Open-Meteo</a>
-      </section>
-
       <details v-if="planningKnowledge.length" class="agent-context-details">
         <summary>搭配參考（{{ planningKnowledge.length }}）</summary>
         <article v-for="item in planningKnowledge" :key="item.observation_id">

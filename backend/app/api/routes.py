@@ -1,9 +1,11 @@
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
+from time import perf_counter
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
@@ -68,6 +70,7 @@ from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
 from app.services.post_review_shoes import attach_post_review_shoes
 from app.services.shoe_planner import ShoePlanner
+from app.services.outfit_compatibility import rerank_outfits_by_compatibility
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
 from app.services.query_planner import (
@@ -789,13 +792,37 @@ def planning_knowledge(db: Session, raw_text: str, requirements: RequirementSumm
         return [], f"文章知識檢索不可用，這不是已確認的知識缺口：{error}"
 
 
+def planning_context_and_knowledge(
+    db: Session,
+    raw_text: str,
+    requirements: RequirementSummary | None,
+    audience: str | None,
+) -> tuple[RequirementSummary, list, str]:
+    """Fetch weather while the current request performs its knowledge lookup.
+
+    Keep ``db`` on this request thread: SQLAlchemy sessions are not thread-safe.
+    Weather is network I/O, so it can run in a worker while article retrieval
+    continues safely with the request-owned database session.
+    """
+    base_requirements = with_context_defaults(requirements)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="weather") as executor:
+        weather_future = executor.submit(with_weather_context, base_requirements)
+        observations, knowledge_note = planning_knowledge(
+            db, raw_text, base_requirements, audience
+        )
+        enriched_requirements = weather_future.result()
+    return enriched_requirements, observations, knowledge_note
+
+
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
-    payload = payload.model_copy(update={"requirements": with_weather_context(with_context_defaults(payload.requirements))})
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
-    observations, knowledge_note = planning_knowledge(db, payload.user_input, payload.requirements, audience)
+    requirements, observations, knowledge_note = planning_context_and_knowledge(
+        db, payload.user_input, payload.requirements, audience
+    )
+    payload = payload.model_copy(update={"requirements": requirements})
     try:
         llm = LLM()
         intent, fallback_used = interpret_fashion_intent_or_none(
@@ -853,14 +880,16 @@ def clarify_requirements(
 
 @router.post("/query-plans/refine", response_model=PlanResponse)
 def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> PlanResponse:
-    payload = payload.model_copy(update={"requirements": with_weather_context(with_context_defaults(payload.requirements))})
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(combined, payload.audience, preference)
-    observations, knowledge_note = planning_knowledge(db, combined, payload.requirements, audience)
+    requirements, observations, knowledge_note = planning_context_and_knowledge(
+        db, combined, payload.requirements, audience
+    )
+    payload = payload.model_copy(update={"requirements": requirements})
     try:
         llm = LLM()
         intent, fallback_used = interpret_fashion_intent_or_none(
@@ -921,7 +950,37 @@ def recommendations(
     request_input: RecommendationInput = Depends(recommendation_input),
     db: Session = Depends(get_db),
 ) -> RecommendationResponse:
+    started_at = perf_counter()
+    timings: dict[str, float] = {}
+
+    def finalize_debug(
+        trace: RecommendationDebug | None, **updates: object
+    ) -> RecommendationDebug | None:
+        if trace is None:
+            return None
+        timings["total"] = round((perf_counter() - started_at) * 1000, 1)
+        return trace.model_copy(update={
+            "stage_timings_ms": dict(timings),
+            **updates,
+        })
+
     payload = request_input.payload
+    outfit_budget_max = (
+        payload.requirements.outfit_budget_max
+        if settings.outfit_budget_filter_enabled and payload.requirements is not None
+        else None
+    )
+
+    def apply_outfit_budget(
+        outfits: list,
+    ) -> list:
+        if outfit_budget_max is None:
+            return outfits
+        return [
+            outfit for outfit in outfits
+            if sum(item.price for item in outfit.items) <= outfit_budget_max
+        ]
+
     reference_item: ClothResult | None = None
     if request_input.reference_content is not None and request_input.reference_type is not None:
         reference_item, temporary_path = uploaded_reference_item(
@@ -946,6 +1005,7 @@ def recommendations(
         groups = search_catalog(
             db, payload.queries, payload.top_k, audience=audience, hard=hard
         )
+        timings["catalog_search"] = round((perf_counter() - started_at) * 1000, 1)
     except Exception as error:
         raise HTTPException(status_code=503, detail=f"Embedding search unavailable: {error}") from error
     ranked_pool = rank_outfits(
@@ -953,14 +1013,23 @@ def recommendations(
         limit=min(750, max(200, payload.shortlist_count * 20)),
         user_context=payload.user_input,
         reference_item=reference_item,
+        outfit_budget_max=outfit_budget_max,
     )
-    shortlist = select_diverse(ranked_pool, payload.shortlist_count)
+    timings["outfit_ranker"] = round((perf_counter() - started_at) * 1000 - timings["catalog_search"], 1)
+    if settings.outfit_compatibility_enabled:
+        compatibility_ranked, compatibility_note = rerank_outfits_by_compatibility(ranked_pool)
+    else:
+        compatibility_ranked, compatibility_note = ranked_pool, "disabled"
+    timings["compatibility_rerank"] = round((perf_counter() - started_at) * 1000 - timings["catalog_search"] - timings["outfit_ranker"], 1)
+    shortlist = compatibility_ranked[:payload.shortlist_count]
     debug = (
         RecommendationDebug(
             search_results=groups,
             ranked_candidate_count=len(ranked_pool),
-            ranked_preview=ranked_pool[:30],
+            ranked_preview=compatibility_ranked[:30],
             shortlist_before_review=shortlist,
+            stage_timings_ms=timings,
+            compatibility_note=compatibility_note,
         )
         if payload.include_debug
         else None
@@ -969,15 +1038,17 @@ def recommendations(
         return RecommendationResponse(
             recommendations=[],
             review_note="No valid outfit combinations",
-            debug=debug,
+            debug=finalize_debug(debug),
         )
 
+    shoe_planning_started = perf_counter()
     shoe_specs = {}
     if settings.openai_api_key:
         try:
             shoe_specs = ShoePlanner(LLM()).plan(payload.user_input, shortlist)
         except RuntimeError:
             pass
+    timings["shoe_planner"] = round((perf_counter() - shoe_planning_started) * 1000, 1)
 
     should_review = (
         payload.use_aesthetic_review
@@ -991,13 +1062,25 @@ def recommendations(
             else "Aesthetic review disabled"
         )
         final = select_diverse(shortlist, payload.final_count)
-        final = attach_post_review_shoes(
+        shoe_retrieval_started = perf_counter()
+        shoe_result = attach_post_review_shoes(
             db, final, shoe_specs, audience=audience, hard=hard,
             requirements=payload.requirements, user_input=payload.user_input,
+            include_debug=debug is not None,
         )
+        timings["shoe_retrieval"] = round((perf_counter() - shoe_retrieval_started) * 1000, 1)
+        if debug is not None:
+            final, shoe_retrievals = shoe_result
+        else:
+            final = shoe_result
+        final = apply_outfit_budget(final)
         final_ids = {recommendation.id for recommendation in final}
         if debug is not None:
-            debug = debug.model_copy(update={"aesthetic_review_error": note})
+            debug = finalize_debug(
+                debug,
+                aesthetic_review_error=note,
+                shoe_retrievals=shoe_retrievals,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -1024,6 +1107,7 @@ def recommendations(
     style_preferences = style_preferences_for(db, payload.user_key)
     preference_context = build_planner_preference_context(hard, style_preferences)
     reviewer = None
+    review_started = perf_counter()
     try:
         reviewer = AestheticReviewer(LLM())
         reviews = reviewer.review(
@@ -1040,6 +1124,7 @@ def recommendations(
             final_count=len(shortlist),
             fashion_intent=payload.fashion_intent,
         )
+        timings["aesthetic_review"] = round((perf_counter() - review_started) * 1000, 1)
         diagnostics = getattr(reviewer, "last_debug", {})
         if debug is not None:
             debug = debug.model_copy(update={"aesthetic_review_diagnostics": diagnostics})
@@ -1049,7 +1134,8 @@ def recommendations(
             if recommendation.aesthetic_review is not None
             and not recommendation.aesthetic_review.fatal_issues
         ][:payload.final_count]
-        final = attach_post_review_shoes(
+        shoe_retrieval_started = perf_counter()
+        shoe_result = attach_post_review_shoes(
             db,
             final,
             shoe_specs,
@@ -1057,7 +1143,14 @@ def recommendations(
             hard=hard,
             requirements=payload.requirements,
             user_input=payload.user_input,
+            include_debug=debug is not None,
         )
+        timings["shoe_retrieval"] = round((perf_counter() - shoe_retrieval_started) * 1000, 1)
+        if debug is not None:
+            final, shoe_retrievals = shoe_result
+        else:
+            final = shoe_result
+        final = apply_outfit_budget(final)
         reviewed_count = sum(
             recommendation.aesthetic_review is not None
             for recommendation in reviewed_pool
@@ -1102,15 +1195,34 @@ def recommendations(
             knowledge_observation_count=len(used_observation_ids),
             knowledge_sources=knowledge_sources,
             knowledge_note="",
-            debug=debug,
+            debug=finalize_debug(debug, shoe_retrievals=shoe_retrievals if debug is not None else []),
         )
     except RuntimeError as error:
         final = select_diverse(shortlist, payload.final_count)
+        timings["aesthetic_review"] = round((perf_counter() - review_started) * 1000, 1)
+        shoe_retrieval_started = perf_counter()
+        shoe_result = attach_post_review_shoes(
+            db,
+            final,
+            shoe_specs,
+            audience=audience,
+            hard=hard,
+            requirements=payload.requirements,
+            user_input=payload.user_input,
+            include_debug=debug is not None,
+        )
+        timings["shoe_retrieval"] = round((perf_counter() - shoe_retrieval_started) * 1000, 1)
+        if debug is not None:
+            final, shoe_retrievals = shoe_result
+        else:
+            final = shoe_result
+        final = apply_outfit_budget(final)
         final_ids = {recommendation.id for recommendation in final}
         if debug is not None:
             debug = debug.model_copy(update={
                 "aesthetic_review_error": str(error),
                 "aesthetic_review_diagnostics": getattr(reviewer, "last_debug", {}),
+                "shoe_retrievals": shoe_retrievals,
             })
         return RecommendationResponse(
             recommendations=final,
@@ -1122,7 +1234,7 @@ def recommendations(
             aesthetic_reviewed=False,
             review_note=f"Aesthetic review unavailable; match ranking used instead: {error}",
             knowledge_note="",
-            debug=debug,
+            debug=finalize_debug(debug, shoe_retrievals=shoe_retrievals if debug is not None else []),
         )
 
 

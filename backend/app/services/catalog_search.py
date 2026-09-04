@@ -140,20 +140,21 @@ def search_catalog_items(
     return _rows_to_results(db, statement_for(drop_filters))
 
 
-def search_best_shoes(
+def search_shoe_candidates(
     db: Session,
     specs: list[ShoeSpec],
     *,
     audience: str | None = None,
     hard: UserHardRule | None = None,
-) -> list[ClothResult | None]:
-    """Return one strict `sub_category=Shoes` result for each reviewer brief."""
+    top_k: int = 5,
+) -> list[list[ClothResult]]:
+    """Return strict `sub_category=Shoes` candidates for each shoe brief."""
     if not specs:
         return []
     vectors = fashion_clip.encode_texts([spec.shoe_query for spec in specs])
     keep_filters = _price_filters(hard) if hard is not None else []
     drop_filters = _exclusion_filters(hard) if hard is not None else []
-    matches: list[ClothResult | None] = []
+    matches: list[list[ClothResult]] = []
     for vector in vectors:
         distance = Cloth.embedding.cosine_distance(vector).label("distance")
         filters = [
@@ -167,7 +168,21 @@ def search_best_shoes(
         elif audience == "women":
             filters.append(Cloth.gender.in_(["Women", "Unisex"]))
         rows = _rows_to_results(
-            db, select(Cloth, distance).where(*filters).order_by(distance).limit(1)
+            db, select(Cloth, distance).where(*filters).order_by(distance).limit(top_k)
         )
-        matches.append(rows[0] if rows else None)
+        matches.append(rows)
     return matches
+
+
+def search_best_shoes(
+    db: Session,
+    specs: list[ShoeSpec],
+    *,
+    audience: str | None = None,
+    hard: UserHardRule | None = None,
+) -> list[ClothResult | None]:
+    """Compatibility wrapper returning the best strict-shoe result per brief."""
+    return [
+        candidates[0] if candidates else None
+        for candidates in search_shoe_candidates(db, specs, audience=audience, hard=hard, top_k=1)
+    ]

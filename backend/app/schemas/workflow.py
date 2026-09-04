@@ -13,6 +13,7 @@ Audience = Literal["men", "women", "unisex"]
 RequirementField = Literal[
     "location",
     "target_date",
+    "outfit_budget_max",
     "occasions",
     "seasons",
     "times_of_day",
@@ -228,6 +229,9 @@ class RequirementSummary(BaseModel):
     weather: WeatherContext | None = None
     location: str = ""
     target_date: str = ""
+    # A per-request cap for the combined price of one recommended outfit.
+    # This is intentionally distinct from saved per-item price preferences.
+    outfit_budget_max: float | None = Field(default=None, ge=0)
     defaulted_fields: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     seasons: list[str] = Field(default_factory=list)
@@ -324,7 +328,7 @@ class SearchRequest(BaseModel):
     queries: list[QueryDraft]
     # Keep the combination pool bounded: five candidates per garment query are
     # enough for diversity while avoiding an expensive cartesian explosion.
-    top_k: int = Field(default=5, ge=1, le=5)
+    top_k: int = Field(default=7, ge=1, le=7)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_input: str = Field(default="", max_length=1200)
     audience: Audience | None = None
@@ -415,6 +419,18 @@ class ShoeSuggestion(BaseModel):
     added_after_review: bool = True
 
 
+class ShoeRetrievalDebug(BaseModel):
+    """One strict-shoe retrieval trace for a final outfit."""
+
+    outfit_id: str
+    original_query: str
+    query: str
+    requested_type: str = ""
+    requested_color: str = ""
+    candidates: list[ClothResult] = Field(default_factory=list)
+    selected_item_id: int | None = None
+
+
 class OutfitRecommendation(BaseModel):
     id: str
     kind: Literal["separates", "one_piece"]
@@ -437,6 +453,9 @@ class RecommendationDebug(BaseModel):
     aesthetic_review_attempted: bool = False
     aesthetic_review_error: str = ""
     aesthetic_review_diagnostics: dict = Field(default_factory=dict)
+    stage_timings_ms: dict[str, float] = Field(default_factory=dict)
+    compatibility_note: str = ""
+    shoe_retrievals: list[ShoeRetrievalDebug] = Field(default_factory=list)
 
 
 class RecommendationResponse(BaseModel):

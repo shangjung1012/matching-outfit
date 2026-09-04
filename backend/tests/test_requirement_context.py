@@ -90,3 +90,11 @@ def test_optional_context_does_not_block_readiness():
     )).collect([ChatTurn(role="user", text="去吃飯")])
     assert result.missing_fields == []
     assert result.ready_to_plan is True
+
+
+def test_unspecified_budget_defaults_to_full_outfit_budget():
+    result = RequirementCollector(StubLLM()).collect(
+        [ChatTurn(role="user", text="上班簡約風，預算 3000 元")]
+    )
+
+    assert result.requirements.outfit_budget_max == 3000

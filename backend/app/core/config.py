@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     fashion_intent_interpreter_enabled: bool = True
     aesthetic_review_model: str = "gpt-4.1-mini"
     aesthetic_review_enabled: bool = True
+    # The Dressify image model is expensive on a CPU-only Docker deployment.
+    # Keep normal recommendations responsive; opt in explicitly for experiments.
+    outfit_compatibility_enabled: bool = False
+    # Keep the parsed total budget visible in the request for now, but do not
+    # let it eliminate final recommendations until catalog currency is unified.
+    outfit_budget_filter_enabled: bool = False
     knowledge_embedding_model: str = "text-embedding-3-small"
     knowledge_embedding_dimensions: int = 512
 

@@ -104,11 +104,20 @@ def _recommendation(
     )
 
 
+def _within_outfit_budget(
+    recommendation: OutfitRecommendation, outfit_budget_max: float | None
+) -> bool:
+    if outfit_budget_max is None:
+        return True
+    return sum(item.price for item in recommendation.items) <= outfit_budget_max
+
+
 def rank_outfits(
     groups: list[QuerySearchResult],
     limit: int = 20,
     user_context: str = "",
     reference_item: ClothResult | None = None,
+    outfit_budget_max: float | None = None,
 ) -> list[OutfitRecommendation]:
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
     pooled_by_direction: dict[str, dict[str, dict[int, ClothResult]]] = {}
@@ -156,7 +165,15 @@ def rank_outfits(
                 )
             )
         return _balanced_direction_candidates(
-            sorted(recommendations, key=lambda result: result.score, reverse=True), limit
+            sorted(
+                (
+                    result for result in recommendations
+                    if _within_outfit_budget(result, outfit_budget_max)
+                ),
+                key=lambda result: result.score,
+                reverse=True,
+            ),
+            limit,
         )
     matched_directions = {
         direction_id: pools
@@ -202,6 +219,12 @@ def rank_outfits(
                 "One-piece candidate coverage", user_context, None,
             )
         )
+    # Price is a whole-outfit gate, so apply it only after garments have been
+    # combined rather than prematurely excluding an otherwise useful item.
+    recommendations = [
+        result for result in recommendations
+        if _within_outfit_budget(result, outfit_budget_max)
+    ]
     ranked = sorted(recommendations, key=lambda result: result.score, reverse=True)
     separates = [result for result in ranked if result.kind == "separates"]
     one_pieces = [result for result in ranked if result.kind == "one_piece"]
