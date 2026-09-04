@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.fashion_knowledge import FashionObservation
-from app.schemas.styling import OutfitObservation
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
 
 

@@ -12,7 +12,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from app.schemas.styling import ArticleBlock, ArticleImage, CollectedArticle
+from app.schemas.fashion_knowledge import ArticleBlock, ArticleImage, CollectedArticle
 
 
 NOISE_SELECTOR = ",".join(

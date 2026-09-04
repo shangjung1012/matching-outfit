@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
-from app.schemas.styling import KnowledgeRecord, OutfitObservation
+from app.schemas.fashion_knowledge import KnowledgeRecord, OutfitObservation
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
 
 
@@ -131,4 +131,3 @@ def import_knowledge_records(
         row.embedding_model = embedder.model
     db.commit()
     return article_count, observation_count, len(pending_embeddings)
-

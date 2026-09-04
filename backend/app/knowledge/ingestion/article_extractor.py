@@ -2,7 +2,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from app.schemas.styling import (
+from app.schemas.fashion_knowledge import (
     ArticleSource,
     ArticleExtraction,
     CollectedArticle,

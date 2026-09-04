@@ -3,9 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.workflow import OutfitRecommendation
-
-
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -80,84 +77,6 @@ class KnowledgeRecord(StrictModel):
     extraction: ArticleExtraction
     extracted_at: datetime
     extraction_model: str
-
-
-class StylingDemoRequest(StrictModel):
-    user_input: str = Field(min_length=2, max_length=1200)
-    audience: Literal["men", "women", "unisex"] | None = None
-    top_k_observations: int = Field(default=8, ge=1, le=20)
-    revise_once: bool = True
-
-
-class RequestInterpretation(StrictModel):
-    occasion: str
-    context_restrictiveness: Literal["low", "medium", "high"]
-    hard_constraints: list[str] = Field(default_factory=list)
-    soft_preferences: list[str] = Field(default_factory=list)
-    aesthetic_direction: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
-
-
-class GarmentSearchSpec(StrictModel):
-    garment_zone: Literal["upper_body", "lower_body", "one_piece", "accessory"]
-    query: str = Field(
-        description="Concise English visual description for FashionCLIP text-to-image search"
-    )
-    rationale: str
-
-
-class OutfitFormula(StrictModel):
-    name: str
-    items: list[str]
-    palette: list[str]
-    silhouette: str
-    materials: list[str] = Field(default_factory=list)
-    styling_notes: list[str] = Field(default_factory=list)
-    why_it_works: str
-    context_fit: str
-    source_observation_ids: list[str] = Field(default_factory=list)
-    search_specs: list[GarmentSearchSpec] = Field(
-        description="Zone-specific FashionCLIP searches needed to instantiate the outfit"
-    )
-
-
-class StylingDraft(StrictModel):
-    interpretation: RequestInterpretation
-    outfits: list[OutfitFormula] = Field(min_length=3, max_length=3)
-    selection_guidance: list[str] = Field(default_factory=list)
-
-
-class StylingCritique(StrictModel):
-    verdict: Literal["pass", "revise"]
-    strengths: list[str] = Field(default_factory=list)
-    issues: list[str] = Field(default_factory=list)
-    revision_instructions: list[str] = Field(default_factory=list)
-
-
-class StylingDemoResponse(StrictModel):
-    request: str
-    retrieved_observations: list[OutfitObservation]
-    initial_draft: StylingDraft
-    critique: StylingCritique
-    final_draft: StylingDraft
-    revised: bool
-
-
-class StylingCatalogRequest(StylingDemoRequest):
-    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
-    candidates_per_zone: int = Field(default=8, ge=2, le=30)
-    outfits_per_formula: int = Field(default=3, ge=1, le=8)
-
-
-class FormulaCatalogMatch(StrictModel):
-    formula: OutfitFormula
-    recommendations: list[OutfitRecommendation]
-
-
-class StylingCatalogResponse(StrictModel):
-    styling: StylingDemoResponse
-    matches: list[FormulaCatalogMatch]
-    embedding_model: str
 
 
 class FashionKnowledgeStatus(StrictModel):

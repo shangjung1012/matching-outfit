@@ -173,7 +173,7 @@ async function confirmProposal() {
     <aside class="chat-panel">
       <header class="chat-header">
         <div class="agent-avatar"><Sparkles :size="18" /></div>
-        <div><strong>Styling Agent</strong><span>Online</span></div>
+        <div><strong>Outfit Agent</strong><span>Online</span></div>
       </header>
 
       <div class="message-list">

@@ -1,7 +1,7 @@
 import hashlib
 from pathlib import Path
 
-from app.schemas.styling import CollectedArticle, KnowledgeRecord, OutfitObservation
+from app.schemas.fashion_knowledge import CollectedArticle, KnowledgeRecord, OutfitObservation
 
 
 def _record_name(url: str) -> str:

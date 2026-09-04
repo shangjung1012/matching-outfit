@@ -1,4 +1,4 @@
-from app.schemas.styling import OutfitObservation
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.knowledge.ingestion.db_importer import (
     observation_audiences,
     observation_embedding_text,

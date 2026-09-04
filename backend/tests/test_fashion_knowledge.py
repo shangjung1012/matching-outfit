@@ -1,4 +1,4 @@
-from app.schemas.styling import OutfitObservation
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.knowledge.retrieval import retrieve_observations
 
 

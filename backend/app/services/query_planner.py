@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
-from app.schemas.styling import OutfitObservation, StrictModel
+from app.schemas.fashion_knowledge import OutfitObservation, StrictModel
 from app.schemas.workflow import PlanResponse, QueryDraft
 from app.services.integration_tools.llm import LLM
 from app.preferences.context import build_planner_preference_context
