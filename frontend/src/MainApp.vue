@@ -87,10 +87,6 @@ function toggleUserMenu() {
   openGroupId.value = null
   userMenuOpen.value = !userMenuOpen.value
 }
-function openPreferences() {
-  selectView('preferences')
-  userMenuOpen.value = false
-}
 function handleLogout() {
   userMenuOpen.value = false
   emit('logout')
@@ -164,9 +160,6 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
           <span>{{ avatarInitial }}</span><div><strong>{{ userKey }}</strong></div>
         </button>
         <div v-if="userMenuOpen" class="nav-dropdown align-right">
-          <button @click="openPreferences">
-            <SlidersHorizontal :size="16" />我的偏好
-          </button>
           <button @click="handleLogout">
             <LogOut :size="16" />登出
           </button>
