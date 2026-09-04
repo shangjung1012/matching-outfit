@@ -1,6 +1,8 @@
 from app.schemas.workflow import (
     CatalogItem,
     CatalogResponse,
+    CatalogSemanticSearchRequest,
+    CatalogSemanticSearchResponse,
     ChatTurn,
     ClarificationRequest,
     ClarificationResponse,
@@ -36,6 +38,8 @@ from app.schemas.fashion_knowledge import FashionKnowledgeStatus
 __all__ = [
     "CatalogItem",
     "CatalogResponse",
+    "CatalogSemanticSearchRequest",
+    "CatalogSemanticSearchResponse",
     "ChatTurn",
     "ClarificationRequest",
     "ClarificationResponse",

@@ -110,3 +110,40 @@ def search_catalog(
             relaxed = True
         output.append(QuerySearchResult(query=query, clothes=clothes, relaxed=relaxed))
     return output
+
+
+def search_catalog_items(
+    db: Session,
+    text: str,
+    top_k: int,
+    *,
+    zone: str | None = None,
+    audience: str | None = None,
+    hard: UserHardRule | None = None,
+) -> list[ClothResult]:
+    """Search catalog image embeddings with one free-text FashionCLIP query."""
+    vector = fashion_clip.encode_texts([text])[0]
+    distance = Cloth.embedding.cosine_distance(vector).label("distance")
+    base = [Cloth.embedding.is_not(None)]
+    if zone:
+        base.append(Cloth.garment_zone == zone)
+    if audience == "men":
+        base.append(Cloth.gender.in_(["Men", "Unisex"]))
+    elif audience == "women":
+        base.append(Cloth.gender.in_(["Women", "Unisex"]))
+
+    keep_filters = _price_filters(hard) if hard is not None else []
+    drop_filters = _exclusion_filters(hard) if hard is not None else []
+
+    def statement_for(extra: list) -> Select:
+        return (
+            select(Cloth, distance)
+            .where(*base, *keep_filters, *extra)
+            .order_by(distance)
+            .limit(top_k)
+        )
+
+    clothes = _rows_to_results(db, statement_for(drop_filters))
+    if not clothes and drop_filters:
+        clothes = _rows_to_results(db, statement_for([]))
+    return clothes

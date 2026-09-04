@@ -14,6 +14,8 @@ from app.preferences.context import relevant_style_preferences
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
+    CatalogSemanticSearchRequest,
+    CatalogSemanticSearchResponse,
     ClarificationRequest,
     ClarificationResponse,
     HardRulesUpdate,
@@ -34,7 +36,7 @@ from app.schemas import (
     StylePreferenceView,
     FashionKnowledgeStatus,
 )
-from app.services.catalog_search import search_catalog
+from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.outfit_ranker import rank_outfits
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
@@ -181,6 +183,33 @@ def list_catalog(
             )
             for cloth in clothes
         ],
+    )
+
+
+@router.post("/catalog/semantic-search", response_model=CatalogSemanticSearchResponse)
+def semantic_catalog_search(
+    payload: CatalogSemanticSearchRequest, db: Session = Depends(get_db)
+) -> CatalogSemanticSearchResponse:
+    hard = hard_rules_for(db, payload.user_key)
+    audience = effective_audience(payload.query, payload.audience, hard)
+    try:
+        items = search_catalog_items(
+            db,
+            payload.query,
+            payload.limit,
+            zone=payload.zone,
+            audience=audience,
+            hard=hard,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=503, detail=f"Embedding search unavailable: {error}"
+        ) from error
+    return CatalogSemanticSearchResponse(
+        query=payload.query,
+        items=items,
+        total=len(items),
+        model=settings.fashion_clip_model,
     )
 
 

@@ -49,7 +49,7 @@ const navigation = [
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
       />
-      <CatalogView v-show="activeView === 'catalog'" />
+      <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
       <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
       <PreferencesView
         v-show="activeView === 'preferences'"

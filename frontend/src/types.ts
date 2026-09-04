@@ -80,6 +80,13 @@ export interface CatalogItem {
   has_embedding: boolean
 }
 
+export interface CatalogSemanticSearchResponse {
+  query: string
+  items: ClothResult[]
+  total: number
+  model: string
+}
+
 export interface OutfitRecommendation {
   id: string
   kind: 'separates' | 'one_piece'

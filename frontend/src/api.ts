@@ -1,6 +1,7 @@
 import type {
   Audience,
   CatalogItem,
+  CatalogSemanticSearchResponse,
   ClarificationResponse,
   HardRules,
   PreferenceBundle,
@@ -123,11 +124,24 @@ export function confirmSoftPreferences(userKey: string, rows: StylePreferenceCre
   )
 }
 
-export function getCatalog(zone = '', search = '') {
+export function getCatalog(zone = '') {
   const params = new URLSearchParams({ limit: '100' })
   if (zone) params.set('zone', zone)
-  if (search) params.set('search', search)
   return request<{ items: CatalogItem[]; total: number }>(`/api/catalog?${params}`)
+}
+
+export function searchCatalogByEmbedding(
+  query: string,
+  userKey: string,
+  zone = '',
+  limit = 60,
+) {
+  return request<CatalogSemanticSearchResponse>('/api/catalog/semantic-search', json('POST', {
+    query,
+    user_key: userKey,
+    zone: zone || null,
+    limit,
+  }))
 }
 
 // ---- Preference settings page ----

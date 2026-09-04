@@ -284,3 +284,18 @@ class CatalogResponse(BaseModel):
     items: list[CatalogItem]
     total: int
 
+
+class CatalogSemanticSearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=240)
+    zone: GarmentZone | None = None
+    limit: int = Field(default=60, ge=1, le=100)
+    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
+    audience: Audience | None = None
+
+
+class CatalogSemanticSearchResponse(BaseModel):
+    query: str
+    items: list[ClothResult]
+    total: int
+    model: str
+

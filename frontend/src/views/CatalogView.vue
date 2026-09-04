@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Search, Shirt } from 'lucide-vue-next'
-import { getCatalog } from '../api'
+import { getCatalog, searchCatalogByEmbedding } from '../api'
 import ProductCard from '../components/ProductCard.vue'
-import type { CatalogItem } from '../types'
+import type { CatalogItem, ClothResult } from '../types'
 
-const items = ref<CatalogItem[]>([])
+const props = defineProps<{ userKey: string }>()
+
+const items = ref<Array<CatalogItem | ClothResult>>([])
 const total = ref(0)
 const zone = ref('')
 const search = ref('')
+const semanticSearchActive = ref(false)
 const loading = ref(false)
 const error = ref('')
 
@@ -24,9 +27,13 @@ async function loadCatalog() {
   loading.value = true
   error.value = ''
   try {
-    const response = await getCatalog(zone.value, search.value.trim())
+    const query = search.value.trim()
+    const response = query
+      ? await searchCatalogByEmbedding(query, props.userKey, zone.value)
+      : await getCatalog(zone.value)
     items.value = response.items
     total.value = response.total
+    semanticSearchActive.value = Boolean(query)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '無法載入商品'
   } finally {
@@ -43,11 +50,11 @@ onMounted(loadCatalog)
       <div>
         <span class="section-kicker">Catalog</span>
         <h2>衣服商品</h2>
-        <p>{{ total }} 件已匯入商品</p>
+        <p>{{ semanticSearchActive ? `${total} 件相似商品` : `${total} 件已匯入商品` }}</p>
       </div>
       <div class="catalog-search">
         <Search :size="17" />
-        <input v-model="search" placeholder="搜尋名稱、顏色或品類" @keyup.enter="loadCatalog" />
+        <input v-model="search" placeholder="lightweight white summer dress" @keyup.enter="loadCatalog" />
       </div>
     </header>
 
@@ -62,13 +69,18 @@ onMounted(loadCatalog)
           {{ option.label }}
         </button>
       </div>
-      <button class="secondary-button" @click="loadCatalog"><Search :size="16" />搜尋</button>
+      <button class="secondary-button" :disabled="loading" @click="loadCatalog"><Search :size="16" />搜尋</button>
     </div>
 
     <p v-if="error" class="error-banner">{{ error }}</p>
     <div v-if="loading" class="loading-state">正在載入商品…</div>
     <div v-else-if="items.length" class="product-grid">
-      <ProductCard v-for="item in items" :key="item.id" :item="item" />
+      <ProductCard
+        v-for="item in items"
+        :key="item.id"
+        :item="item"
+        :show-similarity="semanticSearchActive"
+      />
     </div>
     <div v-else class="empty-view">
       <Shirt :size="32" />
