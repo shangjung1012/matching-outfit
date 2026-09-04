@@ -11,9 +11,8 @@
 - Embedding: `patrickjohncyh/fashion-clip`（512 維、cosine distance）
 - Virtual try-on: 獨立 CatVTON GPU API + 私有 MinIO
 
-目前商品 Query Planner 仍是不需 API key 的規則版。另有「文章知識 → 搭配策略 → FashionCLIP 商品候選」流程：Styling Planner 先產生三套搭配公式與各 garment zone 的英文視覺 query，Critic 檢查並最多修訂一次，再由 FashionCLIP 搜尋實際商品，最後交給 Outfit Ranker 排序。
 
-## 系統預計流程
+## 系統流程圖
 
 系統分成「衣服資料準備」、「使用者推薦流程」和「穿搭規則更新」三個部分。
 
@@ -46,15 +45,100 @@ flowchart TD
     I -->|通過| F
 ```
 
-### 1. 衣服資料準備
+## Project structure
 
-1. 將 Kaggle 的 `styles.csv` 與 `{id}.jpg` 圖片放進 `data/`。
-2. 匯入工具依 `articleType` 和 `subCategory` 判斷 `garment_zone`。
-3. 衣服 metadata、圖片路徑、圖片 URL、價格及 zone 寫入 `clothes`。
-4. FashionCLIP 將每張圖片轉成 512 維 embedding，存入 PostgreSQL `pgvector` 欄位。
-5. 後續新增圖片時，只匯入新資料並替尚未建立向量的衣服產生 embedding。
+```text
+backend/
+├── app/
+│   ├── api/                 # FastAPI routes
+│   ├── knowledge/           # 文章收集、JSON、DB import、knowledge retrieval
+│   ├── preferences/         # preference context 等 domain logic
+│   ├── services/
+│   │   ├── query_planner.py
+│   │   ├── catalog_search.py
+│   │   ├── outfit_ranker.py
+│   │   ├── aesthetic_reviewer.py
+│   │   └── integration_tools/  # LLM、FashionCLIP、text embeddings adapters
+│   ├── models/              # SQLAlchemy models
+│   └── schemas/             # API / internal Pydantic schemas
+├── scripts/                 # catalog、article、knowledge 的離線工作
+└── alembic/                 # DB migrations
 
-### 2. 使用者推薦流程
+frontend/
+└── src/
+    ├── views/               # AgentSearch、Preferences 等畫面
+    └── api.ts               # Backend API calls
+
+docs/
+├── RECOMMENDATION_PIPELINE.md
+├── FASHION_KNOWLEDGE_DB.md
+└── KAGGLE_CURATION.md
+```
+
+## 當前實作流程與資料來源
+
+### 商品 catalog
+
+商品資料由 Kaggle `styles.csv` 與 `{id}.jpg` 圖片組成。
+
+1. `scripts.import_catalog` 將商品 metadata、價格、圖片位置與 `garment_zone` 寫入 `clothes`。
+2. `scripts.build_embeddings` 使用 FashionCLIP 為每件商品圖片建立 512 維 embedding。
+3. 線上搜尋會以 FashionCLIP 的文字 embedding，在 `clothes.embedding` 做 cosine vector search。
+
+一般匯入操作見 README 下方「匯入衣服資料」；大型資料集的 Kaggle curation、下載與精選流程見 [`docs/KAGGLE_CURATION.md`](docs/KAGGLE_CURATION.md)。
+
+### Fashion knowledge
+
+文章知識由公開穿搭文章整理而來：
+
+1. `scripts.collect_articles` 收集文章、圖片，並用 LLM 萃取 `outfit observations`。
+2. 萃取結果先存為 `data/articles/records/*.json`。
+3. `scripts.import_fashion_knowledge` 將 records 寫入 `fashion_articles`、`fashion_observations`，並建立 text embeddings。
+4. Query Planner 與 recommendation 會依 user input 從 observations 做 semantic retrieval。
+
+完整收集、匯入、資料表與 retrieval 說明見 [`docs/FASHION_KNOWLEDGE_DB.md`](docs/FASHION_KNOWLEDGE_DB.md)。
+
+
+### 使用者推薦流程
+1. 使用者輸入自然語言需求，前端呼叫 `POST /api/query-plans`。
+
+2. 後端取得：
+   - user input
+   - hard / soft preferences
+   - semantic fashion knowledge observations
+   - inferred 或明確指定的 audience
+
+3. `QueryPlanner` 將上述資料提供給 LLM，產生固定六個 FashionCLIP query drafts：
+   - 2 個 `upper_body`
+   - 2 個 `lower_body`
+   - 2 個 `one_piece`
+
+4. Query Planner 驗證 query zone distribution，並將 query 正規化為適合 FashionCLIP 的簡短英文視覺描述；若輸出不合法，會嘗試修復。
+
+5. 使用者可直接修改 query、取消選取或刪除 query。直接編輯不會重新呼叫 LLM；只有使用者輸入補充需求時，前端才呼叫 `POST /api/query-plans/refine`，以既有 queries 與補充需求重新規劃。
+
+6. 使用者按下查詢後，前端呼叫 `POST /api/recommendations`，傳送已選取的 queries、原始 user input、user key 與 audience。
+
+7. Recommendation endpoint 會再次依 user input 取得 semantic fashion knowledge observations，作為結果 metadata 與後續 Aesthetic Reviewer context。
+
+8. `catalog_search` 將已選取的 queries 轉成 FashionCLIP text embeddings，並在 `clothes.embedding` 做 cosine vector search。搜尋時會套用：
+   - 相同的 `garment_zone`
+   - audience 對應的商品 gender
+   - 價格 hard filters
+   - 排除顏色、article type、master category 等 avoid filters
+
+   若 avoid filters 使某個 zone 沒有候選商品，該 zone 會暫時放寬 avoid filters；價格、audience 與 garment zone 仍會保留。
+
+9. `rank_outfits` 將上衣與下身候選組合，或將 `one_piece` 作為完整 outfit。它依 FashionCLIP similarity、商品相容性、user input context 與 soft preferences 評分。
+
+10. `select_diverse` 從高分結果中建立 shortlist，避免商品、圖片、色彩或搭配組合過度重複。
+
+11. 若啟用 Aesthetic Reviewer，vision LLM 會審查 shortlist 的實際商品圖片；`apply_aesthetic_reviews` 合併原始 ranking 與 aesthetic score，輸出最終推薦。若 reviewer 未啟用或失敗，系統直接使用 ranking 結果。
+
+12. 使用者可以對喜歡的商品按愛心。前端呼叫 preference proposal API 產生 soft preference proposals；只有使用者確認後，才寫入 user preferences。
+
+## 預期流程
+### 使用者推薦流程
 
 1. 使用者輸入場合、風格、顏色、預算或不想要的項目。
 2. Query Planner 參考輸入內容與 `user_preferences`，拆成多個英文 query，並標記搜尋的 `garment_zone`。
@@ -69,7 +153,7 @@ flowchart TD
 8. 前端顯示最高分的幾組上下身搭配或單件套裝。
 9. 使用者選擇喜歡的衣服後，系統先提出偏好更新內容；只有使用者確認後才寫入 `user_preferences`。
 
-### 3. 穿搭規則更新流程
+### 穿搭規則更新流程
 
 1. Fashion Rule Agent 定期讀取新聞或穿搭文章。
 2. Agent 將文章整理成固定欄位的規則草稿，並保留 `source_url`、發布時間和適用條件。
@@ -81,10 +165,8 @@ flowchart TD
 ### 目前實作狀態
 
 - 已完成：CSV 與圖片匯入、garment zone 分類、圖片 embedding、文字 embedding 搜尋、query 確認介面、基本上下身配對、偏好更新提案與確認。
-- 骨架階段：Query Planner 目前是關鍵字規則版，尚未串接 LLM。
-- 已完成 MVP：指定 URL 文章收集、圖片與文字的 LLM 結構化整理、簡易相關觀察檢索、文字 Styling Planner、Critic 與單次修訂。
-- 已完成 MVP：搭配公式會轉成 `upper_body`、`lower_body`、`one_piece` 或 `accessory` 的 FashionCLIP query，召回實際商品後再組合；Outfit Ranker 也會使用現有的顏色、品類與價格偏好做輕量加減分。
-- 待開發：`fashion_rules` 實際評分、陳枝宣後續提供的材質／版型／圖案等衣服 tag、完整 user preference 權重、整套商品圖片的視覺審查、更完整的搭配相容性模型。
+- 已完成：LLM Query Planner 會產生六個可編輯的 FashionCLIP queries；確認後由 Catalog Search、Outfit Ranker、多樣性篩選與可選的 Aesthetic Reviewer 產生實際商品搭配。
+- 已完成：指定 URL 文章收集、圖片與文字的 LLM 結構化整理、semantic fashion knowledge retrieval，用於 Query Planner 與 recommendation context。
 
 ## 啟動服務
 
@@ -167,49 +249,13 @@ docker compose run --rm backend python -m scripts.collect_articles \
 
 收集器預設遵守 `robots.txt`、限制允許網域，也不處理登入或付費牆。網站條款與頁面結構仍可能改變；失敗的文章會個別列出，不會偷偷換來源。原始文章、衍生 JSON 和下載圖片都被 `.gitignore` 排除，不會塞進 Git。
 
-## 執行文字搭配 Demo
-
-CLI：
+將已抽取的 `data/articles/records/*.json` 寫入 PostgreSQL 並建立 knowledge embeddings：
 
 ```bash
-docker compose run --rm backend python -m scripts.demo_styling \
-  "去海邊度假三天，天氣炎熱，希望清爽好看但不要太暴露"
+docker compose exec backend python -m scripts.import_fashion_knowledge
 ```
 
-API：
-
-```bash
-curl -X POST http://localhost:8000/api/styling/demo \
-  -H "Content-Type: application/json" \
-  -d '{"user_input":"去晚宴，希望低調有質感","top_k_observations":8,"revise_once":true}'
-```
-
-可用 `GET /api/fashion-knowledge/status` 查看已整理的文章和觀察數量。`/api/styling/demo` 只輸出文字公式；若要進一步搜尋 Kaggle／實際衣櫃商品，使用下面的 `/api/styling/recommendations`。
-
-## 搭配 Agent + FashionCLIP 商品推薦
-
-`POST /api/styling/recommendations` 會執行完整 MVP pipeline：
-
-1. 讀取相關文章觀察與 `user_preferences`。
-2. Agent 產生三套搭配公式，以及各部位的英文 FashionCLIP query。
-3. FashionCLIP 在相同 `garment_zone` 中搜尋少量圖片候選。
-4. Outfit Ranker 組合上下身、洋裝與可選配件。
-5. 以 FashionCLIP 相似度為基礎，再加入現有的顏色、品類與價格偏好分數。
-
-```bash
-curl -X POST http://localhost:8000/api/styling/recommendations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_input":"去海邊度假，希望清爽好看但不要太暴露",
-    "user_key":"demo-user",
-    "top_k_observations":8,
-    "candidates_per_zone":8,
-    "outfits_per_formula":3,
-    "revise_once":true
-  }'
-```
-
-這個 endpoint 需要先匯入衣服並執行 `scripts.build_embeddings`，也需要 `OPENAI_API_KEY`。如果資料庫中沒有任何衣服 embedding，API 會先回傳 409，避免先花 LLM 用量才發現沒有商品可搜尋。
+可用 `GET /api/fashion-knowledge/status` 查看已匯入的文章與 observations 數量。
 
 ## 放置 Kaggle 資料
 
@@ -242,6 +288,13 @@ docker compose exec backend python -m scripts.import_catalog \
 
 確認後移除 `--limit 100` 即可匯入全部。重複執行會依 `source_item_id` 更新，不會建立重複衣服。
 
+匯入 catalog 後，建立尚未有向量的商品圖片 embeddings：
+```bash
+docker compose exec backend python -m scripts.build_embeddings \
+  --batch-size 8
+```
+
+
 匯入工具會填入：
 
 - Kaggle 欄位：`gender`、`master_category`、`sub_category`、`article_type`、`base_colour`、`season`、`year`、`usage`、`product_display_name`
@@ -256,18 +309,9 @@ docker compose exec backend python -m scripts.import_catalog \
 ## 資料表
 
 - `clothes`: 商品 metadata、圖片位置、衣服區域、價格與 512 維 embedding。
-- `user_preferences`: 喜歡／不喜歡的顏色、價位、風格、用途與品類。
-- `fashion_rules`: 固定格式的穿搭規則、適用條件、來源、權重與人工審核時間。
-
-`fashion_rules.conditions` 先使用 JSON 保存固定條件，例如：
-
-```json
-{
-  "upper_colors": ["navy"],
-  "lower_colors": ["beige", "white"],
-  "occasion": ["office"],
-  "avoid_article_types": ["track pants"]
-}
-```
+- `user_hard_rules`：價格區間與避免條件等 hard filters。
+- `user_style_preferences`：使用者確認後保存的 soft preferences。
+- `fashion_articles`：文章來源與萃取 metadata。
+- `fashion_observations`：可重複使用的穿搭 observation 與 text embedding。
 
 新聞蒐集 agent 後續應只建立或更新規則草稿，保留 `source_url`、`published_at` 與 `reviewed_at`，並在人工確認後才設為 `is_active=true`。
