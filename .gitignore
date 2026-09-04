@@ -16,6 +16,13 @@ coverage/
 data/images/*
 !data/images/.gitkeep
 data/*.csv
+data/*.json
+data/myntradataset/
+data/articles/*
+!data/articles/.gitkeep
+!data/article_urls.example.txt
+data/curated/*
+!data/curated/.gitkeep
 
 # Runtime object/model storage
 catvton/densepose_/

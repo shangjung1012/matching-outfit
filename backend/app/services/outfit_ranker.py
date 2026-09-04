@@ -1,33 +1,365 @@
-from itertools import product
+from itertools import combinations, product
+from typing import Literal
 from uuid import uuid4
 
-from app.schemas import OutfitRecommendation, QuerySearchResult
+from app.models.user_preference import UserPreference
+from app.schemas import ClothResult, OutfitRecommendation, OutfitScoreBreakdown, QuerySearchResult
+
+NEUTRAL_COLORS = {
+    "black", "white", "grey", "gray", "charcoal", "beige", "cream",
+    "navy blue", "navy", "brown", "tan",
+}
+CLASHING_COLOR_PAIRS = {
+    frozenset(("orange", "green")),
+    frozenset(("red", "green")),
+    frozenset(("pink", "red")),
+    frozenset(("purple", "orange")),
+}
+STRICT_CONTEXT_TERMS = {
+    "formal", "gala", "fine dining", "luxury restaurant", "wedding", "interview",
+    "高級餐廳", "正式", "晚宴", "婚禮", "面試",
+}
+CASUAL_ARTICLE_TYPES = {"tshirts", "shorts", "track pants", "sweatshirts", "leggings"}
+FORMAL_ARTICLE_TYPES = {"blazers", "shirts", "trousers", "dresses", "sarees", "waistcoat"}
 
 
-def rank_outfits(groups: list[QuerySearchResult], limit: int = 8) -> list[OutfitRecommendation]:
-    by_zone = {group.query.garment_zone: group.clothes for group in groups}
+def _normalized(values: list[str] | None) -> set[str]:
+    return {value.strip().lower() for value in values or [] if value.strip()}
+
+
+def _preference_adjustment(
+    items: list[ClothResult], preference: UserPreference | None
+) -> tuple[float, list[str]]:
+    if preference is None or not items:
+        return 0.0, []
+    favorite_colors = _normalized(preference.favorite_colors)
+    disliked_colors = _normalized(preference.disliked_colors)
+    favorite_types = _normalized(preference.favorite_article_types)
+    disliked_types = _normalized(preference.disliked_article_types)
+    adjustment = 0.0
+    reasons: list[str] = []
+    for item in items:
+        color = (item.base_colour or "").strip().lower()
+        article_type = (item.article_type or "").strip().lower()
+        if color and color in favorite_colors:
+            adjustment += 0.03
+            reasons.append(f"Preferred color: {item.base_colour}")
+        if color and color in disliked_colors:
+            adjustment -= 0.12
+            reasons.append(f"Disliked color penalty: {item.base_colour}")
+        if article_type and article_type in favorite_types:
+            adjustment += 0.04
+            reasons.append(f"Preferred garment type: {item.article_type}")
+        if article_type and article_type in disliked_types:
+            adjustment -= 0.15
+            reasons.append(f"Disliked garment type penalty: {item.article_type}")
+        if preference.preferred_price_min is not None and item.price < preference.preferred_price_min:
+            adjustment -= 0.03
+            reasons.append("Below preferred price range")
+        if preference.preferred_price_max is not None and item.price > preference.preferred_price_max:
+            adjustment -= 0.08
+            reasons.append("Above preferred price range")
+    return adjustment / len(items), list(dict.fromkeys(reasons))
+
+
+def _color_pair_score(first: str | None, second: str | None) -> float:
+    left = (first or "").strip().lower()
+    right = (second or "").strip().lower()
+    if not left or not right:
+        return 0.65
+    if left == right:
+        return 0.86
+    if left in NEUTRAL_COLORS or right in NEUTRAL_COLORS:
+        return 0.95
+    if frozenset((left, right)) in CLASHING_COLOR_PAIRS:
+        return 0.35
+    return 0.72
+
+
+def _compatibility_score(items: list[ClothResult]) -> float:
+    if len(items) == 1:
+        return 0.82
+    color_scores = [
+        _color_pair_score(first.base_colour, second.base_colour)
+        for first, second in combinations(items, 2)
+    ]
+    usages = {(item.usage or "").strip().lower() for item in items if item.usage}
+    formality_consistency = 0.45 if {"formal", "casual"}.issubset(usages) else 1.0
+    return 0.7 * (sum(color_scores) / len(color_scores)) + 0.3 * formality_consistency
+
+
+def _context_fit_score(items: list[ClothResult], user_context: str) -> tuple[float, list[str]]:
+    strict = any(term in user_context.lower() for term in STRICT_CONTEXT_TERMS)
+    if not strict:
+        return 0.85, ["Context treated as a light constraint"]
+    penalties = 0.0
+    formal_signals = 0
+    for item in items:
+        article_type = (item.article_type or "").strip().lower()
+        usage = (item.usage or "").strip().lower()
+        if article_type in CASUAL_ARTICLE_TYPES or usage == "casual":
+            penalties += 0.22
+        if article_type in FORMAL_ARTICLE_TYPES or usage == "formal":
+            formal_signals += 1
+    score = max(0.0, min(1.0, 0.72 + 0.12 * formal_signals - penalties))
+    reasons = ["Strict-context formality gate applied"]
+    if penalties:
+        reasons.append("Casual garment penalty applied")
+    return score, reasons
+
+
+def _recommendation(
+    kind: Literal["separates", "one_piece"],
+    items: list[ClothResult],
+    preference: UserPreference | None,
+    coverage_reason: str,
+    user_context: str,
+) -> OutfitRecommendation:
+    similarity = sum(item.similarity for item in items) / len(items)
+    compatibility = _compatibility_score(items)
+    context_fit, context_reasons = _context_fit_score(items, user_context)
+    preference_score, preference_reasons = _preference_adjustment(items, preference)
+    match_score = max(
+        0.0,
+        min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit + preference_score),
+    )
+    return OutfitRecommendation(
+        id=str(uuid4()),
+        kind=kind,
+        items=items,
+        score=round(match_score, 4),
+        score_breakdown=OutfitScoreBreakdown(
+            fashion_clip=round(similarity, 4),
+            compatibility=round(compatibility, 4),
+            context_fit=round(context_fit, 4),
+            preference_adjustment=round(preference_score, 4),
+        ),
+        reasons=[
+            "FashionCLIP candidate relevance", coverage_reason,
+            *context_reasons, *preference_reasons,
+        ],
+    )
+
+
+def rank_outfits(
+    groups: list[QuerySearchResult],
+    limit: int = 20,
+    preference: UserPreference | None = None,
+    user_context: str = "",
+) -> list[OutfitRecommendation]:
+    pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
+    for group in groups:
+        zone_pool = pooled_by_zone.setdefault(group.query.garment_zone, {})
+        for item in group.clothes:
+            current = zone_pool.get(item.id)
+            if current is None or item.similarity > current.similarity:
+                zone_pool[item.id] = item
+    by_zone = {
+        zone: sorted(pool.values(), key=lambda item: item.similarity, reverse=True)
+        for zone, pool in pooled_by_zone.items()
+    }
     recommendations: list[OutfitRecommendation] = []
-
-    for upper, lower in product(by_zone.get("upper_body", [])[:5], by_zone.get("lower_body", [])[:5]):
-        score = (upper.similarity + lower.similarity) / 2
+    accessories = by_zone.get("accessory", [])[:3]
+    accessory_options: list[ClothResult | None] = accessories if accessories else [None]
+    for upper, lower, accessory in product(
+        by_zone.get("upper_body", []), by_zone.get("lower_body", []), accessory_options
+    ):
+        items = [upper, lower, *([accessory] if accessory else [])]
         recommendations.append(
-            OutfitRecommendation(
-                id=str(uuid4()),
-                kind="separates",
-                items=[upper, lower],
-                score=round(score, 4),
-                reasons=["Strong average text-image similarity", "Upper and lower body coverage"],
+            _recommendation(
+                "separates", items, preference,
+                "Upper and lower body candidate coverage", user_context,
+            )
+        )
+    for item, accessory in product(by_zone.get("one_piece", []), accessory_options):
+        items = [item, *([accessory] if accessory else [])]
+        recommendations.append(
+            _recommendation(
+                "one_piece", items, preference,
+                "One-piece candidate coverage", user_context,
+            )
+        )
+    ranked = sorted(recommendations, key=lambda result: result.score, reverse=True)
+    separates = [result for result in ranked if result.kind == "separates"]
+    one_pieces = [result for result in ranked if result.kind == "one_piece"]
+    quality_floor = ranked[0].score - 0.12 if ranked else 0.0
+    viable_separates = [result for result in separates if result.score >= quality_floor]
+    viable_one_pieces = [result for result in one_pieces if result.score >= quality_floor]
+    if limit >= 2 and viable_separates and viable_one_pieces:
+        one_piece_limit = min(limit // 2, len(viable_one_pieces))
+        separates_limit = min(limit - one_piece_limit, len(viable_separates))
+        balanced_pool = [
+            *viable_separates[:separates_limit],
+            *viable_one_pieces[:one_piece_limit],
+        ]
+        if len(balanced_pool) < limit:
+            balanced_pool.extend(
+                result
+                for result in ranked
+                if result not in balanced_pool
+            )
+        return sorted(balanced_pool, key=lambda result: result.score, reverse=True)[:limit]
+    return ranked[:limit]
+
+
+def select_diverse(
+    recommendations: list[OutfitRecommendation], limit: int
+) -> list[OutfitRecommendation]:
+    selected: list[OutfitRecommendation] = []
+    used_item_ids: set[int] = set()
+    used_assets: set[str] = set()
+    used_outfit_styles: set[tuple] = set()
+    used_color_profiles: set[tuple] = set()
+    used_combinations: set[tuple[str, ...]] = set()
+
+    def normalized(value: str | None) -> str:
+        return (value or "unknown").strip().lower()
+
+    def identities(recommendation: OutfitRecommendation) -> set[str]:
+        return {
+            normalized(item.image_path or item.image_url) for item in recommendation.items
+        }
+
+    def style_signature(recommendation: OutfitRecommendation) -> tuple:
+        return (
+            recommendation.kind,
+            *sorted(
+                (
+                    item.garment_zone,
+                    normalized(item.article_type),
+                    normalized(item.base_colour),
+                )
+                for item in recommendation.items
+            ),
+        )
+
+    def color_profile(recommendation: OutfitRecommendation) -> tuple:
+        return tuple(
+            sorted(
+                (item.garment_zone, normalized(item.base_colour))
+                for item in recommendation.items
             )
         )
 
-    for item in by_zone.get("one_piece", []):
-        recommendations.append(
-            OutfitRecommendation(
-                id=str(uuid4()),
-                kind="one_piece",
-                items=[item],
-                score=item.similarity,
-                reasons=["Matches the selected one-piece query"],
-            )
+    def add(recommendation: OutfitRecommendation) -> None:
+        selected.append(recommendation)
+        used_item_ids.update(item.id for item in recommendation.items)
+        used_assets.update(identities(recommendation))
+        used_outfit_styles.add(style_signature(recommendation))
+        used_color_profiles.add(color_profile(recommendation))
+        used_combinations.add(tuple(sorted(identities(recommendation))))
+
+    best_score = max((recommendation.score for recommendation in recommendations), default=0.0)
+    quality_floor = best_score - 0.10
+
+    def is_suitable(recommendation: OutfitRecommendation) -> bool:
+        review = recommendation.aesthetic_review
+        return recommendation.score >= quality_floor and not (
+            review is not None and review.fatal_issues
         )
-    return sorted(recommendations, key=lambda result: result.score, reverse=True)[:limit]
+
+    suitable_counts = {
+        kind: sum(
+            recommendation.kind == kind and is_suitable(recommendation)
+            for recommendation in recommendations
+        )
+        for kind in ("separates", "one_piece")
+    }
+    if limit >= 2 and all(suitable_counts.values()):
+        one_piece_target = min(limit // 2, suitable_counts["one_piece"])
+        separates_target = min(limit - one_piece_target, suitable_counts["separates"])
+        remaining = limit - separates_target - one_piece_target
+        if remaining:
+            extra_one_piece = min(
+                remaining, suitable_counts["one_piece"] - one_piece_target
+            )
+            one_piece_target += extra_one_piece
+            remaining -= extra_one_piece
+        separates_target += min(
+            remaining, suitable_counts["separates"] - separates_target
+        )
+        kind_targets = {
+            "separates": separates_target,
+            "one_piece": one_piece_target,
+        }
+    else:
+        kind_targets = {
+            "separates": min(limit, suitable_counts["separates"]),
+            "one_piece": min(limit, suitable_counts["one_piece"]),
+        }
+    available_kinds = {recommendation.kind for recommendation in recommendations}
+    kind_counts = {kind: 0 for kind in available_kinds}
+
+    def within_kind_target(recommendation: OutfitRecommendation) -> bool:
+        return kind_counts[recommendation.kind] < kind_targets[recommendation.kind]
+
+    def add_with_count(recommendation: OutfitRecommendation) -> None:
+        add(recommendation)
+        kind_counts[recommendation.kind] += 1
+
+    # Prefer different products, images, garment/color combinations, and color profiles.
+    # Later passes relax one condition at a time only when the catalog cannot fill the limit.
+    for require_new_colors, require_new_items in ((True, True), (False, True), (False, False)):
+        for recommendation in recommendations:
+            if recommendation in selected:
+                continue
+            if not is_suitable(recommendation):
+                continue
+            if not within_kind_target(recommendation):
+                continue
+            item_ids = {item.id for item in recommendation.items}
+            if require_new_items and (
+                not item_ids.isdisjoint(used_item_ids)
+                or not identities(recommendation).isdisjoint(used_assets)
+            ):
+                continue
+            if style_signature(recommendation) in used_outfit_styles:
+                continue
+            if require_new_colors and color_profile(recommendation) in used_color_profiles:
+                continue
+            add_with_count(recommendation)
+            if len(selected) >= limit:
+                return selected
+    # Satisfy the separates/one-piece target even if a repeated style profile is needed.
+    for recommendation in recommendations:
+        combination = tuple(sorted(identities(recommendation)))
+        if (
+            recommendation not in selected
+            and combination not in used_combinations
+            and within_kind_target(recommendation)
+            and is_suitable(recommendation)
+        ):
+            add_with_count(recommendation)
+        if len(selected) >= limit:
+            return selected
+    # If one category lacks enough suitable items, let suitable items from the other fill the gap.
+    for recommendation in recommendations:
+        combination = tuple(sorted(identities(recommendation)))
+        if (
+            recommendation not in selected
+            and combination not in used_combinations
+            and is_suitable(recommendation)
+        ):
+            add_with_count(recommendation)
+        if len(selected) >= limit:
+            return selected
+    # Only dip below the relative quality floor when there are not enough suitable results.
+    for recommendation in recommendations:
+        combination = tuple(sorted(identities(recommendation)))
+        review = recommendation.aesthetic_review
+        if (
+            recommendation not in selected
+            and combination not in used_combinations
+            and not (review is not None and review.fatal_issues)
+        ):
+            add_with_count(recommendation)
+        if len(selected) >= limit:
+            return selected
+    # Fatal candidates are a last resort to preserve the requested result count.
+    for recommendation in recommendations:
+        combination = tuple(sorted(identities(recommendation)))
+        if recommendation not in selected and combination not in used_combinations:
+            add_with_count(recommendation)
+        if len(selected) >= limit:
+            return selected
+    return selected

@@ -11,7 +11,7 @@
 - Embedding: `patrickjohncyh/fashion-clip`（512 維、cosine distance）
 - Virtual try-on: 獨立 CatVTON GPU API + 私有 MinIO
 
-目前 Query Planner 是不需 API key 的規則版，介面已獨立放在 `backend/app/services/query_planner.py`，之後可以直接替換成 LLM agent。搭配排序目前以 embedding 相似度為基礎，`fashion_rules` 與完整 user preference 加權是後續開發接點。
+目前商品 Query Planner 仍是不需 API key 的規則版。另有「文章知識 → 搭配策略 → FashionCLIP 商品候選」流程：Styling Planner 先產生三套搭配公式與各 garment zone 的英文視覺 query，Critic 檢查並最多修訂一次，再由 FashionCLIP 搜尋實際商品，最後交給 Outfit Ranker 排序。
 
 ## 系統預計流程
 
@@ -76,11 +76,15 @@ flowchart TD
 3. 規則先經人工審核，通過後才設為 `is_active=true`。
 4. Outfit Ranker 只使用已啟用的規則參與搭配評分。
 
+第一版不把雜誌內容直接寫成永久真理，也不自動啟用 `fashion_rules`。文章先存成 `data/articles/records/*.json` 的 `outfit observations`，每一筆保留來源、證據、適用情境、單品、顏色、材質、輪廓、搭配動作、時效類型與信心分數。待格式穩定且經人工抽查後，再決定哪些內容值得晉升成資料庫規則。
+
 ### 目前實作狀態
 
 - 已完成：CSV 與圖片匯入、garment zone 分類、圖片 embedding、文字 embedding 搜尋、query 確認介面、基本上下身配對、偏好更新提案與確認。
 - 骨架階段：Query Planner 目前是關鍵字規則版，尚未串接 LLM。
-- 待開發：`fashion_rules` 實際評分、完整 user preference 權重、新聞爬取與規則更新 Agent、更完整的搭配相容性模型。
+- 已完成 MVP：指定 URL 文章收集、圖片與文字的 LLM 結構化整理、簡易相關觀察檢索、文字 Styling Planner、Critic 與單次修訂。
+- 已完成 MVP：搭配公式會轉成 `upper_body`、`lower_body`、`one_piece` 或 `accessory` 的 FashionCLIP query，召回實際商品後再組合；Outfit Ranker 也會使用現有的顏色、品類與價格偏好做輕量加減分。
+- 待開發：`fashion_rules` 實際評分、陳枝宣後續提供的材質／版型／圖案等衣服 tag、完整 user preference 權重、整套商品圖片的視覺審查、更完整的搭配相容性模型。
 
 ## 啟動服務
 
@@ -134,7 +138,82 @@ docker compose down -v
 docker compose up --build
 ```
 
+## 少量文章 → 穿搭知識
+
+1. 複製環境設定並填入 API key：
+
+```bash
+cp .env.example .env
+```
+
+2. 複製 `data/article_urls.example.txt`，先挑 8–12 篇公開且能直接閱讀的文章，一行一個 URL。第一版只接受設定中的 ELLE Taiwan、GQ Taiwan、Marie Claire Korea 與 GQ Korea 網域，不會從分類頁自動無限追蹤連結。
+
+3. 先只測試網頁解析，不花 LLM 用量：
+
+```bash
+docker compose run --rm backend python -m scripts.collect_articles \
+  --url-file /data/article_urls.example.txt \
+  --collect-only
+```
+
+4. 確認 `data/articles/raw/` 內容合理後，再下載每篇最多 4 張圖片並抽取穿搭觀察：
+
+```bash
+docker compose run --rm backend python -m scripts.collect_articles \
+  --url-file /data/article_urls.example.txt \
+  --download-images \
+  --max-images 4
+```
+
+收集器預設遵守 `robots.txt`、限制允許網域，也不處理登入或付費牆。網站條款與頁面結構仍可能改變；失敗的文章會個別列出，不會偷偷換來源。原始文章、衍生 JSON 和下載圖片都被 `.gitignore` 排除，不會塞進 Git。
+
+## 執行文字搭配 Demo
+
+CLI：
+
+```bash
+docker compose run --rm backend python -m scripts.demo_styling \
+  "去海邊度假三天，天氣炎熱，希望清爽好看但不要太暴露"
+```
+
+API：
+
+```bash
+curl -X POST http://localhost:8000/api/styling/demo \
+  -H "Content-Type: application/json" \
+  -d '{"user_input":"去晚宴，希望低調有質感","top_k_observations":8,"revise_once":true}'
+```
+
+可用 `GET /api/fashion-knowledge/status` 查看已整理的文章和觀察數量。`/api/styling/demo` 只輸出文字公式；若要進一步搜尋 Kaggle／實際衣櫃商品，使用下面的 `/api/styling/recommendations`。
+
+## 搭配 Agent + FashionCLIP 商品推薦
+
+`POST /api/styling/recommendations` 會執行完整 MVP pipeline：
+
+1. 讀取相關文章觀察與 `user_preferences`。
+2. Agent 產生三套搭配公式，以及各部位的英文 FashionCLIP query。
+3. FashionCLIP 在相同 `garment_zone` 中搜尋少量圖片候選。
+4. Outfit Ranker 組合上下身、洋裝與可選配件。
+5. 以 FashionCLIP 相似度為基礎，再加入現有的顏色、品類與價格偏好分數。
+
+```bash
+curl -X POST http://localhost:8000/api/styling/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_input":"去海邊度假，希望清爽好看但不要太暴露",
+    "user_key":"demo-user",
+    "top_k_observations":8,
+    "candidates_per_zone":8,
+    "outfits_per_formula":3,
+    "revise_once":true
+  }'
+```
+
+這個 endpoint 需要先匯入衣服並執行 `scripts.build_embeddings`，也需要 `OPENAI_API_KEY`。如果資料庫中沒有任何衣服 embedding，API 會先回傳 409，避免先花 LLM 用量才發現沒有商品可搜尋。
+
 ## 放置 Kaggle 資料
+
+如果不想人工挑選，也不想把 15 GB 高畫質資料下載到本機，可以先在 Kaggle Notebook 執行 `scripts.curate_catalog`。它會以 metadata、圖片品質、FashionCLIP、去重與多樣性 quota 全自動選出約 500 件，再只複製入選 ID 的高畫質圖。完整操作見 [`docs/KAGGLE_CURATION.md`](docs/KAGGLE_CURATION.md)。
 
 下載 [Fashion Product Images Dataset](https://www.kaggle.com/datasets/paramaggarwal/fashion-product-images-dataset) 並整理成以下結構：
 

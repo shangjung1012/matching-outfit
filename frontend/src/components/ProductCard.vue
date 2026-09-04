@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Heart } from 'lucide-vue-next'
 import type { CatalogItem, ClothResult } from '../types'
+import { formatCurrency } from '../utils/currency'
 
 defineProps<{
   item: CatalogItem | ClothResult
@@ -36,7 +37,7 @@ defineEmits<{ toggleLike: [id: number] }>()
       </div>
       <h3>{{ item.product_display_name }}</h3>
       <div class="product-footer">
-        <strong>NT$ {{ item.price.toLocaleString() }}</strong>
+        <strong>{{ formatCurrency(item.price, item.currency) }}</strong>
         <span v-if="showSimilarity && 'similarity' in item">{{ Math.round(item.similarity * 100) }}% match</span>
       </div>
     </div>

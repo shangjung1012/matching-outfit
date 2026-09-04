@@ -1,0 +1,7 @@
+# 每行一個希望資料集偏向的「可從商品圖片看見」的英文描述。
+# 可以定期依 ELLE／GQ 文章觀察更新，但不要放抽象事件名稱或價格。
+clean contemporary everyday clothing
+relaxed tailored silhouette
+minimal neutral color fashion
+versatile modern street style garment
+lightweight refined summer clothing

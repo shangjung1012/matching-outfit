@@ -20,6 +20,8 @@ export interface TryOnJob {
   updated_at: string
   expires_at: string | null
 }
+export type Audience = 'men' | 'women' | 'unisex'
+export type AppView = 'agent' | 'catalog' | 'preferences'
 
 export interface QueryDraft {
   id: string
@@ -36,6 +38,13 @@ export interface ClothResult {
   garment_zone: GarmentZone
   image_url: string
   price: number
+  original_price: number | null
+  discounted_price: number | null
+  currency: string
+  brand_name: string | null
+  age_group: string | null
+  gender: string | null
+  usage: string | null
   base_colour: string | null
   article_type: string | null
   similarity: number
@@ -48,6 +57,11 @@ export interface CatalogItem {
   garment_zone: GarmentZone
   image_url: string
   price: number
+  original_price: number | null
+  discounted_price: number | null
+  currency: string
+  brand_name: string | null
+  age_group: string | null
   gender: string | null
   master_category: string | null
   sub_category: string | null
@@ -65,6 +79,39 @@ export interface OutfitRecommendation {
   items: ClothResult[]
   score: number
   reasons: string[]
+  score_breakdown: {
+    fashion_clip: number
+    compatibility: number
+    context_fit: number
+    preference_adjustment: number
+    aesthetic: number | null
+  } | null
+  aesthetic_review: {
+    occasion_fit: number
+    color_harmony: number
+    silhouette_balance: number
+    material_coherence: number
+    overall_aesthetic: number
+    fatal_issues: string[]
+    reason: string
+  } | null
+}
+
+export interface QueryPlanResponse {
+  queries: QueryDraft[]
+  planner: string
+  audience: Audience | null
+  knowledge_observation_ids: string[]
+  planning_note: string
+}
+
+export interface RecommendationResponse {
+  recommendations: OutfitRecommendation[]
+  aesthetic_reviewed: boolean
+  review_note: string
+  knowledge_observation_count: number
+  knowledge_sources: string[]
+  knowledge_note: string
 }
 
 export interface PreferenceProposal {
