@@ -17,6 +17,7 @@ data/images/*
 !data/images/.gitkeep
 data/*.csv
 data/*.json
+!data/fashion_knowledge.snapshot.json
 data/myntradataset/
 data/articles/*
 !data/articles/.gitkeep
@@ -31,3 +32,6 @@ catvton/output/
 .DS_Store
 Thumbs.db
 .vscode
+
+# Local database/article transfer bundles
+backups/

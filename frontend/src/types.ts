@@ -198,3 +198,74 @@ export interface StylePreferenceProposal {
   proposals: StylePreferenceCreate[]
   explanation: string
 }
+
+export interface FashionObservationAdmin {
+  id: number
+  observation_id: string
+  summary: string
+  evidence: string
+  audiences: string[]
+  occasions: string[]
+  climates: string[]
+  seasons: string[]
+  times_of_day: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
+  garments: string[]
+  colors: string[]
+  materials: string[]
+  silhouettes: string[]
+  styling_actions: string[]
+  avoid_when: string[]
+  signal_type: 'timeless' | 'current_trend' | 'editorial_example'
+  confidence: number
+  is_active: boolean
+  has_embedding: boolean
+}
+
+export interface FashionArticleAdmin {
+  id: number
+  source_url: string
+  source_name: string
+  title: string
+  author: string | null
+  published_at: string | null
+  collected_at: string
+  language: string | null
+  article_summary: string
+  extraction_notes: string[]
+  extraction_model: string
+  observation_count: number
+  active_observation_count: number
+  observations: FashionObservationAdmin[]
+}
+
+export interface FashionArticleCollectResult {
+  url: string
+  status: 'created' | 'updated' | 'failed'
+  article_id: number | null
+  title: string | null
+  observation_count: number
+  message: string
+}
+
+export interface FashionArticleCollectResponse {
+  results: FashionArticleCollectResult[]
+  succeeded: number
+  failed: number
+}
+
+export interface FashionKnowledgeSource {
+  key: string
+  name: string
+  index_url: string
+  audience: 'men' | 'women'
+}
+
+export interface FashionArticleAutoUpdateResponse extends FashionArticleCollectResponse {
+  discovered: number
+  skipped_existing: number
+  candidates: string[]
+  discovery_errors: Record<string, string>
+}

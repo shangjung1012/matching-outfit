@@ -15,6 +15,10 @@ import type {
   TryOnJob,
   QueryPlanResponse,
   RecommendationResponse,
+  FashionArticleAdmin,
+  FashionArticleCollectResponse,
+  FashionArticleAutoUpdateResponse,
+  FashionKnowledgeSource,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -203,4 +207,47 @@ export function createTryOnJob(
 
 export function getTryOnJob(jobId: string) {
   return request<TryOnJob>(`/api/try-on/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getFashionArticles(search = '') {
+  const params = new URLSearchParams({ limit: '100' })
+  if (search.trim()) params.set('search', search.trim())
+  return request<{ items: FashionArticleAdmin[]; total: number }>(
+    `/api/fashion-knowledge/articles?${params}`,
+  )
+}
+
+export function collectFashionArticles(urls: string[]) {
+  return request<FashionArticleCollectResponse>(
+    '/api/fashion-knowledge/articles/collect',
+    json('POST', { urls, download_images: false, max_images: 4 }),
+  )
+}
+
+export function getFashionKnowledgeSources() {
+  return request<FashionKnowledgeSource[]>('/api/fashion-knowledge/sources')
+}
+
+export function autoUpdateFashionArticles(
+  sourceKeys: string[], perSourceLimit: number, pageLimit: number,
+) {
+  return request<FashionArticleAutoUpdateResponse>(
+    '/api/fashion-knowledge/articles/auto-update',
+    json('POST', {
+      source_keys: sourceKeys,
+      per_source_limit: perSourceLimit,
+      page_limit: Math.max(0, pageLimit),
+      max_articles: Math.min(12, Math.max(1, sourceKeys.length * perSourceLimit)),
+    }),
+  )
+}
+
+export function setFashionObservationActive(id: number, isActive: boolean) {
+  return request(`/api/fashion-knowledge/observations/${id}`, json('PATCH', {
+    is_active: isActive,
+  }))
+}
+
+export function deleteFashionArticle(id: number) {
+  return request<void>(`/api/fashion-knowledge/articles/${id}`, json('DELETE'))
 }

@@ -44,3 +44,11 @@ class FashionKnowledgeStore:
 
     def observations(self) -> list[OutfitObservation]:
         return [observation for record in self.load_records() for observation in record.extraction.observations]
+
+    def delete_article_files(self, url: str) -> None:
+        """Remove generated JSON for one article without touching shared images."""
+        name = _record_name(url)
+        for directory in (self.raw_dir, self.records_dir):
+            path = directory / f"{name}.json"
+            if path.exists():
+                path.unlink()

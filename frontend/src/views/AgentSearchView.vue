@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { ArrowLeft, Check, MessageSquare, MessageSquarePlus, Send, Sparkles } from 'lucide-vue-next'
+import {
+  ArrowLeft, BookOpenText, Check, MessageSquare, MessageSquarePlus, Send, Sparkles,
+} from 'lucide-vue-next'
 import {
   clarifyRequirements,
   confirmSoftPreferences,
@@ -21,7 +23,7 @@ import type {
 } from '../types'
 
 const props = defineProps<{ userKey: string }>()
-const emit = defineEmits<{ preferenceUpdated: [] }>()
+const emit = defineEmits<{ preferenceUpdated: []; openKnowledge: [] }>()
 
 interface ChatMessage {
   id: number
@@ -317,6 +319,10 @@ async function confirmProposal() {
     </aside>
 
     <main class="agent-workspace">
+      <button class="knowledge-source-button" @click="emit('openKnowledge')">
+        <BookOpenText :size="16" />知識來源
+      </button>
+
       <section v-if="stage === 'start' && !requirements" class="agent-start">
         <div class="start-icon"><MessageSquare :size="26" /></div>
         <h2>開始新的穿搭搜尋</h2>

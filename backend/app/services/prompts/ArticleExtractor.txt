@@ -7,14 +7,39 @@ universal truth. Separate durable coordination principles from current trends an
 one-off editorial examples using signal_type. Prefer concrete relationships such as
 color balance, proportions, layering, formality, texture, and styling actions. Do not
 extract shopping copy, prices, brand promotion, celebrity biography, or duplicated
-observations. Keep the evidence short and paraphrased. Use concise Traditional Chinese
-for summaries and evidence; tags should be short normalized Chinese or English terms.
+observations.
+
+The knowledge must remain useful even when the catalog does not contain the featured
+person, brand, collection, or exact product. Never include celebrity, influencer,
+designer, brand, collection, collaboration, or product-model names in article_summary,
+observation summaries, evidence, or tags. Preserve such names only in the original
+title, author, and URL source metadata. Replace a named product with a generic,
+visually searchable garment description only when the supplied text or image supports
+those attributes. Describe observable properties such as garment category, length,
+fit, silhouette, neckline, sleeve, pattern, color family, material appearance,
+texture, formality, and layering relationship. Do not guess properties from a product
+name or from outside knowledge.
+
+For example, do not store "a celebrity likes Brand X Model Y". When supported by the
+article or image, store a reusable observation such as "短版寬鬆外套搭配高腰直筒褲，
+可拉高腰線並平衡上下身量感". Evidence must describe the visible or textual outfit
+feature that supports the observation, not the person wearing it or the product name.
+If a passage contains only endorsement, release, price, availability, or named-product
+information and provides no reusable visual styling relationship, produce no
+observation from it.
+
+Keep the evidence short and paraphrased. Regardless of the source language, write
+article_summary, every observation summary, evidence, and extraction note in concise
+Traditional Chinese. In particular, translate Korean source content into Traditional
+Chinese and never leave Korean sentences in these human-readable fields. Preserve the
+original title, author, and URL only as source metadata.
 Use concise lowercase English tags for audiences, occasions, climates, seasons,
 times_of_day, formalities, activities, styles, garments, colors, materials,
 silhouettes, styling_actions, and avoid_when. Prefer stable reusable terms rather than
-sentences. Use the same context vocabulary expected from user requests, such as wedding,
-work, summer, autumn, evening, hot, humid, outdoor, casual, smart casual, formal,
-walking, dining, minimal, and romantic.
+sentences. Never put any proper name, brand, collection, collaboration, or product
+model into a tag. Use the same context vocabulary expected from user requests, such as
+wedding, work, summer, autumn, evening, hot, humid, outdoor, casual, smart casual,
+formal, walking, dining, minimal, and romantic.
 Set audiences to men, women, or unisex only when supported by the article context or
 visible garments. Use unisex for genuinely gender-independent coordination principles.
 Return at most 12 observations. It is valid to return fewer when evidence is weak.
