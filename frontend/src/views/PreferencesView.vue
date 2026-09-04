@@ -2,17 +2,21 @@
 import { onMounted, reactive, ref } from 'vue'
 import { Brain, Check, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-vue-next'
 import {
-  addStylePreference,
-  deleteStylePreference,
-  getPreferenceBundle,
-  patchStylePreference,
   saveHardRules,
 } from '../api'
 import ColorPreferenceEditor from '../components/ColorPreferenceEditor.vue'
 import TagInput from '../components/TagInput.vue'
+import { useUserLibrary } from '../composables/useUserLibrary'
 import type { HardRules, StylePreference } from '../types'
 
 const props = defineProps<{ userKey: string }>()
+const {
+  stylePreferences: soft,
+  loadPreferences,
+  addPreference,
+  patchPreference,
+  removePreference,
+} = useUserLibrary(props.userKey)
 
 function emptyHard(): HardRules {
   return {
@@ -30,7 +34,6 @@ function emptyHard(): HardRules {
 }
 
 const hard = reactive<HardRules>(emptyHard())
-const soft = ref<StylePreference[]>([])
 const newPreference = reactive({ text: '' })
 const editingId = ref<number | null>(null)
 const editingText = ref('')
@@ -50,7 +53,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const bundle = await getPreferenceBundle(props.userKey)
+    const bundle = await loadPreferences()
     applyHard(bundle?.hard)
     soft.value = Array.isArray(bundle?.soft) ? bundle.soft : []
   } catch (reason) {
@@ -87,7 +90,7 @@ async function addSoft() {
   if (!preferenceText) return
   error.value = ''
   try {
-    const row = await addStylePreference(props.userKey, {
+    await addPreference({
       preference_text: preferenceText,
       source: 'explicit',
       origin_item_ids: [],
@@ -99,7 +102,6 @@ async function addSoft() {
       activities: [],
       styles: [],
     })
-    soft.value = [...soft.value.filter((item) => item.id !== row.id), row]
     newPreference.text = ''
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '新增失敗'
@@ -107,10 +109,9 @@ async function addSoft() {
 }
 
 async function toggleActive(row: StylePreference) {
-  const updated = await patchStylePreference(props.userKey, row.id, {
+  await patchPreference(row.id, {
     is_active: !row.is_active,
   })
-  soft.value = soft.value.map((item) => (item.id === row.id ? updated : item))
 }
 
 function beginEdit(row: StylePreference) {
@@ -121,16 +122,14 @@ function beginEdit(row: StylePreference) {
 async function saveEdit(row: StylePreference) {
   const text = editingText.value.trim()
   if (!text) return
-  const updated = await patchStylePreference(props.userKey, row.id, {
+  await patchPreference(row.id, {
     preference_text: text,
   })
-  soft.value = soft.value.map((item) => (item.id === row.id ? updated : item))
   editingId.value = null
 }
 
 async function removeSoft(row: StylePreference) {
-  await deleteStylePreference(props.userKey, row.id)
-  soft.value = soft.value.filter((item) => item.id !== row.id)
+  await removePreference(row.id)
 }
 
 function preferenceContexts(row: StylePreference): string[] {

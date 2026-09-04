@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ChevronDown, ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
+import { Bookmark, ChevronDown, ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
 import type { OutfitRecommendation, QueryDraft, StylingGuide } from '../types'
 import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
   outfit: OutfitRecommendation
   rank: number
-  liked: boolean
+  preferred: boolean
+  favorited: boolean
+  actionLoading?: boolean
   featured?: boolean
   userRequest?: string
   stylingGuide?: StylingGuide | null
   queries?: QueryDraft[]
 }>()
 
-defineEmits<{ toggleLike: [] }>()
+defineEmits<{ togglePreference: []; toggleFavorite: [] }>()
 
 const zoneLabels = {
   upper_body: '上身',
@@ -121,14 +123,26 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
           }}
         </strong>
         <span>{{ outfit.items.length }} 件商品</span>
-        <button
-          class="outfit-heart-button"
-          :class="{ active: liked }"
-          :title="liked ? '取消喜歡這套搭配' : '喜歡這套搭配'"
-          @click="$emit('toggleLike')"
-        >
-          <Heart :size="17" :fill="liked ? 'currentColor' : 'none'" />
-        </button>
+        <div class="outfit-card-actions">
+          <button
+            class="outfit-action-button preference"
+            :class="{ active: preferred }"
+            :disabled="actionLoading"
+            :title="preferred ? '停用這套搭配的偏好' : '將這套搭配加入偏好'"
+            @click="$emit('togglePreference')"
+          >
+            <Heart :size="17" :fill="preferred ? 'currentColor' : 'none'" />
+          </button>
+          <button
+            class="outfit-action-button favorite"
+            :class="{ active: favorited }"
+            :disabled="actionLoading"
+            :title="favorited ? '取消收藏整套商品' : '收藏整套商品'"
+            @click="$emit('toggleFavorite')"
+          >
+            <Bookmark :size="17" :fill="favorited ? 'currentColor' : 'none'" />
+          </button>
+        </div>
       </div>
     </div>
     <div v-if="outfit.references.length" class="recommendation-references">

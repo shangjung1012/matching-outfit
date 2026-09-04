@@ -21,6 +21,8 @@ import type {
   FashionKnowledgeSource,
   StylingGuide,
   FashionIntent,
+  FavoriteCollection,
+  FavoriteItemsMutationResponse,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -144,6 +146,30 @@ export function confirmSoftPreferences(userKey: string, rows: StylePreferenceCre
   return request<{ status: string; created: number; updated: number }>(
     `${prefBase(userKey)}/soft/confirm`,
     json('POST', { user_key: userKey, rows }),
+  )
+}
+
+export function proposeSoftFromItem(userKey: string, itemId: number) {
+  return request<StylePreferenceProposal>(
+    `${prefBase(userKey)}/soft/from-item`,
+    json('POST', { item_id: itemId }),
+  )
+}
+
+export function getFavorites(userKey: string) {
+  return request<FavoriteCollection>(
+    `/api/favorites/${encodeURIComponent(userKey)}`,
+  )
+}
+
+export function updateFavoriteItems(
+  userKey: string,
+  itemIds: number[],
+  favorited: boolean,
+) {
+  return request<FavoriteItemsMutationResponse>(
+    `/api/favorites/${encodeURIComponent(userKey)}/items`,
+    json('PUT', { item_ids: itemIds, favorited }),
   )
 }
 

@@ -6,7 +6,6 @@ import {
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
-  confirmSoftPreferences,
   createQueryPlan,
   getRecommendations,
   proposeSoftFromOutfit,
@@ -15,6 +14,7 @@ import {
 import OutfitCard from '../components/OutfitCard.vue'
 import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
+import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
   Audience,
   OutfitRecommendation,
@@ -34,6 +34,13 @@ const emit = defineEmits<{
   openKnowledge: []
   debugUpdated: [trace: PipelineDebugSession]
 }>()
+const {
+  favoriteItemIds,
+  isPreferred,
+  setFavoriteItems,
+  confirmPreferences,
+  deactivatePreferenceOrigin,
+} = useUserLibrary(props.userKey)
 
 interface ChatMessage {
   id: number
@@ -51,7 +58,7 @@ const discardedRecommendations = ref<OutfitRecommendation[]>([])
 const showDiscarded = ref(false)
 const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
-const preferenceUpdated = ref(false)
+const preferenceStatus = ref('')
 const proposalArea = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -248,7 +255,7 @@ function startNewConversation() {
   originalRequest.value = ''
   likedOutfitIds.value = new Set()
   proposal.value = null
-  preferenceUpdated.value = false
+  preferenceStatus.value = ''
   error.value = ''
   stage.value = 'start'
 }
@@ -271,7 +278,7 @@ async function searchOutfits() {
     showDiscarded.value = false
     likedOutfitIds.value = new Set()
     proposal.value = null
-    preferenceUpdated.value = false
+    preferenceStatus.value = ''
     stage.value = 'results'
     addMessage(
       'agent',
@@ -293,15 +300,46 @@ function updateQueryText(id: string, text: string) {
   publishDebug()
 }
 
-async function toggleLike(id: string) {
+function outfitItemIds(outfit: OutfitRecommendation): number[] {
+  return outfit.items.map((item) => item.id)
+}
+
+function outfitIsPreferred(outfit: OutfitRecommendation): boolean {
+  return likedOutfitIds.value.has(outfit.id) || isPreferred(outfitItemIds(outfit))
+}
+
+function outfitIsFavorited(outfit: OutfitRecommendation): boolean {
+  return outfit.items.length > 0
+    && outfit.items.every((item) => favoriteItemIds.value.has(item.id))
+}
+
+async function togglePreference(outfit: OutfitRecommendation) {
   if (loading.value) return
+  const itemIds = outfitItemIds(outfit)
+  if (isPreferred(itemIds)) {
+    await run(async () => {
+      await deactivatePreferenceOrigin(itemIds)
+      preferenceStatus.value = '這套搭配的偏好已停用，可在「我的偏好」重新啟用。'
+      emit('preferenceUpdated')
+    })
+    return
+  }
+
   const next = new Set(likedOutfitIds.value)
-  next.has(id) ? next.delete(id) : next.add(id)
+  next.has(outfit.id) ? next.delete(outfit.id) : next.add(outfit.id)
   likedOutfitIds.value = next
   proposal.value = null
-  preferenceUpdated.value = false
+  preferenceStatus.value = ''
 
   if (next.size > 0) await buildProposal(next)
+}
+
+async function toggleFavorite(outfit: OutfitRecommendation) {
+  if (loading.value) return
+  const itemIds = outfitItemIds(outfit)
+  await run(async () => {
+    await setFavoriteItems(itemIds, !outfitIsFavorited(outfit))
+  })
 }
 
 async function buildProposal(selectedIds = likedOutfitIds.value) {
@@ -323,14 +361,16 @@ async function buildProposal(selectedIds = likedOutfitIds.value) {
 
 function dismissProposal() {
   proposal.value = null
+  likedOutfitIds.value = new Set()
 }
 
 async function confirmProposal() {
   if (!proposal.value) return
   await run(async () => {
-    await confirmSoftPreferences(props.userKey, proposal.value!.proposals)
+    await confirmPreferences(proposal.value!.proposals)
     proposal.value = null
-    preferenceUpdated.value = true
+    likedOutfitIds.value = new Set()
+    preferenceStatus.value = '偏好已更新，下次規劃穿搭時會參考這次的選擇。'
     emit('preferenceUpdated')
   })
 }
@@ -442,7 +482,7 @@ async function confirmProposal() {
           </div>
         </header>
 
-        <div v-if="proposal || preferenceUpdated" ref="proposalArea" class="preference-confirmation-area">
+        <div v-if="proposal || preferenceStatus" ref="proposalArea" class="preference-confirmation-area">
           <PreferenceProposalPanel
             v-if="proposal"
             :proposal="proposal"
@@ -452,7 +492,7 @@ async function confirmProposal() {
           />
           <div v-else class="preference-update-status">
             <Check :size="17" />
-            <span>偏好已更新，下次規劃穿搭時會參考這次的選擇。</span>
+            <span>{{ preferenceStatus }}</span>
           </div>
         </div>
 
@@ -462,12 +502,15 @@ async function confirmProposal() {
             :key="outfit.id"
             :outfit="outfit"
             :rank="index + 1"
-            :liked="likedOutfitIds.has(outfit.id)"
+            :preferred="outfitIsPreferred(outfit)"
+            :favorited="outfitIsFavorited(outfit)"
+            :action-loading="loading"
             :featured="index === 0"
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
             :queries="queries"
-            @toggle-like="toggleLike(outfit.id)"
+            @toggle-preference="togglePreference(outfit)"
+            @toggle-favorite="toggleFavorite(outfit)"
           />
         </div>
         <div v-else class="empty-view">
@@ -495,11 +538,14 @@ async function confirmProposal() {
               :key="outfit.id"
               :outfit="outfit"
               :rank="recommendations.length + index + 1"
-              :liked="likedOutfitIds.has(outfit.id)"
               :user-request="originalRequest"
               :styling-guide="stylingGuide"
               :queries="queries"
-              @toggle-like="toggleLike(outfit.id)"
+              :preferred="outfitIsPreferred(outfit)"
+              :favorited="outfitIsFavorited(outfit)"
+              :action-loading="loading"
+              @toggle-preference="togglePreference(outfit)"
+              @toggle-favorite="toggleFavorite(outfit)"
             />
           </div>
         </section>

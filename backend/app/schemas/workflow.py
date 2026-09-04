@@ -387,6 +387,10 @@ class StylePreferenceProposalRequest(BaseModel):
     requirements: RequirementSummary | None = None
 
 
+class StylePreferenceItemProposalRequest(BaseModel):
+    item_id: int = Field(gt=0)
+
+
 class StylePreferenceProposal(BaseModel):
     proposals: list[StylePreferenceCreate] = Field(default_factory=list)
     explanation: str = "Only a proposal - persist it after the user confirms."
@@ -428,6 +432,28 @@ class CatalogItem(BaseModel):
     has_embedding: bool
 
 
+class FavoriteItem(BaseModel):
+    item: CatalogItem
+    favorited_at: datetime
+
+
+class FavoriteCollection(BaseModel):
+    user_key: str
+    items: list[FavoriteItem] = Field(default_factory=list)
+
+
+class FavoriteItemsUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=100)
+    favorited: bool
+
+
+class FavoriteItemsMutationResponse(BaseModel):
+    user_key: str
+    added: int = 0
+    removed: int = 0
+    favorite_item_ids: list[int] = Field(default_factory=list)
+
+
 class CatalogResponse(BaseModel):
     items: list[CatalogItem]
     total: int
@@ -447,4 +473,3 @@ class CatalogSemanticSearchResponse(BaseModel):
     items: list[ClothResult]
     total: int
     model: str
-

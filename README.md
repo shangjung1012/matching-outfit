@@ -46,7 +46,7 @@ Optional external services:
 
 ### Frontend
 
-The frontend is a Vue 3 + Vite app. It provides catalog browsing, preference editing, recommendation flow, and virtual try-on screens.
+The frontend is a Vue 3 + Vite app. It provides catalog browsing, persistent item favorites, preference editing, recommendation flow, and virtual try-on screens.
 
 Default URL:
 
@@ -58,7 +58,7 @@ http://localhost:5173
 
 The backend is a FastAPI app. It owns:
 
-- API routes for catalog listing, query planning, semantic search, recommendations, preferences, article knowledge status, and virtual try-on.
+- API routes for catalog listing, query planning, semantic search, recommendations, favorites, preferences, article knowledge status, and virtual try-on.
 - SQLAlchemy models and Alembic migrations.
 - Integration logic for FashionCLIP, OpenAI-backed LLM calls, text embeddings, and the TryOn API.
 
@@ -77,6 +77,7 @@ Main tables:
 - `clothes`: imported catalog items, image paths, garment zones, price metadata, and FashionCLIP image embeddings.
 - `user_hard_rules`: one row per user for personal profile data and hard filters such as price range and avoided colors or categories.
 - `user_style_preferences`: context-scoped preference sentences, including user-authored entries and memories confirmed from liked outfits.
+- `user_favorite_items`: per-user catalog bookmarks; bookmarking an outfit stores each garment independently.
 - `fashion_articles`: article metadata and extracted summary.
 - `fashion_observations`: reusable outfit observations extracted from articles, with tags and text embeddings.
 - `fashion_rules`: curated styling rules with conditions, recommendation text, source, weight, and active flag.
