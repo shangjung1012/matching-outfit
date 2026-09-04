@@ -424,8 +424,15 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             if payload.use_aesthetic_review and not settings.openai_api_key
             else "Aesthetic review disabled"
         )
+        final = select_diverse(shortlist, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
         return RecommendationResponse(
-            recommendations=select_diverse(shortlist, payload.final_count),
+            recommendations=final,
+            discarded_recommendations=[
+                recommendation
+                for recommendation in shortlist
+                if recommendation.id not in final_ids
+            ],
             aesthetic_reviewed=False,
             review_note=note,
         )
@@ -451,13 +458,21 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             shortlist,
             observations=observations,
             user_preferences=preference_context,
+            styling_guide=payload.styling_guide,
         )
-        final = apply_aesthetic_reviews(
+        reviewed_pool = apply_aesthetic_reviews(
             shortlist,
             reviews,
-            final_count=payload.final_count,
+            final_count=len(shortlist),
             observations=observations,
         )
+        final = select_diverse(reviewed_pool, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
+        discarded = [
+            recommendation
+            for recommendation in reviewed_pool
+            if recommendation.id not in final_ids
+        ]
         used_observation_ids = list(
             dict.fromkeys(
                 identifier
@@ -475,6 +490,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         )
         return RecommendationResponse(
             recommendations=final,
+            discarded_recommendations=discarded,
             aesthetic_reviewed=True,
             review_note=f"Outfit agent reviewed {len(reviews)} shortlisted outfits",
             knowledge_observation_count=len(used_observation_ids),
@@ -482,8 +498,15 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             knowledge_note=knowledge_note,
         )
     except RuntimeError as error:
+        final = select_diverse(shortlist, payload.final_count)
+        final_ids = {recommendation.id for recommendation in final}
         return RecommendationResponse(
-            recommendations=select_diverse(shortlist, payload.final_count),
+            recommendations=final,
+            discarded_recommendations=[
+                recommendation
+                for recommendation in shortlist
+                if recommendation.id not in final_ids
+            ],
             aesthetic_reviewed=False,
             review_note=f"Aesthetic review unavailable; match ranking used instead: {error}",
             knowledge_note=knowledge_note,

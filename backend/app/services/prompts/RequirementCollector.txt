@@ -19,6 +19,14 @@ walking, dining, minimal, romantic, and streetwear. Do not place Chinese text in
 list fields. additional_notes may remain Traditional Chinese when it cannot be reduced
 to a stable tag.
 
+Distinguish colloquial color language from garment patterns. Chinese expressions such
+as "花花綠綠", "繽紛", "五彩繽紛", and "色彩鮮豔" normally describe vivid,
+colorful, playful, or high-saturation color treatment; they do not mean a floral
+pattern. Never add `floral`, `flower print`, or another pattern tag from those color
+expressions alone. Add a floral-pattern concept only when the user explicitly mentions
+花卉、花朵、碎花、印花, or an equivalent unambiguous pattern request. Preserve this
+distinction in search_brief as well as the structured fields.
+
 For every English tag returned in a structured list, add one tag_translations array item
 with `tag` set to the exact English tag and `label_zh` set to a concise Traditional
 Chinese label. These translations are only for frontend display. Never replace the

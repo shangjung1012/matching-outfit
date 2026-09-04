@@ -6,7 +6,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://matching_user:matching_password@postgres:5432/matching_outfit
       BACKEND_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      IMAGE_DIR: /data/images
+      IMAGE_DIR: ${IMAGE_DIR:-/data/images}
       FASHION_CLIP_MODEL: patrickjohncyh/fashion-clip
       CATALOG_CURRENCY: ${CATALOG_CURRENCY:-INR}
       ARTICLE_DATA_DIR: /data/articles

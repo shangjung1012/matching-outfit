@@ -25,11 +25,32 @@ class ReferenceLink(BaseModel):
     url: str
 
 
+class PairingDirection(BaseModel):
+    id: str = Field(min_length=1, max_length=24)
+    concept: str = Field(min_length=2, max_length=300)
+    upper_body_focus: str = Field(min_length=2, max_length=300)
+    lower_body_focus: str = Field(min_length=2, max_length=300)
+    color_relationship: str = Field(min_length=2, max_length=300)
+
+
+class StylingGuide(BaseModel):
+    concept: str = Field(min_length=2, max_length=500)
+    visual_attributes: list[str] = Field(default_factory=list, max_length=12)
+    avoid_misinterpretations: list[str] = Field(default_factory=list, max_length=12)
+    color_direction: list[str] = Field(default_factory=list, max_length=12)
+    silhouette_direction: list[str] = Field(default_factory=list, max_length=12)
+    material_direction: list[str] = Field(default_factory=list, max_length=12)
+    pattern_direction: list[str] = Field(default_factory=list, max_length=12)
+    pairing_directions: list[PairingDirection] = Field(default_factory=list, max_length=7)
+    reviewer_checklist: list[str] = Field(default_factory=list, max_length=12)
+
+
 class QueryDraft(BaseModel):
     id: str
     text: str
     garment_zone: GarmentZone
     rationale: str
+    direction_id: str | None = Field(default=None, max_length=24)
     selected: bool = True
     knowledge_observation_ids: list[str] = Field(default_factory=list)
     references: list[ReferenceLink] = Field(default_factory=list)
@@ -82,6 +103,7 @@ class PlanResponse(BaseModel):
     audience: Audience | None = None
     knowledge_observation_ids: list[str] = Field(default_factory=list)
     planning_note: str = ""
+    styling_guide: StylingGuide | None = None
 
 
 class RefineRequest(PlanRequest):
@@ -96,6 +118,7 @@ class SearchRequest(BaseModel):
     user_input: str = Field(default="", max_length=1200)
     audience: Audience | None = None
     requirements: RequirementSummary | None = None
+    styling_guide: StylingGuide | None = None
     shortlist_count: int = Field(default=15, ge=5, le=30)
     final_count: int = Field(default=5, ge=1, le=10)
     use_aesthetic_review: bool = True
@@ -164,6 +187,7 @@ class OutfitRecommendation(BaseModel):
 
 class RecommendationResponse(BaseModel):
     recommendations: list[OutfitRecommendation]
+    discarded_recommendations: list[OutfitRecommendation] = Field(default_factory=list)
     aesthetic_reviewed: bool = False
     review_note: str = ""
     knowledge_observation_count: int = 0

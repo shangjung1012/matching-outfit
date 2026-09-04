@@ -3,6 +3,7 @@ import json
 from scripts.import_catalog import (
     load_style_data,
     matches_outfit_demo_profile,
+    normalize_hm_row,
     parse_zone_limits,
     positive_int,
     price_fields,
@@ -84,4 +85,51 @@ def test_outfit_demo_profile_excludes_socks_innerwear_and_children() -> None:
     assert not matches_outfit_demo_profile(
         {"articleType": "Dresses", "subCategory": "Dress"},
         {"ageGroup": "Kids-Girls"},
+    )
+
+
+def test_normalize_hm_row_maps_catalog_fields() -> None:
+    row = normalize_hm_row(
+        {
+            "article_id": "108775015",
+            "prod_name": "Strap top",
+            "product_type_name": "Vest top",
+            "product_group_name": "Garment Upper body",
+            "colour_group_name": "Black",
+            "index_group_name": "Ladieswear",
+            "section_name": "Womens Everyday Basics",
+            "price_twd": "409",
+        }
+    )
+
+    assert row["id"] == "108775015"
+    assert row["gender"] == "Women"
+    assert row["subCategory"] == "Topwear"
+    assert row["articleType"] == "Tops"
+    assert row["price"] == "409"
+    assert row["brandName"] == "H&M"
+
+
+def test_hm_underwear_and_swimwear_are_excluded_from_demo_profile() -> None:
+    assert not matches_outfit_demo_profile(
+        normalize_hm_row(
+            {
+                "article_id": "1",
+                "product_type_name": "Underwear bottom",
+                "product_group_name": "Garment Lower body",
+                "index_group_name": "Ladieswear",
+            }
+        ),
+        None,
+    )
+    assert not matches_outfit_demo_profile(
+        normalize_hm_row(
+            {
+                "article_id": "2",
+                "product_type_name": "Swimsuit",
+                "product_group_name": "Swimwear",
+                "index_group_name": "Ladieswear",
+            }
+        ),
+        None,
     )

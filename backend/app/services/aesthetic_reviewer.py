@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
-from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink
+from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink, StylingGuide
 from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.outfit_ranker import select_diverse
 from app.services.integration_tools.llm import LLM
@@ -72,6 +72,7 @@ class AestheticReviewer:
         *,
         observations: list[OutfitObservation] | None = None,
         user_preferences: dict | None = None,
+        styling_guide: StylingGuide | None = None,
     ) -> dict[str, AestheticReview]:
         observations = observations or []
         metadata = []
@@ -114,6 +115,9 @@ class AestheticReviewer:
                 "text": json.dumps(
                     {
                         "user_request": user_input,
+                        "styling_guide": (
+                            styling_guide.model_dump(mode="json") if styling_guide else None
+                        ),
                         "user_preferences": user_preferences or {},
                         "fashion_observations": [
                             {

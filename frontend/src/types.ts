@@ -32,9 +32,30 @@ export interface QueryDraft {
   text: string
   garment_zone: GarmentZone
   rationale: string
+  direction_id?: string | null
   selected: boolean
   knowledge_observation_ids: string[]
   references: ReferenceLink[]
+}
+
+export interface PairingDirection {
+  id: string
+  concept: string
+  upper_body_focus: string
+  lower_body_focus: string
+  color_relationship: string
+}
+
+export interface StylingGuide {
+  concept: string
+  visual_attributes: string[]
+  avoid_misinterpretations: string[]
+  color_direction: string[]
+  silhouette_direction: string[]
+  material_direction: string[]
+  pattern_direction: string[]
+  pairing_directions: PairingDirection[]
+  reviewer_checklist: string[]
 }
 
 export interface ClothResult {
@@ -118,6 +139,7 @@ export interface QueryPlanResponse {
   audience: Audience | null
   knowledge_observation_ids: string[]
   planning_note: string
+  styling_guide: StylingGuide | null
 }
 
 export interface RequirementSummary {
@@ -143,6 +165,7 @@ export interface ClarificationResponse {
 
 export interface RecommendationResponse {
   recommendations: OutfitRecommendation[]
+  discarded_recommendations: OutfitRecommendation[]
   aesthetic_reviewed: boolean
   review_note: string
   knowledge_observation_count: number

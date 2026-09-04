@@ -15,6 +15,7 @@ from app.schemas.workflow import (
     OutfitScoreBreakdown,
     PlanRequest,
     PlanResponse,
+    PairingDirection,
     PreferenceBundle,
     QueryDraft,
     QuerySearchResult,
@@ -31,6 +32,7 @@ from app.schemas.workflow import (
     StylePreferenceProposal,
     StylePreferenceProposalRequest,
     StylePreferenceView,
+    StylingGuide,
 )
 from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobStatus, TryOnJobView
 from app.schemas.fashion_knowledge import FashionKnowledgeStatus
@@ -52,6 +54,7 @@ __all__ = [
     "OutfitScoreBreakdown",
     "PlanRequest",
     "PlanResponse",
+    "PairingDirection",
     "PreferenceBundle",
     "QueryDraft",
     "QuerySearchResult",
@@ -68,6 +71,7 @@ __all__ = [
     "StylePreferenceProposal",
     "StylePreferenceProposalRequest",
     "StylePreferenceView",
+    "StylingGuide",
     "TryOnCapabilities",
     "TryOnClothType",
     "TryOnJobStatus",

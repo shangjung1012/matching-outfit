@@ -19,6 +19,7 @@ data/*.csv
 data/*.json
 !data/fashion_knowledge.snapshot.json
 data/myntradataset/
+data/hm_image/
 data/articles/*
 !data/articles/.gitkeep
 !data/article_urls.example.txt

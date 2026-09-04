@@ -7,6 +7,12 @@ unavailable and prevents over-specific phrases from producing near-identical ite
 The outfit_context fields are normalized English tags extracted from the conversation.
 Use all populated context fields together with the full user request; never rely on one
 tag alone when deciding garment directions.
+The full user request is the authoritative original wording. If a normalized context
+summary introduces a meaning that the original request does not support, follow the
+original request. In particular, Chinese colloquial color expressions such as
+"花花綠綠" or "繽紛" mean vivid, colorful, playful, or high-saturation color—not
+a floral pattern. Use `floral` only when the original request explicitly asks for a
+flower, floral, ditsy-floral, or other unmistakable print pattern.
 
 First decide how restrictive the occasion is. Gala dinners, weddings, funerals,
 interviews, explicit dress codes, and safety requirements create hard constraints.
@@ -48,6 +54,58 @@ but no color was requested, use broad
 visual properties such as bright color, muted tone, dark tone, light tone, neutral tone,
 or colorful instead of names such as white, blue, beige, or black.
 
+Infer a broad tonal direction from the occasion, time, climate, and desired formality,
+even when the user did not request a named color. Normally include one visually
+searchable tonal property in each query. Treat this as an aesthetic bias rather than a
+hard prohibition, and distribute tonal directions across all twelve queries so the
+results remain varied:
+- For fine dining, gala dinners, formal evening events, interviews, and similarly
+  restrained settings, make roughly six to eight of the twelve queries dark tone,
+  deep tone, muted tone, or low-saturation. Use neutral tone, soft light tone, or one
+  restrained accent direction for the remaining queries instead of making every result
+  dark and identical.
+- For weddings and celebratory formal events, balance refined muted or neutral tones
+  with soft light, rich, or restrained colorful directions unless the request implies
+  a more specific convention.
+- For beaches, resorts, hot daytime outings, and sunny outdoor leisure, favor light,
+  bright, airy, or colorful directions while retaining a few muted or neutral options.
+- For shopping, cafes, sightseeing, and other low-restriction activities, keep an even
+  mix of neutral, muted, light, dark, and restrained colorful directions; do not impose
+  a formal-event palette.
+Coordinate the tonal distribution between upper_body and lower_body queries so several
+compatible pairings share or complement a direction. The two one_piece queries should
+represent distinct suitable tonal alternatives. Explicit user colors and saved color
+preferences take priority over these inferred ratios, and this rule never permits an
+unrequested named color.
+
+Before writing queries, translate every abstract style label into a reusable styling
+guide. The styling_guide must explain the intended visual grammar through observable
+attributes: silhouettes, proportions, fabric appearance, surface details, pattern
+treatment, tonal relationships, and how an upper and lower garment should work together.
+It must also list likely semantic misinterpretations. For example, vivid or colorful
+Y2K means high-saturation color blocking, playful fitted or cropped proportions,
+sporty or metallic details, and deliberate contrast; it does not imply floral print,
+matronly prints, or merely adding the word `Y2K` to every search phrase.
+
+Treat abstract style names as weak FashionCLIP hints. An abstract label such as Y2K,
+quiet luxury, old money, preppy, or streetwear may appear as a secondary anchor in at
+most four of the twelve queries. It must never be the only meaningful attribute. Every
+query must independently contain a recognizable garment type plus at least three useful
+visual signals chosen from silhouette or proportion, broad tonal property, material
+appearance, pattern, or construction detail. Vary these concrete signals so a missing
+catalog item does not collapse all retrievals into near-identical products.
+
+Create five coordinated separates directions with direction_id values A, B, C, D, and
+E. Return exactly one upper_body and one lower_body query for each ID; place A-E in that
+order within each garment zone. Each matching pair must implement one coherent but
+meaningfully different interpretation of the requested style. Describe all five pairs
+in styling_guide.pairing_directions using the same IDs. Give the two one_piece queries
+direction_id values F and G. The one-piece alternatives must also be distinct. Populate
+reviewer_checklist with concrete image-level checks that distinguish a successful outfit
+from a keyword match.
+Write the styling guide, rationales, and planning note in concise Traditional Chinese;
+keep FashionCLIP query text and direction IDs in English ASCII.
+
 Outfit memories are previously confirmed soft preferences that include the full earlier
 request and the outfit selected in that situation. Compare each memory's occasion, time,
 season, activity, formality, climate, and practical needs with the current request. Use a
@@ -60,6 +118,8 @@ No fashion articles or retrieved fashion observations are available at this stag
 invent or cite external fashion knowledge. Respect the requested audience and preferences.
 Perform a final self-check that upper_body occurs five times, lower_body occurs five times,
 and one_piece occurs twice, the queries are visually searchable, varied, and the
-upper/lower directions can form coherent outfits. Each rationale must be a direct,
+upper/lower directions can form coherent outfits. Also verify that broad tone properties
+reflect the occasion-specific distribution above without collapsing into one repeated
+palette. Each rationale must be a direct,
 natural Traditional Chinese translation of that query and must not explain why the query
 was generated. Write the planning note in concise Traditional Chinese.

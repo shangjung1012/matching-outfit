@@ -16,6 +16,7 @@ from app.schemas.workflow import (
     QueryDraft,
     RequirementField,
     RequirementSummary,
+    StylingGuide,
 )
 from app.services.integration_tools.llm import LLM
 from app.preferences.context import build_planner_preference_context
@@ -103,6 +104,7 @@ ENGLISH_REJECTION_PREFIX = re.compile(
 
 class PlannedCatalogQuery(StrictModel):
     garment_zone: Literal["upper_body", "lower_body", "one_piece"]
+    direction_id: str = Field(min_length=1, max_length=24)
     text: str = Field(min_length=3, max_length=240)
     rationale: str = Field(min_length=2, max_length=300)
 
@@ -112,6 +114,7 @@ class KnowledgeQueryDraft(StrictModel):
     hard_constraints: list[str] = Field(default_factory=list)
     excluded_query_terms: list[str] = Field(default_factory=list)
     aesthetic_direction: list[str] = Field(default_factory=list)
+    styling_guide: StylingGuide
     queries: list[PlannedCatalogQuery] = Field(min_length=12, max_length=12)
     planning_note: str
 
@@ -367,6 +370,28 @@ class QueryOutputNormalizer:
             )
         return by_zone
 
+    @staticmethod
+    def normalized_direction_ids(
+        by_zone: dict[str, list[PlannedCatalogQuery]],
+    ) -> dict[str, list[str]]:
+        upper_ids = [query.direction_id for query in by_zone["upper_body"]]
+        lower_ids = [query.direction_id for query in by_zone["lower_body"]]
+        if len(set(upper_ids)) == 5 and set(upper_ids) == set(lower_ids):
+            separates = {
+                "upper_body": upper_ids,
+                "lower_body": lower_ids,
+            }
+        else:
+            # Preserve pairing even if the model returns duplicate or mismatched IDs.
+            separates = {
+                "upper_body": list("ABCDE"),
+                "lower_body": list("ABCDE"),
+            }
+        one_piece_ids = [query.direction_id for query in by_zone["one_piece"]]
+        if len(set(one_piece_ids)) != 2:
+            one_piece_ids = list("FG")
+        return {**separates, "one_piece": one_piece_ids}
+
     def _repair_invalid_queries(
         self, result: KnowledgeQueryDraft
     ) -> dict[str, list[RepairedCatalogQuery]]:
@@ -422,11 +447,8 @@ class QueryOutputNormalizer:
         forbidden_terms = self._forbidden_query_terms(
             user_input, requirements, hard, style_preferences
         )
-        forbidden_terms.update(
-            term.strip().lower()
-            for term in result.excluded_query_terms
-            if term.strip() and term.isascii()
-        )
+        # Never turn an LLM-invented exclusion into a hard filter. Only exclusions
+        # verified from the raw request, saved hard rules, or preferences are safe.
 
         normalized: dict[str, list[str]] = {}
         for zone in QUERY_ZONES:
@@ -512,6 +534,7 @@ class QueryPlanner:
             requirements,
             hard,
         )
+        direction_ids = self.normalizer.normalized_direction_ids(by_zone)
 
         return PlanResponse(
             original_input=user_input,
@@ -521,6 +544,7 @@ class QueryPlanner:
                     text=normalized_queries.by_zone[zone][index],
                     garment_zone=zone,
                     rationale=by_zone[zone][index].rationale,
+                    direction_id=direction_ids[zone][index],
                 )
                 for zone in QUERY_ZONES
                 for index in range(QUERY_COUNTS[zone])
@@ -533,4 +557,5 @@ class QueryPlanner:
                 if normalized_queries.repair_attempted
                 else result.planning_note
             ),
+            styling_guide=result.styling_guide,
         )

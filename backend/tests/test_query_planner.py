@@ -3,7 +3,7 @@ from collections import Counter
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.preferences.context import build_planner_preference_context
-from app.schemas import ChatTurn, RequirementSummary
+from app.schemas import ChatTurn, PairingDirection, RequirementSummary, StylingGuide
 from app.services.query_planner import (
     EnglishQueryRepair,
     KnowledgeQueryDraft,
@@ -120,6 +120,7 @@ def query_rows(*, chinese: bool = False) -> list[PlannedCatalogQuery]:
         rows.append(
             PlannedCatalogQuery(
                 garment_zone="upper_body",
+                direction_id="ABCDE"[index],
                 text=(f"白色輕盈上衣 {index}" if chinese else f"structured black satin blouse style {index}"),
                 rationale=f"上身方向 {index}",
             )
@@ -128,6 +129,7 @@ def query_rows(*, chinese: bool = False) -> list[PlannedCatalogQuery]:
         rows.append(
             PlannedCatalogQuery(
                 garment_zone="lower_body",
+                direction_id="ABCDE"[index],
                 text=(f"黑色俐落長褲 {index}" if chinese else f"tailored black wide leg trousers style {index}"),
                 rationale=f"下身方向 {index}",
             )
@@ -136,6 +138,7 @@ def query_rows(*, chinese: bool = False) -> list[PlannedCatalogQuery]:
         rows.append(
             PlannedCatalogQuery(
                 garment_zone="one_piece",
+                direction_id="FG"[index],
                 text=(f"黑色正式洋裝 {index}" if chinese else f"elegant black satin midi dress style {index}"),
                 rationale=f"套裝方向 {index}",
             )
@@ -170,6 +173,26 @@ class FakeLLM:
             hard_constraints=["維持正式感"],
             excluded_query_terms=["black"] if self.chinese else [],
             aesthetic_direction=["俐落"],
+            styling_guide=StylingGuide(
+                concept="Concrete visual interpretation",
+                visual_attributes=["high-saturation color blocking"],
+                avoid_misinterpretations=["Do not infer floral print from colorful"],
+                color_direction=["vivid contrasting tones"],
+                silhouette_direction=["fitted top with relaxed lower body"],
+                material_direction=["smooth lightweight surfaces"],
+                pattern_direction=["clean color blocking"],
+                pairing_directions=[
+                    PairingDirection(
+                        id=direction_id,
+                        concept=f"Direction {direction_id}",
+                        upper_body_focus="fitted upper body",
+                        lower_body_focus="relaxed lower body",
+                        color_relationship="deliberate tonal contrast",
+                    )
+                    for direction_id in "ABCDE"
+                ],
+                reviewer_checklist=["Judge visible proportions, not style keywords"],
+            ),
             queries=query_rows(chinese=self.chinese),
             planning_note="已檢查搜尋方向。",
         )
@@ -198,6 +221,8 @@ def test_planner_returns_five_five_two_without_article_knowledge() -> None:
     assert len(llm.payloads[0]["user_preferences"]["outfit_memories"]) == 1
     assert result.knowledge_observation_ids == []
     assert all(not query.references for query in result.queries)
+    assert result.styling_guide is not None
+    assert [query.direction_id for query in result.queries[:5]] == list("ABCDE")
 
 
 def test_chinese_queries_are_repaired_to_twelve_english_queries() -> None:

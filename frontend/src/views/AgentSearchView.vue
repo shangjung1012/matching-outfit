@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import {
-  ArrowLeft, BookOpenText, Check, MessageSquare, MessageSquarePlus, Send, Sparkles,
+  ArrowLeft, BookOpenText, Check, ChevronDown, ChevronUp, MessageSquare,
+  MessageSquarePlus, Send, Sparkles,
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
@@ -19,6 +20,7 @@ import type {
   OutfitRecommendation,
   QueryDraft,
   RequirementSummary,
+  StylingGuide,
   StylePreferenceProposal,
 } from '../types'
 
@@ -37,6 +39,8 @@ const messages = ref<ChatMessage[]>([
 const draft = ref('')
 const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
+const discardedRecommendations = ref<OutfitRecommendation[]>([])
+const showDiscarded = ref(false)
 const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceUpdated = ref(false)
@@ -47,6 +51,7 @@ const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
 const audience = ref<Audience | ''>('')
 const requirements = ref<RequirementSummary | null>(null)
+const stylingGuide = ref<StylingGuide | null>(null)
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
 let messageId = 2
@@ -144,6 +149,7 @@ async function refine(text: string) {
       audience.value || undefined,
     )
     queries.value = response.queries
+    stylingGuide.value = response.styling_guide
     audience.value = response.audience ?? audience.value
     originalRequest.value = `${previousRequest} ${text}`.trim()
     addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
@@ -152,22 +158,26 @@ async function refine(text: string) {
 
 async function confirmRequirements() {
   if (!hasUserDetails.value || loading.value) return
-  const fallback = messages.value
+  const rawUserRequest = messages.value
     .filter((message) => message.role === 'user')
     .map((message) => message.text)
     .join('；')
-  const brief = requirements.value?.search_brief.trim() || fallback
-  originalRequest.value = brief
+    .trim()
+  const planningInput = rawUserRequest || requirements.value?.search_brief.trim() || ''
+  originalRequest.value = planningInput
   await run(async () => {
     const response = await createQueryPlan(
-      brief,
+      planningInput,
       props.userKey,
       requirements.value,
       audience.value || undefined,
     )
     queries.value = response.queries
+    stylingGuide.value = response.styling_guide
     audience.value = response.audience ?? audience.value
     recommendations.value = []
+    discardedRecommendations.value = []
+    showDiscarded.value = false
     stage.value = 'review'
     addMessage(
       'agent',
@@ -183,7 +193,10 @@ function startNewConversation() {
   draft.value = ''
   queries.value = []
   recommendations.value = []
+  discardedRecommendations.value = []
+  showDiscarded.value = false
   requirements.value = null
+  stylingGuide.value = null
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -201,9 +214,12 @@ async function searchOutfits() {
       props.userKey,
       originalRequest.value,
       requirements.value,
+      stylingGuide.value,
       audience.value || undefined,
     )
     recommendations.value = response.recommendations
+    discardedRecommendations.value = response.discarded_recommendations
+    showDiscarded.value = false
     likedOutfitIds.value = new Set()
     proposal.value = null
     preferenceUpdated.value = false
@@ -238,9 +254,10 @@ async function toggleLike(id: string) {
 
 async function buildProposal(selectedIds = likedOutfitIds.value) {
   await run(async () => {
-    const likedOutfits = recommendations.value.filter((outfit) =>
-      selectedIds.has(outfit.id),
-    )
+    const likedOutfits = [
+      ...recommendations.value,
+      ...discardedRecommendations.value,
+    ].filter((outfit) => selectedIds.has(outfit.id))
     proposal.value = await proposeSoftFromOutfit(
       props.userKey,
       likedOutfits.map((outfit) => outfit.items.map((item) => item.id)),
@@ -403,6 +420,31 @@ async function confirmProposal() {
           <h3>沒有找到可組合的搭配</h3>
           <button class="secondary-button" @click="stage = 'review'">返回調整 query</button>
         </div>
+
+        <section v-if="discardedRecommendations.length" class="discarded-outfits">
+          <button
+            class="discarded-toggle"
+            type="button"
+            :aria-expanded="showDiscarded"
+            @click="showDiscarded = !showDiscarded"
+          >
+            <span>
+              {{ showDiscarded ? '收合其他候選搭配' : `查看其他 ${discardedRecommendations.length} 套候選搭配` }}
+            </span>
+            <ChevronUp v-if="showDiscarded" :size="17" />
+            <ChevronDown v-else :size="17" />
+          </button>
+          <div v-if="showDiscarded" class="recommendation-grid discarded-grid">
+            <OutfitCard
+              v-for="(outfit, index) in discardedRecommendations"
+              :key="outfit.id"
+              :outfit="outfit"
+              :rank="recommendations.length + index + 1"
+              :liked="likedOutfitIds.has(outfit.id)"
+              @toggle-like="toggleLike(outfit.id)"
+            />
+          </div>
+        </section>
       </section>
     </main>
   </section>

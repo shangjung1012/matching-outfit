@@ -27,7 +27,10 @@ def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothRes
 
 
 def group(
-    zone: str, clothes: list[ClothResult], references: list[ReferenceLink] | None = None
+    zone: str,
+    clothes: list[ClothResult],
+    references: list[ReferenceLink] | None = None,
+    direction_id: str | None = None,
 ) -> QuerySearchResult:
     return QuerySearchResult(
         query=QueryDraft(
@@ -35,12 +38,47 @@ def group(
             text=zone,
             garment_zone=zone,
             rationale="test",
+            direction_id=direction_id,
             references=references or [],
         ),
         clothes=[
             item.model_copy(update={"references": references or []}) for item in clothes
         ],
     )
+
+
+def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> None:
+    recommendations = rank_outfits(
+        [
+            group(
+                "upper_body",
+                [cloth(101, "upper_body", "Pink", 0.9)],
+                direction_id="A",
+            ),
+            group(
+                "lower_body",
+                [cloth(102, "lower_body", "Blue", 0.9)],
+                direction_id="A",
+            ),
+            group(
+                "upper_body",
+                [cloth(103, "upper_body", "Black", 0.9)],
+                direction_id="B",
+            ),
+            group(
+                "lower_body",
+                [cloth(104, "lower_body", "White", 0.9)],
+                direction_id="B",
+            ),
+        ],
+        limit=10,
+    )
+
+    combinations = {
+        tuple(item.id for item in recommendation.items)
+        for recommendation in recommendations
+    }
+    assert combinations == {(101, 102), (103, 104)}
 
 
 def test_liked_outfit_creates_one_context_scoped_preference_sentence() -> None:

@@ -19,6 +19,7 @@ import type {
   FashionArticleCollectResponse,
   FashionArticleAutoUpdateResponse,
   FashionKnowledgeSource,
+  StylingGuide,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -98,6 +99,7 @@ export function getRecommendations(
   userKey: string,
   userInput: string,
   requirements: RequirementSummary | null,
+  stylingGuide: StylingGuide | null,
   audience?: Audience,
 ) {
   return request<RecommendationResponse>('/api/recommendations', json('POST', {
@@ -107,6 +109,7 @@ export function getRecommendations(
     user_input: userInput,
     audience: audience || null,
     requirements,
+    styling_guide: stylingGuide,
     shortlist_count: 15,
     final_count: 5,
     use_aesthetic_review: true,

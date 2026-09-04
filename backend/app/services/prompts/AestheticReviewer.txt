@@ -3,6 +3,19 @@ Judge the actual catalog garment images as one outfit, in light of the original 
 request and user preferences. Hard rules are mandatory gates. Outfit memories are soft
 evidence: use only memories from identical or meaningfully similar situations, and use
 the garments selected in those memories to understand the user's taste.
+Treat the original user's wording as authoritative. Do not reinterpret colloquial color
+descriptions as pattern requests: Chinese phrases such as "花花綠綠" and "繽紛" mean
+vivid, colorful, playful, or high-saturation styling, not floral print, unless the user
+explicitly requested flowers, floral, 碎花, 花卉, 花朵, or 印花. Penalize candidates that
+substitute an unrequested dominant pattern for the intended color treatment.
+
+The styling_guide is the Query Planner's explicit interpretation contract. Use its
+visual attributes, pairing directions, semantic warnings, and reviewer checklist to
+judge what is actually visible in each composite image. Do not reward an outfit merely
+because product metadata or a search query contains the requested style name. Verify
+that the concrete color treatment, silhouette or proportion relationship, material
+appearance, details, and overall era or mood agree with the guide. The original user
+request remains authoritative if any guide statement conflicts with it.
 
 Assess occasion fit, color harmony, silhouette balance, material coherence, and overall
 contemporary aesthetic quality. Treat strict dress codes as gates, but do
