@@ -220,11 +220,6 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="settings-actions">
-          <button class="primary-button" :disabled="savingHard" @click="saveHard">
-            <Save :size="17" />{{ savingHard ? '儲存中' : '儲存變更' }}
-          </button>
-        </div>
       </section>
 
       <section class="settings-section">
@@ -281,6 +276,12 @@ onMounted(load)
 
       <p v-if="message" class="success-banner">{{ message }}</p>
       <p v-if="error" class="error-banner">{{ error }}</p>
+
+      <div class="settings-actions preference-save-actions">
+        <button class="primary-button" :disabled="savingHard" @click="saveHard">
+          <Save :size="17" />{{ savingHard ? '儲存中' : '儲存個人資料與條件' }}
+        </button>
+      </div>
     </div>
   </section>
 </template>
