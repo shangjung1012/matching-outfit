@@ -92,6 +92,7 @@ def test_agent_plan_orders_zones_and_filters_citations() -> None:
         signal_type="timeless",
         confidence=0.9,
         source_url="https://example.com/formal-style",
+        source_title="正式晚宴穿搭指南",
     )
     planner = QueryPlanner(FakeLLM())
 
@@ -113,8 +114,13 @@ def test_agent_plan_orders_zones_and_filters_citations() -> None:
     ]
     assert result.knowledge_observation_ids == ["obs_valid"]
     assert result.queries[0].knowledge_observation_ids == ["obs_valid"]
-    assert result.queries[0].source_urls == ["https://example.com/formal-style"]
-    assert result.queries[1].source_urls == []
+    assert [reference.model_dump() for reference in result.queries[0].references] == [
+        {
+            "title": "正式晚宴穿搭指南",
+            "url": "https://example.com/formal-style",
+        }
+    ]
+    assert result.queries[1].references == []
     assert result.queries[2].text == "tailored high-waisted trousers feminine silhouette"
     assert all("black" not in query.text.lower() for query in result.queries)
     assert "已自動正規化為英文" in (result.planning_note or "")

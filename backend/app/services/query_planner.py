@@ -9,7 +9,7 @@ from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.schemas.fashion_knowledge import OutfitObservation, StrictModel
-from app.schemas.workflow import PlanResponse, QueryDraft
+from app.schemas.workflow import PlanResponse, QueryDraft, ReferenceLink
 from app.services.integration_tools.llm import LLM
 from app.preferences.context import build_planner_preference_context
 
@@ -307,7 +307,9 @@ class QueryPlanner:
             observation.observation_id: observation for observation in observations
         }
 
-        def query_citations(query: PlannedCatalogQuery) -> tuple[list[str], list[str]]:
+        def query_citations(
+            query: PlannedCatalogQuery,
+        ) -> tuple[list[str], list[ReferenceLink]]:
             identifiers = list(
                 dict.fromkeys(
                     identifier
@@ -315,14 +317,23 @@ class QueryPlanner:
                     if identifier in observations_by_id
                 )
             )
-            urls = list(
-                dict.fromkeys(
-                    observations_by_id[identifier].source_url
-                    for identifier in identifiers
-                    if observations_by_id[identifier].source_url
+            references_by_url: dict[str, ReferenceLink] = {}
+            for identifier in identifiers:
+                observation = observations_by_id[identifier]
+                if not observation.source_url:
+                    continue
+                references_by_url.setdefault(
+                    observation.source_url,
+                    ReferenceLink(
+                        title=(
+                            observation.source_title
+                            or observation.source_name
+                            or observation.source_url
+                        ),
+                        url=observation.source_url,
+                    ),
                 )
-            )
-            return identifiers, urls
+            return identifiers, list(references_by_url.values())
 
         query_citation_map = {
             (zone, index): query_citations(by_zone[zone][index])
@@ -352,7 +363,7 @@ class QueryPlanner:
                     garment_zone=zone,
                     rationale=by_zone[zone][index].rationale,
                     knowledge_observation_ids=query_citation_map[(zone, index)][0],
-                    source_urls=query_citation_map[(zone, index)][1],
+                    references=query_citation_map[(zone, index)][1],
                 )
                 for zone in QUERY_ZONES
                 for index in range(2)

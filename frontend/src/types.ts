@@ -22,6 +22,11 @@ export interface TryOnJob {
 }
 export type Audience = 'men' | 'women' | 'unisex'
 
+export interface ReferenceLink {
+  title: string
+  url: string
+}
+
 export interface QueryDraft {
   id: string
   text: string
@@ -29,7 +34,7 @@ export interface QueryDraft {
   rationale: string
   selected: boolean
   knowledge_observation_ids: string[]
-  source_urls: string[]
+  references: ReferenceLink[]
 }
 
 export interface ClothResult {
@@ -49,7 +54,7 @@ export interface ClothResult {
   base_colour: string | null
   article_type: string | null
   similarity: number
-  source_urls: string[]
+  references: ReferenceLink[]
 }
 
 export interface CatalogItem {
@@ -81,7 +86,7 @@ export interface OutfitRecommendation {
   items: ClothResult[]
   score: number
   reasons: string[]
-  reference_urls: string[]
+  references: ReferenceLink[]
   score_breakdown: {
     fashion_clip: number
     compatibility: number

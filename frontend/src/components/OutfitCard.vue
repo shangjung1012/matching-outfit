@@ -59,14 +59,16 @@ defineEmits<{ toggleLike: [id: number] }>()
         <span>{{ outfit.items.length }} 件商品</span>
       </div>
     </div>
-    <div v-if="outfit.reference_urls.length" class="recommendation-references">
+    <div v-if="outfit.references.length" class="recommendation-references">
       <div class="recommendation-reference-title">
         <ExternalLink :size="14" />
         <strong>參考來源</strong>
       </div>
       <ul>
-        <li v-for="url in outfit.reference_urls" :key="url">
-          <a :href="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
+        <li v-for="reference in outfit.references" :key="reference.url">
+          <a :href="reference.url" target="_blank" rel="noopener noreferrer">
+            {{ reference.title }}
+          </a>
         </li>
       </ul>
     </div>

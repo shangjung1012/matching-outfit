@@ -1,5 +1,5 @@
 from app.models.user_preference import UserStylePreference
-from app.schemas import ClothResult, QueryDraft, QuerySearchResult
+from app.schemas import ClothResult, QueryDraft, QuerySearchResult, ReferenceLink
 from app.services.outfit_ranker import rank_outfits, select_diverse
 
 
@@ -30,7 +30,7 @@ def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothRes
 
 
 def group(
-    zone: str, clothes: list[ClothResult], source_urls: list[str] | None = None
+    zone: str, clothes: list[ClothResult], references: list[ReferenceLink] | None = None
 ) -> QuerySearchResult:
     return QuerySearchResult(
         query=QueryDraft(
@@ -38,36 +38,44 @@ def group(
             text=zone,
             garment_zone=zone,
             rationale="test",
-            source_urls=source_urls or [],
+            references=references or [],
         ),
         clothes=[
-            item.model_copy(update={"source_urls": source_urls or []}) for item in clothes
+            item.model_copy(update={"references": references or []}) for item in clothes
         ],
     )
 
 
 def test_ranker_collects_and_deduplicates_query_reference_urls() -> None:
     shared = "https://example.com/shared"
+    upper_references = [
+        ReferenceLink(title="共同穿搭原則", url=shared),
+        ReferenceLink(title="上身指南", url="https://example.com/upper"),
+    ]
+    lower_references = [
+        ReferenceLink(title="共同穿搭原則", url=shared),
+        ReferenceLink(title="下身指南", url="https://example.com/lower"),
+    ]
     recommendations = rank_outfits(
         [
             group(
                 "upper_body",
                 [cloth(50, "upper_body", "White", 0.9)],
-                [shared, "https://example.com/upper"],
+                upper_references,
             ),
             group(
                 "lower_body",
                 [cloth(51, "lower_body", "Black", 0.9)],
-                [shared, "https://example.com/lower"],
+                lower_references,
             ),
         ],
         limit=1,
     )
 
-    assert recommendations[0].reference_urls == [
-        shared,
-        "https://example.com/upper",
-        "https://example.com/lower",
+    assert [reference.model_dump() for reference in recommendations[0].references] == [
+        {"title": "共同穿搭原則", "url": shared},
+        {"title": "上身指南", "url": "https://example.com/upper"},
+        {"title": "下身指南", "url": "https://example.com/lower"},
     ]
 
 
