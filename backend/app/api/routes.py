@@ -343,6 +343,7 @@ def clarify_requirements(
         return RequirementCollector(LLM()).collect(
             payload.messages,
             audience=audience,
+            previous_requirements=payload.previous_requirements,
         )
     except RuntimeError as error:
         raise HTTPException(

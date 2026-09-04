@@ -51,6 +51,7 @@ class RequirementSummary(BaseModel):
     special_requirements: list[str] = Field(default_factory=list)
     additional_notes: str = ""
     search_brief: str = ""
+    tag_translations: dict[str, str] = Field(default_factory=dict)
 
 
 class PlanRequest(BaseModel):
@@ -64,6 +65,7 @@ class ClarificationRequest(BaseModel):
     messages: list[ChatTurn] = Field(min_length=1, max_length=30)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     audience: Audience | None = None
+    previous_requirements: RequirementSummary | None = None
 
 
 class ClarificationResponse(BaseModel):

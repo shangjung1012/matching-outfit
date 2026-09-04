@@ -60,12 +60,14 @@ export function createQueryPlan(
 export function clarifyRequirements(
   messages: Array<{ role: 'agent' | 'user'; text: string }>,
   userKey: string,
+  previousRequirements: RequirementSummary | null,
   audience?: Audience,
 ) {
   return request<ClarificationResponse>('/api/query-plans/clarify', json('POST', {
     messages,
     user_key: userKey,
     audience: audience || null,
+    previous_requirements: previousRequirements,
   }))
 }
 

@@ -33,6 +33,15 @@ style. Do not include prices, explanations, negations, abstract occasion names a
 or demographic labels. The upper and lower queries must be compatible with each other.
 The one-piece query must be a complete alternative outfit direction.
 
+Anything the current request or hard rules says to avoid, exclude, dislike, or not wear
+is forbidden query vocabulary. Do not put the rejected garment, color, material, pattern,
+or style term in any query, even inside a negative phrase such as "no skirt" or "without
+denim". Describe an acceptable positive alternative instead. FashionCLIP does not
+reliably understand negation and may retrieve the rejected concept when its word appears.
+Return every rejected concept as a concise positive English term in
+excluded_query_terms, for example `skirt`, `denim`, or `lace`. This field is only a
+machine-readable removal list; none of its terms may appear in the twelve queries.
+
 Never introduce a specific named color unless the user explicitly requested that color
 or it is present in the user's saved color preferences. When color character matters
 but no color was requested, use broad
@@ -50,6 +59,7 @@ never be weakened, while prices and negative wording must stay out of FashionCLI
 No fashion articles or retrieved fashion observations are available at this stage. Do not
 invent or cite external fashion knowledge. Respect the requested audience and preferences.
 Perform a final self-check that upper_body occurs five times, lower_body occurs five times,
-and one_piece occurs twice, the queries are
-visually searchable, varied, and the upper/lower directions can form coherent outfits. Write rationales and
-the planning note in concise Traditional Chinese.
+and one_piece occurs twice, the queries are visually searchable, varied, and the
+upper/lower directions can form coherent outfits. Each rationale must be a direct,
+natural Traditional Chinese translation of that query and must not explain why the query
+was generated. Write the planning note in concise Traditional Chinese.

@@ -29,6 +29,17 @@ REQUIREMENT_COLLECTOR_PROMPT = (PROMPTS_DIR / "RequirementCollector.txt").read_t
 ).strip()
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
 QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
+REQUIREMENT_VALUE_FIELDS = (
+    "occasions",
+    "seasons",
+    "times_of_day",
+    "climates",
+    "formalities",
+    "activities",
+    "styles",
+    "special_requirements",
+    "additional_notes",
+)
 
 FALLBACK_QUERIES = {
     "upper_body": (
@@ -68,6 +79,27 @@ COLOR_ALIASES = {
     "metallic": ("silver", "gold", "bronze", "copper", "銀色", "金色", "古銅色"),
 }
 
+REJECTABLE_CONCEPTS = {
+    "skirt": (("裙子", "裙裝", "skirt", "skirts"), ("skirt", "skirts", "miniskirt")),
+    "dress": (("洋裝", "連身裙", "dress", "dresses"), ("dress", "dresses", "gown")),
+    "denim": (("牛仔", "denim", "jean", "jeans"), ("denim", "jean", "jeans")),
+    "shorts": (("短褲", "shorts"), ("shorts",)),
+    "sleeveless": (("無袖", "sleeveless"), ("sleeveless",)),
+    "cropped": (("短版", "露腰", "crop top", "cropped"), ("crop top", "cropped", "crop")),
+    "tight": (("緊身", "貼身", "tight", "bodycon"), ("tight", "bodycon", "fitted")),
+    "oversized": (("寬鬆", "oversized", "baggy"), ("oversized", "baggy")),
+    "stripes": (("條紋", "striped", "stripes"), ("striped", "stripes")),
+}
+
+CHINESE_REJECTION_PREFIX = re.compile(
+    r"(?:不要|不想(?:要|穿)?|避免|不喜歡|討厭|排除|不能穿)[^，。；,.但而]{0,10}$"
+)
+ENGLISH_REJECTION_PREFIX = re.compile(
+    r"(?:\bno|\bnot|\bavoid|\bwithout|\bdislike|\bhate|\bexclude|"
+    r"\bdon['’]?t\s+(?:want|wear))\b(?:\W+\w+){0,4}\W*$",
+    flags=re.IGNORECASE,
+)
+
 
 class PlannedCatalogQuery(StrictModel):
     garment_zone: Literal["upper_body", "lower_body", "one_piece"]
@@ -78,6 +110,7 @@ class PlannedCatalogQuery(StrictModel):
 class KnowledgeQueryDraft(StrictModel):
     context_restrictiveness: Literal["low", "medium", "high"]
     hard_constraints: list[str] = Field(default_factory=list)
+    excluded_query_terms: list[str] = Field(default_factory=list)
     aesthetic_direction: list[str] = Field(default_factory=list)
     queries: list[PlannedCatalogQuery] = Field(min_length=12, max_length=12)
     planning_note: str
@@ -96,6 +129,8 @@ class RequirementAssessment(StrictModel):
     additional_notes: str = ""
     search_brief: str
     missing_fields: list[RequirementField] = Field(default_factory=list)
+    updated_fields: list[RequirementField] = Field(default_factory=list)
+    tag_translations: dict[str, str] = Field(default_factory=dict)
     ready_to_plan: bool = False
 
 
@@ -108,10 +143,16 @@ class RequirementCollector:
         messages: list[ChatTurn],
         *,
         audience: str | None = None,
+        previous_requirements: RequirementSummary | None = None,
     ) -> ClarificationResponse:
         payload = {
             "conversation": [message.model_dump(mode="json") for message in messages],
             "audience": audience,
+            "previous_requirements": (
+                previous_requirements.model_dump(mode="json")
+                if previous_requirements
+                else None
+            ),
         }
         result = self.llm.parse(
             stage="requirement_clarification",
@@ -119,19 +160,29 @@ class RequirementCollector:
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=RequirementAssessment,
         )
+        updated_fields = set(result.updated_fields)
+        requirement_values = {
+            field: (
+                getattr(result, field)
+                if previous_requirements is None or field in updated_fields
+                else getattr(previous_requirements, field)
+            )
+            for field in REQUIREMENT_VALUE_FIELDS
+        }
+        translations = {
+            **(
+                previous_requirements.tag_translations
+                if previous_requirements is not None
+                else {}
+            ),
+            **result.tag_translations,
+        }
         return ClarificationResponse(
             reply=result.reply,
             requirements=RequirementSummary(
-                occasions=result.occasions,
-                seasons=result.seasons,
-                times_of_day=result.times_of_day,
-                climates=result.climates,
-                formalities=result.formalities,
-                activities=result.activities,
-                styles=result.styles,
-                special_requirements=result.special_requirements,
-                additional_notes=result.additional_notes,
+                **requirement_values,
                 search_brief=result.search_brief,
+                tag_translations=translations,
             ),
             missing_fields=list(dict.fromkeys(result.missing_fields)),
             ready_to_plan=result.ready_to_plan,
@@ -234,6 +285,65 @@ class QueryOutputNormalizer:
         cleaned = re.sub(r"\b(?:denim|jeans?)\b", " ", value, flags=re.IGNORECASE)
         return re.sub(r"\s+", " ", cleaned).strip(" ,;:-")
 
+    @staticmethod
+    def _is_rejected(source: str, alias: str) -> bool:
+        lowered = source.lower()
+        start = 0
+        while True:
+            index = lowered.find(alias.lower(), start)
+            if index < 0:
+                return False
+            prefix = lowered[max(0, index - 48) : index]
+            if CHINESE_REJECTION_PREFIX.search(prefix) or ENGLISH_REJECTION_PREFIX.search(prefix):
+                return True
+            start = index + len(alias)
+
+    @classmethod
+    def _forbidden_query_terms(
+        cls,
+        user_input: str,
+        requirements: RequirementSummary | None,
+        hard: UserHardRule | None,
+        style_preferences: list[UserStylePreference] | None,
+    ) -> set[str]:
+        sources = [user_input]
+        if requirements is not None:
+            sources.extend(requirements.special_requirements)
+            sources.append(requirements.additional_notes)
+        sources.extend(
+            row.preference_text for row in style_preferences or [] if row.is_active
+        )
+        forbidden: set[str] = set()
+        for input_aliases, query_aliases in REJECTABLE_CONCEPTS.values():
+            if any(cls._is_rejected(source, alias) for source in sources for alias in input_aliases):
+                forbidden.update(query_aliases)
+
+        if hard is not None:
+            for value in (*hard.avoid_article_types, *hard.avoid_master_categories):
+                normalized = value.strip().lower()
+                if normalized:
+                    forbidden.add(normalized)
+                    if normalized.endswith("s"):
+                        forbidden.add(normalized[:-1])
+            for avoided_color in hard.avoid_colours:
+                normalized = avoided_color.strip().lower()
+                for color, aliases in COLOR_ALIASES.items():
+                    if normalized == color or normalized in {alias.lower() for alias in aliases}:
+                        forbidden.update(alias for alias in aliases if alias.isascii())
+        for color, aliases in COLOR_ALIASES.items():
+            if any(cls._is_rejected(source, alias) for source in sources for alias in aliases):
+                forbidden.update(alias for alias in aliases if alias.isascii())
+        return forbidden
+
+    @staticmethod
+    def _remove_forbidden_terms(value: str, forbidden: set[str]) -> str:
+        cleaned = value
+        for term in sorted(forbidden, key=len, reverse=True):
+            cleaned = re.sub(rf"\b{re.escape(term)}\b", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(?:no|not|without|avoid|excluding)\b", " ", cleaned, flags=re.I)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip(" ,;:-")
+
     # Check that every garment zone has the required number of candidate directions.
     # Return a dict of the queries by zone if valid, or an empty dict if invalid.
     @staticmethod
@@ -259,6 +369,7 @@ class QueryOutputNormalizer:
         repair_payload = {
             "context_restrictiveness": result.context_restrictiveness,
             "hard_constraints": result.hard_constraints,
+            "excluded_query_terms": result.excluded_query_terms,
             "aesthetic_direction": result.aesthetic_direction,
             "queries": [query.model_dump(mode="json") for query in result.queries],
         }
@@ -286,6 +397,8 @@ class QueryOutputNormalizer:
         by_zone: dict[str, list[PlannedCatalogQuery]],
         user_input: str,
         style_preferences: list[UserStylePreference] | None,
+        requirements: RequirementSummary | None = None,
+        hard: UserHardRule | None = None,
     ) -> NormalizedQueries:
         """Repair invalid output, then enforce local safeguards before embedding search."""
         original_by_zone = {
@@ -301,6 +414,14 @@ class QueryOutputNormalizer:
         )
         repaired_by_zone = self._repair_invalid_queries(result) if repair_attempted else {}
         allowed_named_colors = self._allowed_named_colors(user_input, style_preferences)
+        forbidden_terms = self._forbidden_query_terms(
+            user_input, requirements, hard, style_preferences
+        )
+        forbidden_terms.update(
+            term.strip().lower()
+            for term in result.excluded_query_terms
+            if term.strip() and term.isascii()
+        )
 
         normalized: dict[str, list[str]] = {}
         for zone in QUERY_ZONES:
@@ -314,8 +435,14 @@ class QueryOutputNormalizer:
                 query = repaired or original.text or FALLBACK_QUERIES[zone][index]
                 query = self._remove_unsolicited_colors(query, allowed_named_colors)
                 query = self._remove_contextually_unsuitable_terms(query, user_input)
+                query = self._remove_forbidden_terms(query, forbidden_terms)
+                fallback = self._remove_forbidden_terms(
+                    FALLBACK_QUERIES[zone][index], forbidden_terms
+                )
                 normalized[zone].append(
-                    self._preprocess_query(query).text or FALLBACK_QUERIES[zone][index]
+                    self._preprocess_query(query).text
+                    or self._preprocess_query(fallback).text
+                    or f"versatile {zone.replace('_', '-')} garment"
                 )
         return NormalizedQueries(normalized, repair_attempted)
 
@@ -369,11 +496,16 @@ class QueryPlanner:
         by_zone = self.normalizer.validate_distribution(result.queries)
 
         # Normalizer
+        normalization_input = " ".join(
+            value for value in (user_input, refinement) if value
+        )
         normalized_queries = self.normalizer.normalize_fashion_clip_queries(
             result,
             by_zone,
-            user_input,
+            normalization_input,
             style_preferences,
+            requirements,
+            hard,
         )
 
         return PlanResponse(

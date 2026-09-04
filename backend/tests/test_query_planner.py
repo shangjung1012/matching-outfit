@@ -3,7 +3,7 @@ from collections import Counter
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.preferences.context import build_planner_preference_context
-from app.schemas import ChatTurn
+from app.schemas import ChatTurn, RequirementSummary
 from app.services.query_planner import (
     EnglishQueryRepair,
     KnowledgeQueryDraft,
@@ -36,6 +36,12 @@ class FakeRequirementLLM:
             additional_notes="",
             search_brief="參加婚禮，穿搭避免過度搶眼",
             missing_fields=["seasons", "climates", "seasons"],
+            updated_fields=["occasions", "formalities", "special_requirements"],
+            tag_translations={
+                "wedding": "婚禮",
+                "formal": "正式",
+                "avoid drawing attention": "避免過度搶眼",
+            },
             ready_to_plan=False,
         )
 
@@ -49,7 +55,37 @@ def test_requirement_collector_only_uses_current_conversation() -> None:
     assert result.requirements.occasions == ["wedding"]
     assert result.missing_fields == ["seasons", "climates"]
     assert result.ready_to_plan is False
-    assert set(llm.payload) == {"conversation", "audience"}
+    assert set(llm.payload) == {"conversation", "audience", "previous_requirements"}
+
+
+class FakeUpdateRequirementLLM:
+    def parse(self, **_):
+        return RequirementAssessment(
+            reply="已補上戶外環境。",
+            climates=["outdoor"],
+            search_brief="秋季戶外婚禮穿搭",
+            updated_fields=["climates"],
+            tag_translations={"outdoor": "戶外"},
+            ready_to_plan=True,
+        )
+
+
+def test_requirement_update_preserves_fields_not_mentioned_this_turn() -> None:
+    previous = RequirementSummary(
+        occasions=["wedding"],
+        seasons=["autumn"],
+        tag_translations={"wedding": "婚禮", "autumn": "秋季"},
+    )
+
+    result = RequirementCollector(FakeUpdateRequirementLLM()).collect(
+        [ChatTurn(role="user", text="場地在戶外")],
+        previous_requirements=previous,
+    )
+
+    assert result.requirements.occasions == ["wedding"]
+    assert result.requirements.seasons == ["autumn"]
+    assert result.requirements.climates == ["outdoor"]
+    assert result.requirements.tag_translations["wedding"] == "婚禮"
 
 
 def test_planner_context_includes_profile_hard_rules_and_all_active_memories() -> None:
@@ -131,6 +167,7 @@ class FakeLLM:
         return KnowledgeQueryDraft(
             context_restrictiveness="high",
             hard_constraints=["維持正式感"],
+            excluded_query_terms=["black"] if self.chinese else [],
             aesthetic_direction=["俐落"],
             queries=query_rows(chinese=self.chinese),
             planning_note="已檢查搜尋方向。",
@@ -199,3 +236,28 @@ def test_beach_query_removes_denim_unless_user_requests_it() -> None:
     assert normalizer._remove_contextually_unsuitable_terms(
         "relaxed denim shorts", "去海邊玩，想穿牛仔短褲"
     ) == "relaxed denim shorts"
+
+
+def test_rejected_concepts_are_removed_before_embedding_search() -> None:
+    normalizer = QueryOutputNormalizer(FakeLLM())
+    forbidden = normalizer._forbidden_query_terms(
+        "我不要裙子和牛仔，但喜歡寬鬆剪裁", None, None, None
+    )
+
+    assert "skirt" in forbidden
+    assert "denim" in forbidden
+    assert "oversized" not in forbidden
+    assert normalizer._remove_forbidden_terms(
+        "relaxed denim skirt without stripes", forbidden | {"stripes"}
+    ) == "relaxed"
+
+
+def test_refinement_rejections_are_removed_from_embedding_queries() -> None:
+    result = QueryPlanner(FakeLLM()).plan(
+        "女生參加正式晚宴",
+        audience="women",
+        refinement="不要黑色，也不要裙子",
+    )
+
+    assert all("black" not in query.text.lower() for query in result.queries)
+    assert all("skirt" not in query.text.lower() for query in result.queries)

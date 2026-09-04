@@ -57,7 +57,12 @@ const composerPlaceholder = computed(() => {
   return '若要搜尋其他穿搭，請開啟新的對話'
 })
 
-const requirementLabels: Record<keyof Omit<RequirementSummary, 'search_brief'>, string> = {
+type RequirementDisplayField = Exclude<
+  keyof RequirementSummary,
+  'search_brief' | 'tag_translations'
+>
+
+const requirementLabels: Record<RequirementDisplayField, string> = {
   occasions: '場合',
   seasons: '季節',
   times_of_day: '時段',
@@ -69,9 +74,13 @@ const requirementLabels: Record<keyof Omit<RequirementSummary, 'search_brief'>, 
   additional_notes: '其他補充',
 }
 
-function requirementValue(field: keyof Omit<RequirementSummary, 'search_brief'>): string {
+function requirementValue(field: RequirementDisplayField): string {
   const value = requirements.value?.[field]
-  if (Array.isArray(value)) return value.length ? value.join('、') : '尚未提供'
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((tag) => requirements.value?.tag_translations[tag] || tag).join('、')
+      : '尚未提供'
+  }
   return value?.trim() || '尚未提供'
 }
 
@@ -111,6 +120,7 @@ async function sendRequest(text = draft.value) {
     const response = await clarifyRequirements(
       messages.value.map(({ role, text }) => ({ role, text })),
       props.userKey,
+      requirements.value,
       audience.value || undefined,
     )
     requirements.value = response.requirements

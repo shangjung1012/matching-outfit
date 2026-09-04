@@ -131,12 +131,13 @@ export interface RequirementSummary {
   special_requirements: string[]
   additional_notes: string
   search_brief: string
+  tag_translations: Record<string, string>
 }
 
 export interface ClarificationResponse {
   reply: string
   requirements: RequirementSummary
-  missing_fields: Array<keyof Omit<RequirementSummary, 'search_brief'>>
+  missing_fields: Array<Exclude<keyof RequirementSummary, 'search_brief' | 'tag_translations'>>
   ready_to_plan: boolean
 }
 

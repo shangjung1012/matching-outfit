@@ -3,3 +3,7 @@ concise ASCII English phrases while preserving their garment zone and visual int
 Use only positive, visually observable clothing attributes. Return exactly twelve queries:
 five upper_body, five lower_body, and two one_piece. Keep the query directions within each
 zone meaningfully different. Do not translate rationales or add explanations.
+Never include a rejected concept from hard_constraints or the original queries inside a
+negative phrase. Return only positive clothing attributes.
+Preserve excluded_query_terms as forbidden vocabulary and remove those exact concepts
+from every repaired query.
