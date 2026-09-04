@@ -57,6 +57,7 @@ defineEmits<{
         </button>
       </div>
     </div>
+    <slot name="below-media" />
     <div class="product-body">
       <div class="product-meta">
         <span>{{ item.article_type || 'Clothing' }}</span>
