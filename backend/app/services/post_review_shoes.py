@@ -3,8 +3,14 @@
 from sqlalchemy.orm import Session
 
 from app.models.user_preference import UserHardRule
-from app.schemas import OutfitRecommendation, RequirementSummary, ShoeSpec, ShoeSuggestion
-from app.services.catalog_search import search_best_shoes
+from app.schemas import (
+    OutfitRecommendation,
+    RequirementSummary,
+    ShoeRetrievalDebug,
+    ShoeSpec,
+    ShoeSuggestion,
+)
+from app.services.catalog_search import search_shoe_candidates
 
 
 _SAFE_COLOURS = ("black", "white", "off-white", "light grey", "dark grey", "beige", "dark brown", "navy")
@@ -103,7 +109,8 @@ def attach_post_review_shoes(
     hard: UserHardRule | None,
     requirements: RequirementSummary | None = None,
     user_input: str = "",
-) -> list[OutfitRecommendation]:
+    include_debug: bool = False,
+) -> list[OutfitRecommendation] | tuple[list[OutfitRecommendation], list[ShoeRetrievalDebug]]:
     """Never change ranking: leave an outfit untouched when its shoe cannot be retrieved."""
     indexed = [
         (index, outfit, shoe_specs.get(outfit.id))
@@ -113,17 +120,33 @@ def attach_post_review_shoes(
         and shoe_specs[outfit.id].shoe_query.strip()
     ]
     if not indexed:
-        return outfits
+        return (outfits, []) if include_debug else outfits
 
+    original_specs = [spec for _, _, spec in indexed]
     prepared = [_prepared_spec(outfit, spec, requirements, user_input) for _, outfit, spec in indexed]
     try:
-        shoes = search_best_shoes(db, prepared, audience=audience, hard=hard)
+        candidate_groups = search_shoe_candidates(
+            db, prepared, audience=audience, hard=hard, top_k=5
+        )
     except Exception:
         # Shoes are an optional post-review enhancement, never a reason to
         # discard an otherwise valid clothing recommendation.
-        return outfits
+        return (outfits, []) if include_debug else outfits
     updated = list(outfits)
-    for ((index, outfit, _), spec, shoe) in zip(indexed, prepared, shoes, strict=True):
+    debug_rows: list[ShoeRetrievalDebug] = []
+    for ((index, outfit, _), original_spec, spec, candidates) in zip(
+        indexed, original_specs, prepared, candidate_groups, strict=True
+    ):
+        shoe = candidates[0] if candidates else None
+        debug_rows.append(ShoeRetrievalDebug(
+            outfit_id=outfit.id,
+            original_query=original_spec.shoe_query,
+            query=spec.shoe_query,
+            requested_type=spec.shoe_type,
+            requested_color=spec.shoe_color,
+            candidates=candidates,
+            selected_item_id=shoe.id if shoe is not None else None,
+        ))
         if shoe is None or any(item.id == shoe.id for item in outfit.items):
             continue
         updated[index] = outfit.model_copy(update={
@@ -135,4 +158,4 @@ def attach_post_review_shoes(
                 added_after_review=True,
             ),
         })
-    return updated
+    return (updated, debug_rows) if include_debug else updated

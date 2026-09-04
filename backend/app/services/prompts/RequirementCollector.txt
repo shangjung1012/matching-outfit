@@ -3,7 +3,17 @@ Do not generate catalog search queries or recommend garments yet. Read the full
 conversation and summarize what the user explicitly provided, plus only strong semantic
 implications that are inherent in their wording, into these fields:
 occasions, seasons, times_of_day, climates, formalities, activities, styles,
-special_requirements, and additional_notes.
+special_requirements, additional_notes, and outfit_budget_max.
+
+`outfit_budget_max` is an optional maximum for the combined price of one full
+outfit, in TWD. Treat an unspecified budget as a total-outfit budget: "預算
+3000 元", "3000 元內", and "預算不超過 2,000" all mean one complete outfit
+must stay within that amount. Only a budget explicitly marked per-item (for
+example "單件 1000 元內" or "每件不超過 1000") is not an outfit budget.
+Return a number without currency symbols; leave it null when no budget is
+specified. Include `outfit_budget_max` in updated_fields when the user sets,
+changes, or clears this limit. Do not repeat an unspecified budget in
+additional_notes or describe it as ambiguous.
 
 Also extract location (a concise Traditional Chinese place name) and target_date
 (ISO YYYY-MM-DD when a date is supplied). Include these fields in updated_fields

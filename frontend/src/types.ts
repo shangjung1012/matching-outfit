@@ -256,6 +256,12 @@ export interface OutfitRecommendation {
     reason: string
     knowledge_observation_ids: string[]
   } | null
+  shoe_suggestion?: {
+    query: string
+    item_id: number
+    retrieval_score: number
+    added_after_review: boolean
+  } | null
 }
 
 export interface QueryPlanResponse {
@@ -320,6 +326,7 @@ export interface RequirementSummary {
   } | null
   location: string
   target_date: string
+  outfit_budget_max: number | null
   defaulted_fields: string[]
   occasions: string[]
   seasons: string[]
@@ -408,6 +415,17 @@ export interface RecommendationDebug {
       error: string
     }[]
   }
+  stage_timings_ms: Record<string, number>
+  compatibility_note: string
+  shoe_retrievals: {
+    outfit_id: string
+    original_query: string
+    query: string
+    requested_type: string
+    requested_color: string
+    candidates: ClothResult[]
+    selected_item_id: number | null
+  }[]
 }
 
 export interface PipelineDebugSession {

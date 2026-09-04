@@ -49,6 +49,7 @@ def query_counts_for(search_garment_zones: list[str] | None) -> dict[str, int]:
 REQUIREMENT_VALUE_FIELDS = (
     "location",
     "target_date",
+    "outfit_budget_max",
     "occasions",
     "seasons",
     "times_of_day",
@@ -131,13 +132,13 @@ class KnowledgeQueryDraft(StrictModel):
     cited_observation_ids: list[str] = Field(default_factory=list)
     knowledge_gaps: list[str] = Field(default_factory=list)
     knowledge_note: str = ""
-    context_restrictiveness: Literal["low", "medium", "high"]
+    context_restrictiveness: Literal["low", "medium", "high"] = "medium"
     hard_constraints: list[str] = Field(default_factory=list)
     excluded_query_terms: list[str] = Field(default_factory=list)
     aesthetic_direction: list[str] = Field(default_factory=list)
-    styling_guide: StylingGuide
+    styling_guide: StylingGuide | None = None
     queries: list[PlannedCatalogQuery] = Field(min_length=1, max_length=12)
-    planning_note: str
+    planning_note: str = ""
 
 
 class TagTranslation(StrictModel):
@@ -149,6 +150,7 @@ class RequirementAssessment(StrictModel):
     reply: str
     location: str = ""
     target_date: str = ""
+    outfit_budget_max: float | None = Field(default=None, ge=0)
     occasions: list[str] = Field(default_factory=list)
     seasons: list[str] = Field(default_factory=list)
     times_of_day: list[str] = Field(default_factory=list)
@@ -194,6 +196,29 @@ class RequirementCollector:
         )
         return "smart casual" if dresses_down else "formal"
 
+    @staticmethod
+    def _implicit_outfit_budget(messages: list[ChatTurn]) -> float | None:
+        """Apply the product rule: an unspecified budget covers the full outfit."""
+        text = " ".join(
+            message.text for message in messages if message.role == "user"
+        ).lower()
+        if not any(term in text for term in ("預算", "budget", "元內", "元以內", "元以下", "不超過")):
+            return None
+        if re.search(r"(?:單品|單件|每件|一件|per[- ]?item)", text, flags=re.IGNORECASE):
+            return None
+        patterns = (
+            r"(?:預算|budget)\D{0,12}(\d{1,3}(?:,\d{3})+|\d+)",
+            r"(\d{1,3}(?:,\d{3})+|\d+)\s*(?:元|塊|twd|nt\$?)\s*(?:內|以內|以下|不超過|預算)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match is None:
+                continue
+            value = float(match.group(1).replace(",", ""))
+            if 0 <= value <= 10_000_000:
+                return value
+        return None
+
     def collect(
         self,
         messages: list[ChatTurn],
@@ -226,6 +251,10 @@ class RequirementCollector:
             )
             for field in REQUIREMENT_VALUE_FIELDS
         }
+        implicit_budget = self._implicit_outfit_budget(messages)
+        if implicit_budget is not None and result.outfit_budget_max is None:
+            requirement_values["outfit_budget_max"] = implicit_budget
+            updated_fields.add("outfit_budget_max")
         implied_formality = self._implied_formality(messages)
         inferred_formality = bool(
             implied_formality and not requirement_values["formalities"]
@@ -915,7 +944,10 @@ class QueryPlanner:
             instructions=(
                 f"{QUERY_PLANNER_SYSTEM_PROMPT}\n\n"
                 "CURRENT REQUEST OVERRIDE: return queries only for the requested catalog "
-                f"zones, with exactly {requested_distribution}. Do not return any other zone."
+                f"zones, with exactly {requested_distribution}. Do not return any other zone. "
+                "OUTPUT MINIMIZATION: for each query include one concise Traditional Chinese "
+                "rationale describing the styling direction. Do not generate styling_guide, "
+                "planning_note, knowledge commentary, pairing directions, or reviewer checklist."
             ),
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=KnowledgeQueryDraft,
@@ -950,7 +982,17 @@ class QueryPlanner:
             for zone in query_counts
             for index in range(query_counts[zone])
         ]
-        styling_guide = self._guide_with_intent(result.styling_guide, fashion_intent)
+        # Intent is authoritative.  The planner no longer generates a duplicate
+        # guide; retain a compact fallback only when Intent is unavailable.
+        local_guide = StylingGuide(
+            concept=(fashion_intent.user_goal if fashion_intent else (requirements.search_brief if requirements else "依使用者需求搜尋")) or "依使用者需求搜尋",
+            desired_impression=(fashion_intent.desired_impression if fashion_intent else []),
+            visual_attributes=([*fashion_intent.must_have_visual_cues, *fashion_intent.core_aesthetic][:12] if fashion_intent else []),
+            avoid_misinterpretations=(fashion_intent.avoid_concepts if fashion_intent else []),
+            styling_principles=(fashion_intent.styling_principles if fashion_intent else []),
+            reviewer_checklist=([*fashion_intent.must_have_visual_cues, *fashion_intent.styling_principles][:12] if fashion_intent else []),
+        )
+        styling_guide = self._guide_with_intent(local_guide, fashion_intent)
         used_ids = list(dict.fromkeys(
             identifier for identifier in result.cited_observation_ids
             if identifier in {item.observation_id for item in observations or []}

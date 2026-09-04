@@ -3,6 +3,7 @@ from app.schemas.fashion_knowledge import OutfitObservation
 from app.schemas.workflow import RequirementSummary
 from app.services.query_planner import QueryPlanner
 from tests.test_query_planner import FakeLLM
+from threading import Event
 
 
 def observation():
@@ -53,3 +54,28 @@ def test_knowledge_query_retains_raw_request(monkeypatch):
     items, note = routes.planning_knowledge(None, "復古千禧年女團", RequirementSummary(location="台灣"), "women")
     assert "復古千禧年女團" in queries[0]
     assert items and not note
+
+
+def test_weather_and_knowledge_lookup_start_in_parallel(monkeypatch):
+    weather_started = Event()
+    received_requirements = []
+
+    def weather(requirements):
+        weather_started.set()
+        return requirements.model_copy(update={"location": "weather-ready"})
+
+    def knowledge(db, raw_text, requirements, audience):
+        assert weather_started.wait(timeout=1)
+        received_requirements.append(requirements)
+        return [observation()], ""
+
+    monkeypatch.setattr(routes, "with_weather_context", weather)
+    monkeypatch.setattr(routes, "planning_knowledge", knowledge)
+
+    requirements, observations, note = routes.planning_context_and_knowledge(
+        None, "request", RequirementSummary(location="taipei"), "women"
+    )
+
+    assert received_requirements[0].location == "taipei"
+    assert requirements.location == "weather-ready"
+    assert observations and not note

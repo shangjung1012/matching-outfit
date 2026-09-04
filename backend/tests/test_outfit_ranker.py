@@ -82,6 +82,23 @@ def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> N
     assert {item.direction_id for item in recommendations} == {"A", "B"}
 
 
+def test_ranker_applies_budget_after_combining_items() -> None:
+    upper = cloth(501, "upper_body", "White", 0.95).model_copy(update={"price": 1500})
+    lower = cloth(502, "lower_body", "Black", 0.95).model_copy(update={"price": 600})
+    one_piece = cloth(503, "one_piece", "Navy", 0.80).model_copy(update={"price": 1800})
+
+    recommendations = rank_outfits(
+        [
+            group("upper_body", [upper], direction_id="A"),
+            group("lower_body", [lower], direction_id="A"),
+            group("one_piece", [one_piece]),
+        ],
+        outfit_budget_max=2000,
+    )
+
+    assert [[item.id for item in outfit.items] for outfit in recommendations] == [[503]]
+
+
 def test_ranker_preserves_candidates_from_each_styling_direction() -> None:
     recommendations = rank_outfits(
         [

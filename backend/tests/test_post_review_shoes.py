@@ -31,10 +31,10 @@ def test_post_review_shoe_is_appended_without_changing_outfit_score(monkeypatch)
 
     def fake_search(_db, specs, **kwargs):
         received.extend(specs)
-        assert kwargs == {"audience": "women", "hard": None}
-        return [shoe]
+        assert kwargs == {"audience": "women", "hard": None, "top_k": 5}
+        return [[shoe]]
 
-    monkeypatch.setattr(post_review_shoes, "search_best_shoes", fake_search)
+    monkeypatch.setattr(post_review_shoes, "search_shoe_candidates", fake_search)
     result = post_review_shoes.attach_post_review_shoes(
         object(), [outfit], {outfit.id: ShoeSpec(shoe_type="loafer", shoe_query="black leather loafers clean low profile")}, audience="women", hard=None
     )
@@ -59,13 +59,39 @@ def test_missing_shoe_result_leaves_outfit_unchanged(monkeypatch) -> None:
             shoe_spec=ShoeSpec(shoe_query="white low profile sneakers"),
         ),
     })
-    monkeypatch.setattr(post_review_shoes, "search_best_shoes", lambda *_args, **_kwargs: [None])
+    monkeypatch.setattr(post_review_shoes, "search_shoe_candidates", lambda *_args, **_kwargs: [[]])
 
     result = post_review_shoes.attach_post_review_shoes(
         object(), [outfit], {outfit.id: ShoeSpec(shoe_type="sneaker", shoe_query="white low profile sneakers")}, audience=None, hard=None
     )
 
     assert result == [outfit]
+
+
+def test_shoe_debug_keeps_query_and_top_candidates(monkeypatch) -> None:
+    outfit = _outfit(_query())
+    first = outfit.items[0].model_copy(update={"id": 901, "similarity": 0.91})
+    second = outfit.items[0].model_copy(update={"id": 902, "similarity": 0.84})
+    monkeypatch.setattr(
+        post_review_shoes,
+        "search_shoe_candidates",
+        lambda *_args, **_kwargs: [[first, second]],
+    )
+
+    result, traces = post_review_shoes.attach_post_review_shoes(
+        object(),
+        [outfit],
+        {outfit.id: ShoeSpec(shoe_type="loafer", shoe_query="black leather loafers")},
+        audience=None,
+        hard=None,
+        include_debug=True,
+    )
+
+    assert result[0].shoe_suggestion is not None
+    assert traces[0].original_query == "black leather loafers"
+    assert traces[0].query == "off-white loafer"
+    assert [item.id for item in traces[0].candidates] == [901, 902]
+    assert traces[0].selected_item_id == 901
 
 
 def test_conservative_shoe_colour_follows_formality_and_lower_outfit_colours() -> None:

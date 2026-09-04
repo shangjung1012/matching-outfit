@@ -276,6 +276,10 @@ function downloadTrace() {
       <section class="debug-section">
         <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及送進視覺 Reviewer 的候選</p></div></header>
         <div v-if="trace.recommendation_debug" class="debug-panel">
+          <p v-if="Object.keys(trace.recommendation_debug.stage_timings_ms || {}).length" class="debug-count-line">
+            耗時：<span v-for="(milliseconds, stage) in trace.recommendation_debug.stage_timings_ms" :key="stage">{{ stage }} {{ milliseconds.toFixed(0) }}ms　</span>
+            <small>{{ trace.recommendation_debug.compatibility_note }}</small>
+          </p>
           <p class="debug-count-line"><Database :size="16" />產生 {{ trace.recommendation_debug.ranked_candidate_count }} 套組合，shortlist {{ trace.recommendation_debug.shortlist_before_review.length }} 套。</p>
           <details>
             <summary>查看初排前 {{ trace.recommendation_debug.ranked_preview.length }} 名</summary>
@@ -392,6 +396,31 @@ function downloadTrace() {
           </div>
         </div>
         <div v-else class="debug-panel debug-muted">尚未取得最終推薦。</div>
+      </section>
+
+      <section class="debug-section">
+        <header><span>8</span><div><h3>Shoe retrieval</h3><p>每套最終穿搭的原始鞋子 query，以及嚴格限定 Shoes 類型後的前五名向量符合度。</p></div></header>
+        <div v-if="trace.recommendation_debug?.shoe_retrievals?.length" class="debug-details-stack">
+          <details v-for="shoeSearch in trace.recommendation_debug.shoe_retrievals" :key="shoeSearch.outfit_id">
+            <summary>
+              <span>{{ shoeSearch.requested_color || 'neutral' }} · {{ shoeSearch.requested_type || 'shoe' }}</span>
+              <strong>{{ shoeSearch.query }}</strong>
+              <small>{{ shoeSearch.candidates.length }} candidates</small>
+            </summary>
+            <div class="debug-detail-body"><p><b>Planner original query:</b> {{ shoeSearch.original_query }}</p><p><b>Actual retrieval query:</b> {{ shoeSearch.query }}</p></div>
+            <div class="debug-product-strip">
+              <article v-for="(item, index) in shoeSearch.candidates" :key="item.id">
+                <img :src="item.image_url" :alt="item.product_display_name" />
+                <div>
+                  <strong>#{{ index + 1 }} · {{ percent(item.similarity) }}</strong>
+                  <p>{{ item.product_display_name }}</p>
+                  <small>{{ item.base_colour }} · {{ item.article_type }}<template v-if="item.id === shoeSearch.selected_item_id"> · selected</template></small>
+                </div>
+              </article>
+            </div>
+          </details>
+        </div>
+        <div v-else class="debug-panel debug-muted">No shoe retrieval trace was produced for this run.</div>
       </section>
 
       <details class="debug-raw-json">
