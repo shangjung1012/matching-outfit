@@ -62,9 +62,9 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .brand div, .user-menu div { display: grid; gap: 2px; }
 .brand strong, .user-menu strong { font-size: .88rem; }
 .brand small, .user-menu small { color: #777d77; font-size: .68rem; }
-.main-navigation { height: 100%; display: flex; justify-content: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.main-navigation::-webkit-scrollbar { display: none; }
-.main-navigation button {
+.main-navigation { position: relative; height: 100%; display: flex; justify-content: center; gap: 4px; }
+.nav-group { position: relative; height: 100%; }
+.nav-top-button {
   position: relative;
   min-width: 118px;
   white-space: nowrap;
@@ -79,10 +79,43 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   font-size: .82rem;
   font-weight: 700;
 }
-.main-navigation button::after { content: ""; position: absolute; right: 20px; bottom: 0; left: 20px; height: 3px; background: transparent; }
-.main-navigation button:hover { color: #254e3e; background: #f7f9f6; }
-.main-navigation button.active { color: #174c38; }
-.main-navigation button.active::after { background: #2a684f; }
+.nav-top-button::after { content: ""; position: absolute; right: 20px; bottom: 0; left: 20px; height: 3px; background: transparent; }
+.nav-top-button:hover { color: #254e3e; background: #f7f9f6; }
+.nav-top-button.active { color: #174c38; }
+.nav-top-button.active::after { background: #2a684f; }
+.nav-caret { transition: transform .15s ease; }
+.nav-caret.open { transform: rotate(180deg); }
+.nav-dropdown {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 50%;
+  z-index: 25;
+  display: grid;
+  min-width: 176px;
+  padding: 6px;
+  transform: translateX(-50%);
+  border: 1px solid #d8dbd5;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 16px 30px rgba(20, 30, 24, .12);
+  gap: 2px;
+}
+.nav-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 6px;
+  color: #4c534d;
+  background: transparent;
+  font-size: .78rem;
+  font-weight: 650;
+  text-align: left;
+  white-space: nowrap;
+}
+.nav-dropdown button:hover { color: #254e3e; background: #f2f5f1; }
+.nav-dropdown button.active { color: #174c38; background: #e7f1ea; }
 .user-menu { justify-content: flex-end; padding-right: 22px; }
 .user-menu > span {
   width: 34px;
@@ -1131,7 +1164,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 
 @media (max-width: 1050px) {
   .app-header { grid-template-columns: 210px 1fr 160px; }
-  .main-navigation button { min-width: 0; padding: 0 11px; }
+  .nav-top-button { min-width: 0; padding: 0 11px; }
   .mbti-landing { grid-template-columns: minmax(0, 1fr) 260px; gap: 36px; }
   .mbti-result { grid-template-columns: minmax(0, 1fr) 280px; gap: 34px; }
   .agent-view { grid-template-columns: 310px minmax(0, 1fr); }
@@ -1155,8 +1188,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .brand small, .user-menu div { display: none; }
   .user-menu { padding-right: 14px; }
   .main-navigation { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; order: 3; height: 58px; border-top: 1px solid #d4d8d1; background: #fff; }
-  .main-navigation button { min-width: 0; flex: 1; flex-direction: column; gap: 3px; font-size: .65rem; }
-  .main-navigation button::after { right: 28%; top: 0; bottom: auto; left: 28%; }
+  .nav-group { flex: 1; }
+  .nav-top-button { min-width: 0; width: 100%; flex: 1; flex-direction: column; gap: 3px; font-size: .65rem; }
+  .nav-top-button::after { right: 28%; top: 0; bottom: auto; left: 28%; }
+  .nav-caret { display: none; }
+  .nav-dropdown { top: auto; bottom: calc(100% + 6px); }
   .app-content { padding-bottom: 58px; }
   .page-view { padding: 23px 15px 40px; }
   .view-heading { align-items: stretch; flex-direction: column; }
