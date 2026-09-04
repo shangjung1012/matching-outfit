@@ -345,6 +345,7 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tryon-file-button, .tryon-remove-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; font-size: .65rem; font-weight: 700; cursor: pointer; }
 .tryon-file-button { position: relative; overflow: hidden; }
 .tryon-file-button:hover, .tryon-remove-button:hover { border-color: #9ea8a0; background: #f7f9f7; }
+.tryon-file-button:focus-within:not(.disabled) { border-color: #39705b; outline: 2px solid #39705b; outline-offset: 2px; }
 .tryon-file-button.disabled { color: #969c97; background: #f1f2f0; cursor: not-allowed; }
 .tryon-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
 .tryon-remove-button { gap: 4px; border-color: transparent; color: #7e5a4e; background: transparent; }

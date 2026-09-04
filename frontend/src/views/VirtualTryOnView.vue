@@ -465,10 +465,17 @@ onBeforeUnmount(() => {
                   :key="personInputKey()"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
+                  :aria-label="`${personFile ? '更換' : '選擇'}人物照片`"
                   @change="choosePersonImage"
                 />
               </label>
-              <button v-if="personFile" type="button" class="tryon-remove-button" @click="removePersonImage">
+              <button
+                v-if="personFile"
+                type="button"
+                class="tryon-remove-button"
+                aria-label="移除人物照片"
+                @click="removePersonImage"
+              >
                 <Trash2 :size="13" />移除
               </button>
             </div>
@@ -512,6 +519,7 @@ onBeforeUnmount(() => {
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     :disabled="isReferenceDisabled(option.type)"
+                    :aria-label="`${referenceFile(option.type) ? '更換' : '選擇'}${referenceLabel(option.type)}參考圖片`"
                     @change="chooseReferenceImage($event, option.type)"
                   />
                 </label>
@@ -519,6 +527,7 @@ onBeforeUnmount(() => {
                   v-if="referenceIsSelected(option.type)"
                   type="button"
                   class="tryon-remove-button"
+                  :aria-label="`移除${referenceLabel(option.type)}參考圖片`"
                   @click="removeReferenceImage(option.type)"
                 >
                   <Trash2 :size="13" />移除
