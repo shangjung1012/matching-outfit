@@ -24,10 +24,6 @@ data/articles/*
 data/curated/*
 !data/curated/.gitkeep
 
-# Runtime object/model storage
-catvton/densepose_/
-catvton/output/
-
 .DS_Store
 Thumbs.db
 .vscode
