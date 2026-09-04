@@ -116,6 +116,11 @@ class KnowledgeQueryDraft(StrictModel):
     planning_note: str
 
 
+class TagTranslation(StrictModel):
+    tag: str
+    label_zh: str
+
+
 class RequirementAssessment(StrictModel):
     reply: str
     occasions: list[str] = Field(default_factory=list)
@@ -130,7 +135,7 @@ class RequirementAssessment(StrictModel):
     search_brief: str
     missing_fields: list[RequirementField] = Field(default_factory=list)
     updated_fields: list[RequirementField] = Field(default_factory=list)
-    tag_translations: dict[str, str] = Field(default_factory=dict)
+    tag_translations: list[TagTranslation] = Field(default_factory=list)
     ready_to_plan: bool = False
 
 
@@ -175,7 +180,7 @@ class RequirementCollector:
                 if previous_requirements is not None
                 else {}
             ),
-            **result.tag_translations,
+            **{item.tag: item.label_zh for item in result.tag_translations},
         }
         return ClarificationResponse(
             reply=result.reply,

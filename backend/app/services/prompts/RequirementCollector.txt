@@ -19,9 +19,10 @@ walking, dining, minimal, romantic, and streetwear. Do not place Chinese text in
 list fields. additional_notes may remain Traditional Chinese when it cannot be reduced
 to a stable tag.
 
-For every English tag returned in a structured list, add a concise Traditional Chinese
-label to tag_translations. The keys must be the exact English tags and the values are only
-for frontend display. Never replace the internal English tags with Chinese.
+For every English tag returned in a structured list, add one tag_translations array item
+with `tag` set to the exact English tag and `label_zh` set to a concise Traditional
+Chinese label. These translations are only for frontend display. Never replace the
+internal English tags with Chinese.
 
 Decide which missing details would materially change the recommendation. Ask one
 concise Traditional Chinese follow-up that includes all important missing questions.

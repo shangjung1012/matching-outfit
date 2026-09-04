@@ -13,6 +13,7 @@ from app.services.query_planner import (
     RepairedCatalogQuery,
     RequirementAssessment,
     RequirementCollector,
+    TagTranslation,
 )
 
 
@@ -37,11 +38,11 @@ class FakeRequirementLLM:
             search_brief="參加婚禮，穿搭避免過度搶眼",
             missing_fields=["seasons", "climates", "seasons"],
             updated_fields=["occasions", "formalities", "special_requirements"],
-            tag_translations={
-                "wedding": "婚禮",
-                "formal": "正式",
-                "avoid drawing attention": "避免過度搶眼",
-            },
+            tag_translations=[
+                TagTranslation(tag="wedding", label_zh="婚禮"),
+                TagTranslation(tag="formal", label_zh="正式"),
+                TagTranslation(tag="avoid drawing attention", label_zh="避免過度搶眼"),
+            ],
             ready_to_plan=False,
         )
 
@@ -65,7 +66,7 @@ class FakeUpdateRequirementLLM:
             climates=["outdoor"],
             search_brief="秋季戶外婚禮穿搭",
             updated_fields=["climates"],
-            tag_translations={"outdoor": "戶外"},
+            tag_translations=[TagTranslation(tag="outdoor", label_zh="戶外")],
             ready_to_plan=True,
         )
 
