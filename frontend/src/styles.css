@@ -893,7 +893,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-conflict button { border: 1px solid #d1b278; border-radius: 4px; padding: 6px 8px; color: #65491e; background: #fff; font-size: .62rem; font-weight: 750; }
 .tryon-unsupported { grid-template-columns: 20px minmax(0, 1fr); border-color: #d8d2c2; color: #665f50; background: #faf8f2; }
 .tryon-source-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 18px; padding: 3px; border: 1px solid #d5d9d2; border-radius: 6px; background: #e9ebe7; }
-.tryon-source-tabs button { min-width: 0; min-height: 36px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 4px; color: #626a63; background: transparent; font-size: .69rem; font-weight: 750; }
+.tryon-source-tabs button { min-width: 0; width: 100%; height: 40px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 4px; padding: 0 12px; color: #626a63; background: transparent; font: inherit; font-size: .69rem; font-weight: 750; line-height: 1; white-space: nowrap; appearance: none; }
+.tryon-source-tabs button svg { flex: 0 0 auto; }
 .tryon-source-tabs button.active { color: #234f3b; background: #fff; box-shadow: 0 1px 3px #00000015; }
 .tryon-wardrobe-grid { max-height: 286px; overflow-y: auto; display: grid; gap: 8px; margin-top: 12px; padding: 1px; scrollbar-width: thin; }
 .tryon-wardrobe-grid.outfits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -910,7 +911,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-wardrobe-item > img { width: 52px; height: 62px; display: block; object-fit: cover; background: #eef0ed; }
 .tryon-empty-source { grid-column: 1 / -1; min-height: 120px; display: grid; place-content: center; justify-items: center; gap: 6px; color: #838b84; text-align: center; }
 .tryon-empty-source p { margin: 0; font-size: .7rem; }
-.tryon-upload-guidance { display: flex; align-items: center; gap: 11px; margin-top: 12px; padding: 16px; color: #536158; background: #f5f7f4; }
+.tryon-upload-guidance { min-height: 120px; box-sizing: border-box; display: flex; align-items: center; gap: 11px; margin-top: 12px; padding: 16px; color: #536158; background: #f5f7f4; }
 .tryon-upload-guidance div { display: grid; gap: 4px; }
 .tryon-upload-guidance strong { font-size: .72rem; }
 .tryon-upload-guidance p { margin: 0; color: #79817a; font-size: .64rem; line-height: 1.5; }
@@ -1420,7 +1421,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .person-photo-upload { grid-template-columns: 1fr; align-items: stretch; }
   .person-upload-button { width: 100%; }
   .tryon-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tryon-source-tabs button { flex-direction: column; gap: 3px; padding: 6px 3px; font-size: .61rem; }
+  .tryon-source-tabs button { height: 48px; flex-direction: column; gap: 3px; padding: 6px 3px; font-size: .61rem; }
   .tryon-wardrobe-grid.outfits, .tryon-wardrobe-grid.items { grid-template-columns: 1fr; }
   .tryon-conflict { grid-template-columns: 20px minmax(0, 1fr); }
   .tryon-conflict-actions, .tryon-conflict > button { grid-column: 2; }

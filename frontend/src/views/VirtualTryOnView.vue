@@ -706,7 +706,7 @@ onBeforeUnmount(() => {
     <header class="view-heading">
       <div>
         <span class="section-kicker">Virtual try-on</span>
-        <h2>虛擬試穿工作區</h2>
+        <h2>虛擬試穿</h2>
         <p>選擇人物與穿搭後，即可直接生成試穿結果。</p>
       </div>
       <button class="secondary-button" :disabled="capabilityLoading" @click="loadCapabilities">
@@ -719,7 +719,6 @@ onBeforeUnmount(() => {
         <section class="tryon-workspace-section" aria-labelledby="tryon-person-heading">
           <header class="tryon-panel-heading">
             <div><span>Person profile</span><h3 id="tryon-person-heading">人物設定</h3></div>
-            <small>照片只保存在這個瀏覽器，最多 {{ PERSON_PHOTO_LIMIT }} 張。</small>
           </header>
 
           <p v-if="personLibrary.error.value || photoError" class="tryon-inline-error" role="alert">
@@ -740,7 +739,6 @@ onBeforeUnmount(() => {
               </button>
               <div class="person-photo-meta">
                 <template v-if="editingPhotoId === photo.id">
-                  <label :for="`person-name-${photo.id}`">人物照名稱</label>
                   <div class="person-photo-rename">
                     <input
                       :id="`person-name-${photo.id}`"
