@@ -7,3 +7,8 @@ Never include a rejected concept from hard_constraints or the original queries i
 negative phrase. Return only positive clothing attributes.
 Preserve excluded_query_terms as forbidden vocabulary and remove those exact concepts
 from every repaired query.
+Each repaired query must still describe one isolated product using only visible garment
+attributes. Remove social-purpose phrases such as `for a date`, `for photos`, `makes you
+look`, or `not trying too hard`. Include a recognizable garment type, preserve the
+direction's focal/supporting role, prefer three to five visual elements, and keep the
+query at or below 22 English words.

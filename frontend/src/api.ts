@@ -20,6 +20,7 @@ import type {
   FashionArticleAutoUpdateResponse,
   FashionKnowledgeSource,
   StylingGuide,
+  FashionIntent,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -82,6 +83,7 @@ export function refineQueryPlan(
   existingQueries: QueryDraft[],
   originalInput: string,
   requirements: RequirementSummary | null,
+  fashionIntent: FashionIntent | null,
   audience?: Audience,
 ) {
   return request<QueryPlanResponse>('/api/query-plans/refine', json('POST', {
@@ -91,6 +93,7 @@ export function refineQueryPlan(
     original_input: originalInput,
     audience: audience || null,
     requirements,
+    fashion_intent: fashionIntent,
   }))
 }
 

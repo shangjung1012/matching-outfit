@@ -43,7 +43,12 @@ from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.outfit_ranker import rank_outfits
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
-from app.services.query_planner import QueryPlanner, RequirementCollector
+from app.services.query_planner import (
+    FashionIntentInterpreter,
+    QueryPlanner,
+    RequirementCollector,
+    interpret_fashion_intent_or_none,
+)
 from app.services.integration_tools.llm import LLM
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
@@ -318,13 +323,28 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
     try:
-        planner = QueryPlanner(LLM())
+        llm = LLM()
+        intent, fallback_used = interpret_fashion_intent_or_none(
+            FashionIntentInterpreter(llm),
+            enabled=settings.fashion_intent_interpreter_enabled,
+            raw_user_text=payload.user_input,
+            requirement_summary=(
+                payload.requirements
+                or RequirementSummary(search_brief=payload.user_input)
+            ),
+            audience=audience,
+            hard=preference,
+            style_preferences=style_preferences,
+        )
+        planner = QueryPlanner(llm)
         return planner.plan(
             payload.user_input,
             audience=audience,
             hard=preference,
             style_preferences=style_preferences,
             requirements=payload.requirements,
+            fashion_intent=intent,
+            intent_fallback_used=fallback_used,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
@@ -360,7 +380,22 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(combined, payload.audience, preference)
     try:
-        planner = QueryPlanner(LLM())
+        llm = LLM()
+        intent, fallback_used = interpret_fashion_intent_or_none(
+            FashionIntentInterpreter(llm),
+            enabled=settings.fashion_intent_interpreter_enabled,
+            raw_user_text=original or payload.user_input,
+            requirement_summary=(
+                payload.requirements
+                or RequirementSummary(search_brief=combined)
+            ),
+            audience=audience,
+            hard=preference,
+            style_preferences=style_preferences,
+            refinement=payload.user_input,
+            previous_intent=payload.fashion_intent,
+        )
+        planner = QueryPlanner(llm)
         return planner.plan(
             original or payload.user_input,
             audience=audience,
@@ -369,6 +404,8 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             requirements=payload.requirements,
             existing_queries=selected,
             refinement=payload.user_input,
+            fashion_intent=intent,
+            intent_fallback_used=fallback_used,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error

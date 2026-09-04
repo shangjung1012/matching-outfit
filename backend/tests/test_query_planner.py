@@ -3,9 +3,16 @@ from collections import Counter
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.preferences.context import build_planner_preference_context
-from app.schemas import ChatTurn, PairingDirection, RequirementSummary, StylingGuide
+from app.schemas import (
+    ChatTurn,
+    PairingDirection,
+    QueryDraft,
+    RequirementSummary,
+    StylingGuide,
+)
 from app.services.query_planner import (
     EnglishQueryRepair,
+    FashionIntentInterpreter,
     KnowledgeQueryDraft,
     PlannedCatalogQuery,
     QueryOutputNormalizer,
@@ -14,7 +21,9 @@ from app.services.query_planner import (
     RequirementAssessment,
     RequirementCollector,
     TagTranslation,
+    interpret_fashion_intent_or_none,
 )
+from tests.test_fashion_intent import FakeIntentLLM, make_fashion_intent
 
 
 class FakeRequirementLLM:
@@ -223,6 +232,82 @@ def test_planner_returns_five_five_two_without_article_knowledge() -> None:
     assert all(not query.references for query in result.queries)
     assert result.styling_guide is not None
     assert [query.direction_id for query in result.queries[:5]] == list("ABCDE")
+
+
+def test_planner_receives_intent_without_changing_query_contract() -> None:
+    llm = FakeLLM()
+    intent = make_fashion_intent()
+
+    result = QueryPlanner(llm).plan(
+        "夏天拍照要花花綠綠的 Y2K",
+        requirements=RequirementSummary(seasons=["summer"], styles=["y2k"]),
+        audience="women",
+        fashion_intent=intent,
+    )
+
+    assert llm.payloads[0]["fashion_intent"]["user_goal"] == intent.user_goal
+    assert result.fashion_intent == intent
+    assert result.styling_guide is not None
+    assert result.styling_guide.concept == intent.user_goal
+    assert result.styling_guide.desired_impression == intent.desired_impression
+    assert "成熟花卉造型" in result.styling_guide.avoid_misinterpretations
+    assert Counter(query.garment_zone for query in result.queries) == {
+        "upper_body": 5,
+        "lower_body": 5,
+        "one_piece": 2,
+    }
+
+
+def test_intent_timeout_falls_back_to_complete_legacy_query_plan() -> None:
+    intent, fallback_used = interpret_fashion_intent_or_none(
+        FashionIntentInterpreter(FakeIntentLLM(error=RuntimeError("timeout"))),
+        enabled=True,
+        raw_user_text="高級餐廳但不要太正式",
+        requirement_summary=RequirementSummary(occasions=["fine dining"]),
+        audience="women",
+        hard=None,
+        style_preferences=None,
+    )
+
+    result = QueryPlanner(FakeLLM()).plan(
+        "高級餐廳但不要太正式",
+        requirements=RequirementSummary(occasions=["fine dining"]),
+        audience="women",
+        fashion_intent=intent,
+        intent_fallback_used=fallback_used,
+    )
+
+    assert fallback_used is True
+    assert result.fashion_intent is None
+    assert Counter(query.garment_zone for query in result.queries) == {
+        "upper_body": 5,
+        "lower_body": 5,
+        "one_piece": 2,
+    }
+
+
+def test_query_warning_flags_non_product_context_and_missing_garment() -> None:
+    warnings = QueryPlanner._query_warnings(
+        [
+            QueryDraft(
+                id="bad-context",
+                text="colorful Y2K outfit for taking photos",
+                garment_zone="upper_body",
+                rationale="test",
+                direction_id="A",
+            ),
+            QueryDraft(
+                id="valid-product",
+                text="bright fitted cropped baby tee with contrast trim",
+                garment_zone="upper_body",
+                rationale="test",
+                direction_id="B",
+            ),
+        ]
+    )
+
+    assert any("non-product context" in warning for warning in warnings)
+    assert any("lack a recognizable garment" in warning for warning in warnings)
 
 
 def test_chinese_queries_are_repaired_to_twelve_english_queries() -> None:
