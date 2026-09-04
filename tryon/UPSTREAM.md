@@ -11,6 +11,14 @@ evaluation scripts, examples, model weights, caches, and Git metadata are not
 included. Model checkpoints are downloaded through the Hugging Face cache in
 `HF_HOME` when the GPU service starts for the first time.
 
+The minimal DWPose inference and drawing runtime under
+`fastfit/vendor/easy_dwpose/` is vendored from Easy DWPose 1.0.2. It retains
+the upstream Apache License 2.0 at `fastfit/vendor/easy_dwpose/LICENSE`.
+Unrelated demo and integration modules are omitted; the integration changes
+only the package/import path. This avoids installing Easy DWPose's legacy,
+mutually incompatible dependency pins while preserving the CPU ONNX Runtime
+path used by this service.
+
 The FastFit Model is licensed by LavieAI under the FastFit Non-Commercial
 License. Copyright LavieAI. IN NO EVENT SHALL LAVIEAI BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,

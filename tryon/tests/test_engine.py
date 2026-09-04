@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from io import BytesIO
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -60,6 +61,32 @@ class RecordingPipeline:
     def __call__(self, **kwargs):
         self.call = kwargs
         return [Image.new("RGB", (600, 800), "purple")]
+
+
+class RecordingCache:
+    def __init__(self) -> None:
+        self.values: list[str] = []
+        self.clear_calls = 0
+
+    def clear_kv_cache(self) -> None:
+        self.clear_calls += 1
+        self.values.clear()
+
+
+class StatefulPipeline:
+    def __init__(self) -> None:
+        self.unet = RecordingCache()
+        self.fail_next = True
+        self.cache_before_calls: list[list[str]] = []
+
+    def __call__(self, **kwargs):
+        self.cache_before_calls.append(list(self.unet.values))
+        marker = kwargs["ref_labels"][0]
+        self.unet.values.append(marker)
+        if self.fail_next:
+            self.fail_next = False
+            raise RuntimeError("injected inference failure")
+        return [Image.new("RGB", (768, 1024), "purple")]
 
 
 def test_engine_preprocesses_person_and_calls_pipeline_with_five_slots() -> None:
@@ -213,3 +240,42 @@ def test_engine_downloads_only_required_human_toolkit_trees() -> None:
             {"ckpt_path": "/cache/toolkit/SCHP/schp-atr.pth", "device": "cuda"},
         ],
     }
+
+
+def test_engine_clears_reference_cache_before_and_after_failed_inference() -> None:
+    detector_result = Image.new("RGB", (768, 1024), "white")
+    pipeline = StatefulPipeline()
+    fastfit = engine.FastFitEngine(
+        pipeline=pipeline,
+        dwpose_detector=RecordingDetector(detector_result),
+        densepose_detector=RecordingDetector(detector_result),
+        schp_lip_detector=RecordingDetector(detector_result),
+        schp_atr_detector=RecordingDetector(detector_result),
+        mask_builder=lambda *_args, **_kwargs: Image.new("L", (768, 1024), 255),
+        torch_module=FakeTorch(),
+    )
+
+    with pytest.raises(RuntimeError, match="injected inference failure"):
+        fastfit.run(
+            Image.new("RGB", (768, 1024), "white"),
+            {"upper": Image.new("RGB", (384, 512), "red")},
+        )
+
+    fastfit.run(
+        Image.new("RGB", (768, 1024), "white"),
+        {"lower": Image.new("RGB", (384, 512), "blue")},
+    )
+
+    assert pipeline.cache_before_calls == [[], []]
+    assert pipeline.unet.values == []
+    assert pipeline.unet.clear_calls == 4
+
+
+def test_dwpose_uses_vendored_runtime_without_external_distribution() -> None:
+    source = (Path(__file__).parents[1] / "fastfit/parse_utils/dwpose.py").read_text()
+    requirements = (Path(__file__).parents[1] / "requirements.txt").read_text()
+
+    assert "from fastfit.vendor.easy_dwpose" in source
+    assert "from easy_dwpose" not in source
+    assert "easy_dwpose==" not in requirements
+    assert (Path(__file__).parents[1] / "fastfit/vendor/easy_dwpose/LICENSE").is_file()

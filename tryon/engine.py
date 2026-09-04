@@ -125,6 +125,12 @@ class FastFitEngine:
         self.schp_atr_detector = schp_atr_detector
         self.mask_builder = mask_builder
 
+    def _clear_reference_cache(self) -> None:
+        unet = getattr(self.pipeline, "unet", None)
+        clear_kv_cache = getattr(unet, "clear_kv_cache", None)
+        if callable(clear_kv_cache):
+            clear_kv_cache()
+
     def run(
         self,
         person: Image.Image,
@@ -174,19 +180,23 @@ class FastFitEngine:
                 ref_attention_masks.append(1)
 
         generator = self.torch.Generator(device="cuda").manual_seed(42)
-        with self.torch.no_grad():
-            result = self.pipeline(
-                person=person,
-                mask=mask,
-                ref_images=ref_images,
-                ref_labels=list(REFERENCE_TYPES),
-                ref_attention_masks=ref_attention_masks,
-                pose=pose,
-                num_inference_steps=30,
-                guidance_scale=2.5,
-                generator=generator,
-                return_pil=True,
-            )
+        self._clear_reference_cache()
+        try:
+            with self.torch.no_grad():
+                result = self.pipeline(
+                    person=person,
+                    mask=mask,
+                    ref_images=ref_images,
+                    ref_labels=list(REFERENCE_TYPES),
+                    ref_attention_masks=ref_attention_masks,
+                    pose=pose,
+                    num_inference_steps=30,
+                    guidance_scale=2.5,
+                    generator=generator,
+                    return_pil=True,
+                )
+        finally:
+            self._clear_reference_cache()
         if not result or not isinstance(result[0], Image.Image):
             raise RuntimeError("FastFit returned no image")
 

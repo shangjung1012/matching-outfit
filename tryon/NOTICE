@@ -9,3 +9,11 @@ This distribution contains a modified derivative of the FastFit Model. The
 upstream `module/` and `parse_utils/` runtime trees are vendored under the
 `fastfit/` package and integrated with a separate HTTP job service, storage
 lifecycle, command-line interface, and model-download policy.
+
+This distribution also includes the minimal runtime subset of Easy DWPose
+1.0.2 under `fastfit/vendor/easy_dwpose/`. Easy DWPose is licensed under the
+Apache License 2.0; its license text is retained at
+`fastfit/vendor/easy_dwpose/LICENSE`. The vendored copy omits unrelated demo
+and integration modules and changes only its package/import location so the
+FastFit runtime can use the selected dependency versions without installing
+the conflicting `easy-dwpose` distribution metadata.
