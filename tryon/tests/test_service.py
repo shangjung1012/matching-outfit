@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from io import BytesIO
+import threading
 import time
 import uuid
 
@@ -168,6 +169,21 @@ class RecordingEngine:
         if self.error:
             raise RuntimeError(self.error)
         return png_bytes("green")
+
+
+class SlowEngine(RecordingEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+
+    def run(
+        self,
+        person: Image.Image,
+        references: dict[str, Image.Image],
+    ) -> bytes:
+        self.started.set()
+        time.sleep(0.2)
+        return super().run(person, references)
 
 
 def wait_for_status(client: TestClient, job_id: str, status: str) -> dict:
@@ -514,3 +530,62 @@ def test_delete_job_keeps_manifest_until_all_child_objects_are_deleted() -> None
 
     assert client.object_names == []
     assert client.remove_calls[-1] == manifest_key
+
+
+def test_shutdown_during_inference_preserves_inputs_for_startup_recovery(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    storage = FakeStorage()
+    slow_engine = SlowEngine()
+
+    with TestClient(service.create_app(slow_engine, storage)) as client:
+        created = post_job(
+            client,
+            lower_image=("lower.png", png_bytes("green"), "image/png"),
+        )
+        job_id = uuid.UUID(created.json()["id"])
+        assert slow_engine.started.wait(timeout=1)
+
+    interrupted = storage.manifests[job_id]
+    assert interrupted.status == "running"
+    assert interrupted.person_object_key in storage.objects
+    assert interrupted.reference_object_keys["lower"] in storage.objects
+
+    recovery_engine = RecordingEngine()
+    with TestClient(service.create_app(recovery_engine, storage)) as client:
+        recovered = wait_for_status(client, str(job_id), "succeeded")
+
+    assert recovered["status"] == "succeeded"
+    assert len(recovery_engine.calls) == 1
+
+
+def test_delete_cannot_be_undone_by_pending_finalization_retry(monkeypatch) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    monkeypatch.setattr(service, "FINALIZATION_RETRY_DELAY_SECONDS", 0.05)
+    storage = TerminalSaveOutageStorage()
+    engine = RecordingEngine()
+
+    with TestClient(service.create_app(engine, storage)) as client:
+        created = post_job(
+            client,
+            upper_image=("upper.png", png_bytes("red"), "image/png"),
+        )
+        job_id = created.json()["id"]
+        for _ in range(100):
+            if storage.terminal_save_calls == service.STORAGE_RETRY_ATTEMPTS:
+                break
+            time.sleep(0.01)
+        assert storage.terminal_save_calls == service.STORAGE_RETRY_ATTEMPTS
+
+        deleted = client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        missing_before_retry = client.get(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        time.sleep(0.1)
+        missing_after_retry = client.get(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+
+    assert deleted.status_code == 204
+    assert missing_before_retry.status_code == 404
+    assert missing_after_retry.status_code == 404
+    assert storage.manifests == {}
+    assert not any(key.startswith(f"jobs/{job_id}/") for key in storage.objects)
+    assert len(engine.calls) == 1

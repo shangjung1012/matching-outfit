@@ -252,6 +252,13 @@ def create_app(
     engine: TryOnEngine | None = None,
     storage: JobStorage | None = None,
 ) -> FastAPI:
+    def job_lock(job_id: uuid.UUID) -> asyncio.Lock:
+        lock = api.state.job_locks.get(job_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            api.state.job_locks[job_id] = lock
+        return lock
+
     async def save_manifest(manifest: JobManifest) -> None:
         await asyncio.to_thread(api.state.storage.save_manifest, manifest)
 
@@ -353,10 +360,13 @@ def create_app(
         if manifest is None:
             return
         try:
-            manifest.status = "running"
-            manifest.error = None
-            manifest.updated_at = utcnow()
-            await save_manifest(manifest)
+            async with job_lock(job_id):
+                if job_id in api.state.deleted_jobs:
+                    return
+                manifest.status = "running"
+                manifest.error = None
+                manifest.updated_at = utcnow()
+                await save_manifest(manifest)
             if not manifest.person_object_key or not manifest.reference_object_keys:
                 raise RuntimeError("Job input is missing")
             person_content = await asyncio.to_thread(
@@ -383,22 +393,30 @@ def create_app(
             )
             validate_image(result)
             result_key = f"jobs/{manifest.id}/result.png"
-            await asyncio.to_thread(
-                api.state.storage.put,
-                result_key,
-                result,
-                "image/png",
-            )
-            manifest.status = "succeeded"
-            manifest.result_object_key = result_key
+            async with job_lock(job_id):
+                if job_id in api.state.deleted_jobs:
+                    return
+                await asyncio.to_thread(
+                    api.state.storage.put,
+                    result_key,
+                    result,
+                    "image/png",
+                )
+                manifest.status = "succeeded"
+                manifest.result_object_key = result_key
         except Exception as error:
             manifest.status = "failed"
             manifest.error = str(error)[:2000]
         finally:
-            manifest.updated_at = utcnow()
-            manifest.expires_at = utcnow() + timedelta(hours=RESULT_RETENTION_HOURS)
-            if not await finalize_manifest(manifest):
-                await api.state.finalization_queue.put(manifest)
+            if manifest.status in {"succeeded", "failed"}:
+                manifest.updated_at = utcnow()
+                manifest.expires_at = utcnow() + timedelta(
+                    hours=RESULT_RETENTION_HOURS
+                )
+                async with job_lock(job_id):
+                    if job_id not in api.state.deleted_jobs:
+                        if not await finalize_manifest(manifest):
+                            await api.state.finalization_queue.put(manifest)
 
     async def queue_worker() -> None:
         while True:
@@ -416,8 +434,10 @@ def create_app(
             manifest = await api.state.finalization_queue.get()
             try:
                 await asyncio.sleep(FINALIZATION_RETRY_DELAY_SECONDS)
-                if not await finalize_manifest(manifest):
-                    await api.state.finalization_queue.put(manifest)
+                async with job_lock(manifest.id):
+                    if manifest.id not in api.state.deleted_jobs:
+                        if not await finalize_manifest(manifest):
+                            await api.state.finalization_queue.put(manifest)
             finally:
                 api.state.finalization_queue.task_done()
 
@@ -425,17 +445,24 @@ def create_app(
         manifests = await asyncio.to_thread(api.state.storage.list_manifests)
         for manifest in manifests:
             try:
-                if manifest.expires_at <= utcnow():
-                    await asyncio.to_thread(api.state.storage.delete_job, manifest.id)
-                elif manifest.status in {"succeeded", "failed"} and (
-                    manifest.person_object_key or manifest.reference_object_keys
-                ):
-                    if await delete_job_inputs(manifest):
-                        manifest.updated_at = utcnow()
-                        await save_manifest_with_retry(
-                            manifest,
-                            "input cleanup manifest",
+                async with job_lock(manifest.id):
+                    if manifest.expires_at <= utcnow():
+                        api.state.deleted_jobs.add(manifest.id)
+                        await asyncio.to_thread(
+                            api.state.storage.delete_job,
+                            manifest.id,
                         )
+                    elif manifest.id in api.state.deleted_jobs:
+                        continue
+                    elif manifest.status in {"succeeded", "failed"} and (
+                        manifest.person_object_key or manifest.reference_object_keys
+                    ):
+                        if await delete_job_inputs(manifest):
+                            manifest.updated_at = utcnow()
+                            await save_manifest_with_retry(
+                                manifest,
+                                "input cleanup manifest",
+                            )
             except Exception:
                 logger.exception("Could not clean up job %s", manifest.id)
 
@@ -454,10 +481,15 @@ def create_app(
         app.state.engine = engine or await asyncio.to_thread(FastFitEngine)
         app.state.queue = asyncio.Queue()
         app.state.finalization_queue = asyncio.Queue()
+        app.state.job_locks = {}
+        app.state.deleted_jobs = set()
         await cleanup_expired()
         manifests = await asyncio.to_thread(app.state.storage.list_manifests)
         for manifest in manifests:
-            if manifest.status in {"queued", "running"}:
+            if (
+                manifest.id not in app.state.deleted_jobs
+                and manifest.status in {"queued", "running"}
+            ):
                 manifest.status = "queued"
                 manifest.updated_at = utcnow()
                 await asyncio.to_thread(app.state.storage.save_manifest, manifest)
@@ -567,7 +599,9 @@ def create_app(
         if manifest is None:
             raise HTTPException(status_code=404, detail="Job not found")
         if manifest.expires_at <= utcnow():
-            await asyncio.to_thread(api.state.storage.delete_job, job_id)
+            async with job_lock(job_id):
+                api.state.deleted_jobs.add(job_id)
+                await asyncio.to_thread(api.state.storage.delete_job, job_id)
             raise HTTPException(status_code=410, detail="Result expired")
         if manifest.status != "succeeded" or not manifest.result_object_key:
             raise HTTPException(status_code=409, detail="Result is not ready")
@@ -579,7 +613,9 @@ def create_app(
 
     @api.delete("/v1/jobs/{job_id}", status_code=204)
     async def delete_job(job_id: uuid.UUID, _: None = Depends(verify_api_key)) -> Response:
-        await asyncio.to_thread(api.state.storage.delete_job, job_id)
+        async with job_lock(job_id):
+            api.state.deleted_jobs.add(job_id)
+            await asyncio.to_thread(api.state.storage.delete_job, job_id)
         return Response(status_code=204)
 
     return api
