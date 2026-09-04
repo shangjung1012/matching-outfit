@@ -3,9 +3,7 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/models/huggingface \
-    TRYON_BIND_ADDRESS=0.0.0.0 \
-    TRYON_PORT=9001
+    HF_HOME=/models/huggingface
 
 WORKDIR /app
 
@@ -21,6 +19,9 @@ RUN pip install \
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+ENV TRYON_BIND_ADDRESS=0.0.0.0 \
+    TRYON_PORT=9001
 
 COPY . .
 

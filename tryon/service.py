@@ -7,6 +7,7 @@ from io import BytesIO
 import hmac
 import logging
 import os
+import time
 from typing import Literal, Protocol
 import uuid
 
@@ -25,6 +26,7 @@ MAX_IMAGE_PIXELS = 20_000_000
 RESULT_RETENTION_HOURS = 24
 STORAGE_RETRY_ATTEMPTS = 3
 STORAGE_RETRY_BASE_DELAY_SECONDS = 0.05
+FINALIZATION_RETRY_DELAY_SECONDS = 30
 CLEANUP_INTERVAL_SECONDS = 3600
 REFERENCE_TYPES = ("upper", "lower", "overall", "shoe", "bag")
 logger = logging.getLogger(__name__)
@@ -121,6 +123,23 @@ class MinioJobStorage:
         if object_key:
             self.client.remove_object(self.bucket, object_key)
 
+    def delete_with_retry(self, object_key: str) -> None:
+        for attempt in range(1, STORAGE_RETRY_ATTEMPTS + 1):
+            try:
+                self.delete(object_key)
+                return
+            except Exception:
+                logger.warning(
+                    "Could not delete job object %s (attempt %s/%s)",
+                    object_key,
+                    attempt,
+                    STORAGE_RETRY_ATTEMPTS,
+                    exc_info=True,
+                )
+                if attempt == STORAGE_RETRY_ATTEMPTS:
+                    raise
+                time.sleep(STORAGE_RETRY_BASE_DELAY_SECONDS * attempt)
+
     def save_manifest(self, manifest: JobManifest) -> None:
         self.put(
             self.manifest_key(manifest.id),
@@ -149,13 +168,21 @@ class MinioJobStorage:
         return manifests
 
     def delete_job(self, job_id: uuid.UUID) -> None:
-        for item in self.client.list_objects(
-            self.bucket,
-            prefix=f"jobs/{job_id}/",
-            recursive=True,
-        ):
-            if item.object_name:
-                self.delete(item.object_name)
+        manifest_key = self.manifest_key(job_id)
+        object_keys = [
+            item.object_name
+            for item in self.client.list_objects(
+                self.bucket,
+                prefix=f"jobs/{job_id}/",
+                recursive=True,
+            )
+            if item.object_name
+        ]
+        for object_key in object_keys:
+            if object_key != manifest_key:
+                self.delete_with_retry(object_key)
+        if manifest_key in object_keys:
+            self.delete_with_retry(manifest_key)
 
 
 def validate_image(content: bytes) -> Image.Image:
@@ -296,6 +323,31 @@ def create_app(
                 manifest.reference_object_keys.pop(reference_type)
         return changed
 
+    async def finalize_manifest(manifest: JobManifest) -> bool:
+        try:
+            await save_manifest_with_retry(manifest, "final job manifest")
+        except Exception:
+            logger.exception(
+                "Could not persist final job manifest for job %s after retries",
+                manifest.id,
+            )
+            return False
+
+        if await delete_job_inputs(manifest):
+            manifest.updated_at = utcnow()
+            try:
+                await save_manifest_with_retry(
+                    manifest,
+                    "input cleanup manifest",
+                )
+            except Exception:
+                logger.exception(
+                    "Could not persist input cleanup manifest for job %s "
+                    "after retries",
+                    manifest.id,
+                )
+        return True
+
     async def process_job(job_id: uuid.UUID) -> None:
         manifest = await asyncio.to_thread(api.state.storage.get_manifest, job_id)
         if manifest is None:
@@ -345,27 +397,8 @@ def create_app(
         finally:
             manifest.updated_at = utcnow()
             manifest.expires_at = utcnow() + timedelta(hours=RESULT_RETENTION_HOURS)
-            try:
-                await save_manifest_with_retry(manifest, "final job manifest")
-            except Exception:
-                logger.exception(
-                    "Could not persist final job manifest for job %s after retries",
-                    manifest.id,
-                )
-            else:
-                if await delete_job_inputs(manifest):
-                    manifest.updated_at = utcnow()
-                    try:
-                        await save_manifest_with_retry(
-                            manifest,
-                            "input cleanup manifest",
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Could not persist input cleanup manifest for job %s "
-                            "after retries",
-                            manifest.id,
-                        )
+            if not await finalize_manifest(manifest):
+                await api.state.finalization_queue.put(manifest)
 
     async def queue_worker() -> None:
         while True:
@@ -377,6 +410,16 @@ def create_app(
                     logger.exception("Unhandled error processing job %s", job_id)
             finally:
                 api.state.queue.task_done()
+
+    async def finalization_worker() -> None:
+        while True:
+            manifest = await api.state.finalization_queue.get()
+            try:
+                await asyncio.sleep(FINALIZATION_RETRY_DELAY_SECONDS)
+                if not await finalize_manifest(manifest):
+                    await api.state.finalization_queue.put(manifest)
+            finally:
+                api.state.finalization_queue.task_done()
 
     async def cleanup_expired() -> None:
         manifests = await asyncio.to_thread(api.state.storage.list_manifests)
@@ -410,6 +453,7 @@ def create_app(
         await asyncio.to_thread(app.state.storage.ensure_bucket)
         app.state.engine = engine or await asyncio.to_thread(FastFitEngine)
         app.state.queue = asyncio.Queue()
+        app.state.finalization_queue = asyncio.Queue()
         await cleanup_expired()
         manifests = await asyncio.to_thread(app.state.storage.list_manifests)
         for manifest in manifests:
@@ -420,6 +464,7 @@ def create_app(
                 await app.state.queue.put(manifest.id)
         tasks = [
             asyncio.create_task(queue_worker()),
+            asyncio.create_task(finalization_worker()),
             asyncio.create_task(cleanup_worker()),
         ]
         yield

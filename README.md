@@ -241,7 +241,7 @@ Leave both root values empty when the GPU service is unavailable; the rest of
 Matching Outfit continues to run and the try-on screen reports the service as
 unavailable.
 
-The first API startup downloads `zhengchong/FastFit-MR-1024` plus the DWPose, DensePose, and SCHP trees from `zhengchong/Human-Toolkit`. They are cached in the `tryon_hf_cache` Docker volume, so later container starts reuse them. Job manifests and results use the `tryon_minio_data` volume. Input images are deleted after each inference attempt, and job results expire after 24 hours. Ordinary `docker compose down` preserves both volumes; do not add `-v` unless you intentionally want to erase the model cache and stored jobs.
+The first API startup downloads `zhengchong/FastFit-MR-1024` plus the DWPose, DensePose, and SCHP trees from `zhengchong/Human-Toolkit`. They are cached in the `tryon_hf_cache` Docker volume, so later container starts reuse them. Job manifests and results use the `tryon_minio_data` volume. Input deletion is attempted after every inference; transient failures retain their object keys and are retried by the periodic cleanup worker. Job results and any remaining job objects expire after 24 hours. Ordinary `docker compose down` preserves both volumes; do not add `-v` unless you intentionally want to erase the model cache and stored jobs.
 
 Inference uses a 768 x 1024 person canvas, five 384 x 512 reference slots in canonical order, 30 denoising steps, guidance scale 2.5, and seed 42. TF32 is enabled. Mixed precision defaults to `bf16` and can be changed with `TRYON_MIXED_PRECISION` on hardware that requires another supported mode.
 

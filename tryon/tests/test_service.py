@@ -108,6 +108,45 @@ class CleanupFailingStorage(FakeStorage):
         return super().list_manifests()
 
 
+class TerminalSaveOutageStorage(FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.terminal_save_failures_remaining = service.STORAGE_RETRY_ATTEMPTS
+        self.terminal_save_calls = 0
+
+    def save_manifest(self, manifest: service.JobManifest) -> None:
+        if manifest.status in {"succeeded", "failed"}:
+            self.terminal_save_calls += 1
+            if self.terminal_save_failures_remaining:
+                self.terminal_save_failures_remaining -= 1
+                raise RuntimeError("injected terminal manifest outage")
+        super().save_manifest(manifest)
+
+
+class ListedObject:
+    def __init__(self, object_name: str) -> None:
+        self.object_name = object_name
+
+
+class PartialDeleteClient:
+    def __init__(self, object_names: list[str], failing_key: str) -> None:
+        self.object_names = object_names
+        self.failing_key = failing_key
+        self.failures_remaining = service.STORAGE_RETRY_ATTEMPTS
+        self.remove_calls: list[str] = []
+
+    def list_objects(self, *_args, **_kwargs):
+        return [ListedObject(name) for name in self.object_names]
+
+    def remove_object(self, _bucket: str, object_key: str) -> None:
+        self.remove_calls.append(object_key)
+        if object_key == self.failing_key and self.failures_remaining:
+            self.failures_remaining -= 1
+            raise RuntimeError("injected partial delete failure")
+        if object_key in self.object_names:
+            self.object_names.remove(object_key)
+
+
 class RecordingEngine:
     device_name = "Fake CUDA"
 
@@ -423,3 +462,55 @@ def test_periodic_cleanup_recovers_after_transient_listing_failure(
         assert job_id not in storage.manifests
 
     assert "Could not clean up expired jobs" in caplog.text
+
+
+def test_terminal_manifest_retries_in_background_after_initial_exhaustion(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    monkeypatch.setattr(
+        service,
+        "FINALIZATION_RETRY_DELAY_SECONDS",
+        0.001,
+        raising=False,
+    )
+    storage = TerminalSaveOutageStorage()
+    engine = RecordingEngine()
+
+    with TestClient(service.create_app(engine, storage)) as client:
+        created = post_job(
+            client,
+            upper_image=("upper.png", png_bytes("red"), "image/png"),
+        )
+        completed = wait_for_status(client, created.json()["id"], "succeeded")
+
+    assert completed["status"] == "succeeded"
+    assert storage.terminal_save_calls == service.STORAGE_RETRY_ATTEMPTS + 2
+    assert len(engine.calls) == 1
+    manifest = storage.manifests[uuid.UUID(created.json()["id"])]
+    assert manifest.person_object_key is None
+    assert manifest.reference_object_keys == {}
+
+
+def test_delete_job_keeps_manifest_until_all_child_objects_are_deleted() -> None:
+    job_id = uuid.uuid4()
+    manifest_key = f"jobs/{job_id}/manifest.json"
+    person_key = f"jobs/{job_id}/person"
+    result_key = f"jobs/{job_id}/result.png"
+    client = PartialDeleteClient(
+        [manifest_key, person_key, result_key],
+        failing_key=result_key,
+    )
+    storage = object.__new__(service.MinioJobStorage)
+    storage.bucket = "tryon"
+    storage.client = client
+
+    with pytest.raises(RuntimeError, match="partial delete"):
+        storage.delete_job(job_id)
+
+    assert client.object_names == [manifest_key, result_key]
+
+    storage.delete_job(job_id)
+
+    assert client.object_names == []
+    assert client.remove_calls[-1] == manifest_key
