@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import hmac
+import logging
 import os
 from typing import Literal, Protocol
 import uuid
@@ -23,6 +24,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 RESULT_RETENTION_HOURS = 24
 REFERENCE_TYPES = ("upper", "lower", "overall", "shoe", "bag")
+logger = logging.getLogger(__name__)
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 ReferenceType = Literal["upper", "lower", "overall", "shoe", "bag"]
@@ -222,11 +224,11 @@ def create_app(
         manifest = await asyncio.to_thread(api.state.storage.get_manifest, job_id)
         if manifest is None:
             return
-        manifest.status = "running"
-        manifest.error = None
-        manifest.updated_at = utcnow()
-        await save_manifest(manifest)
         try:
+            manifest.status = "running"
+            manifest.error = None
+            manifest.updated_at = utcnow()
+            await save_manifest(manifest)
             if not manifest.person_object_key or not manifest.reference_object_keys:
                 raise RuntimeError("Job input is missing")
             person_content = await asyncio.to_thread(
@@ -269,23 +271,41 @@ def create_app(
                 manifest.person_object_key,
                 *manifest.reference_object_keys.values(),
             ]
-            await asyncio.gather(
+            delete_results = await asyncio.gather(
                 *(
                     asyncio.to_thread(api.state.storage.delete, object_key)
                     for object_key in input_keys
-                )
+                ),
+                return_exceptions=True,
             )
+            for object_key, result in zip(input_keys, delete_results):
+                if isinstance(result, BaseException):
+                    logger.error(
+                        "Could not delete job input %s for job %s",
+                        object_key,
+                        manifest.id,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
             manifest.person_object_key = None
             manifest.reference_object_keys = {}
             manifest.updated_at = utcnow()
             manifest.expires_at = utcnow() + timedelta(hours=RESULT_RETENTION_HOURS)
-            await save_manifest(manifest)
+            try:
+                await save_manifest(manifest)
+            except Exception:
+                logger.exception(
+                    "Could not persist final job manifest for job %s",
+                    manifest.id,
+                )
 
     async def queue_worker() -> None:
         while True:
             job_id = await api.state.queue.get()
             try:
-                await process_job(job_id)
+                try:
+                    await process_job(job_id)
+                except Exception:
+                    logger.exception("Unhandled error processing job %s", job_id)
             finally:
                 api.state.queue.task_done()
 

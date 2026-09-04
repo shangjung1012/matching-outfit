@@ -182,7 +182,7 @@ class FastFitEngine:
                 ref_labels=list(REFERENCE_TYPES),
                 ref_attention_masks=ref_attention_masks,
                 pose=pose,
-                num_inference_steps=50,
+                num_inference_steps=30,
                 guidance_scale=2.5,
                 generator=generator,
                 return_pil=True,

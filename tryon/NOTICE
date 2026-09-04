@@ -1,0 +1,11 @@
+FastFit attribution and modification notice
+
+The FastFit Model is licensed by LavieAI under the FastFit Non-Commercial License. Copyright LavieAI.
+IN NO EVENT SHALL LAVIEAI BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH USE OF THIS MODEL.
+
+Provenance: Zheng-Chong/FastFit, commit 9c96fc019d71a52a01285b1a4b06450cb4826677.
+
+This distribution contains a modified derivative of the FastFit Model. The
+upstream `module/` and `parse_utils/` runtime trees are vendored under the
+`fastfit/` package and integrated with a separate HTTP job service, storage
+lifecycle, command-line interface, and model-download policy.

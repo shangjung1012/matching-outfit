@@ -132,7 +132,7 @@ def test_engine_preprocesses_person_and_calls_pipeline_with_five_slots() -> None
         None,
     ] * 3
     assert call["ref_images"][4].getpixel((0, 0)) == (255, 255, 0)
-    assert call["num_inference_steps"] == 50
+    assert call["num_inference_steps"] == 30
     assert call["guidance_scale"] == 2.5
     assert call["generator"].device == "cuda"
     assert call["generator"].seed == 42

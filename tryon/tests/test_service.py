@@ -71,6 +71,28 @@ class FakeStorage:
                 self.objects.pop(key)
 
 
+class FinalizationFailingStorage(FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.delete_failure_raised = False
+        self.final_save_failure_raised = False
+
+    def delete(self, key: str | None) -> None:
+        if key and not self.delete_failure_raised:
+            self.delete_failure_raised = True
+            raise RuntimeError("injected input delete failure")
+        super().delete(key)
+
+    def save_manifest(self, manifest: service.JobManifest) -> None:
+        if (
+            manifest.status in {"succeeded", "failed"}
+            and not self.final_save_failure_raised
+        ):
+            self.final_save_failure_raised = True
+            raise RuntimeError("injected final manifest failure")
+        super().save_manifest(manifest)
+
+
 class RecordingEngine:
     device_name = "Fake CUDA"
 
@@ -299,3 +321,29 @@ def test_startup_removes_expired_job(monkeypatch) -> None:
         missing = client.get(f"/v1/jobs/{job_id}", headers=API_HEADERS)
 
     assert missing.status_code == 404
+
+
+def test_finalization_failures_do_not_stop_queue_worker(monkeypatch, caplog) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    storage = FinalizationFailingStorage()
+    engine = RecordingEngine()
+
+    with TestClient(service.create_app(engine, storage)) as client:
+        first = post_job(
+            client,
+            upper_image=("upper.png", png_bytes("red"), "image/png"),
+            bag_image=("bag.png", png_bytes("blue"), "image/png"),
+        )
+        second = post_job(
+            client,
+            lower_image=("lower.png", png_bytes("green"), "image/png"),
+        )
+        completed = wait_for_status(client, second.json()["id"], "succeeded")
+
+    assert first.status_code == 202
+    assert completed["status"] == "succeeded"
+    assert storage.delete_failure_raised is True
+    assert storage.final_save_failure_raised is True
+    assert len(engine.calls) == 2
+    assert "Could not delete job input" in caplog.text
+    assert "Could not persist final job manifest" in caplog.text
