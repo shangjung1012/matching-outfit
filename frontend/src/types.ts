@@ -46,8 +46,41 @@ export interface PairingDirection {
   color_relationship: string
 }
 
+export interface OccasionInterpretation {
+  social_context: string
+  formality_target: number
+  visual_impact: 'low' | 'medium' | 'high'
+  practicality: 'low' | 'medium' | 'high'
+}
+
+export interface StylingConcept {
+  direction_id: string
+  concept_name: string
+  outfit_formula: string
+  upper_role: string | null
+  lower_role: string | null
+  one_piece_role: string | null
+  visible_cues: string[]
+  balance_rules: string[]
+}
+
+export interface FashionIntent {
+  user_goal: string
+  desired_impression: string[]
+  occasion_interpretation: OccasionInterpretation
+  core_aesthetic: string[]
+  must_have_visual_cues: string[]
+  optional_visual_cues: string[]
+  avoid_concepts: string[]
+  styling_principles: string[]
+  concepts: StylingConcept[]
+  ambiguities: string[]
+  confidence: number
+}
+
 export interface StylingGuide {
   concept: string
+  desired_impression: string[]
   visual_attributes: string[]
   avoid_misinterpretations: string[]
   color_direction: string[]
@@ -55,6 +88,7 @@ export interface StylingGuide {
   material_direction: string[]
   pattern_direction: string[]
   pairing_directions: PairingDirection[]
+  styling_principles: string[]
   reviewer_checklist: string[]
 }
 
@@ -140,6 +174,7 @@ export interface QueryPlanResponse {
   knowledge_observation_ids: string[]
   planning_note: string
   styling_guide: StylingGuide | null
+  fashion_intent: FashionIntent | null
 }
 
 export interface RequirementSummary {

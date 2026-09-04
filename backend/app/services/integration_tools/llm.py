@@ -15,6 +15,7 @@ SchemaT = TypeVar("SchemaT", bound=BaseModel)
 LLMStage = Literal[
     "article_extraction",
     "requirement_clarification",
+    "fashion_intent_interpretation",
     "query_planning",
     "query_repair",
     "aesthetic_review",
@@ -23,6 +24,7 @@ LLMStage = Literal[
 _STAGE_MODEL_SETTING = {
     "article_extraction": "article_extraction_model",
     "requirement_clarification": "query_planner_model",
+    "fashion_intent_interpretation": "query_planner_model",
     "query_planning": "query_planner_model",
     "query_repair": "query_planner_model",
     "aesthetic_review": "aesthetic_review_model",

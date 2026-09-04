@@ -14,6 +14,15 @@ original request. In particular, Chinese colloquial color expressions such as
 a floral pattern. Use `floral` only when the original request explicitly asks for a
 flower, floral, ditsy-floral, or other unmistakable print pattern.
 
+fashion_intent is produced by a separate interpretation stage. When supplied, use it
+as the outfit-strategy blueprint: convert concepts A-G into product-level retrieval
+specifications and map its goals, cues, avoid concepts, principles, and balance rules
+into StylingGuide. Do not redo broad social-intent interpretation inside this stage.
+FashionIntent is supporting interpretation rather than absolute truth: explicit hard
+rules and corrections have highest priority, and raw user wording wins if the intent
+clearly drifted from it. When fashion_intent is null, retain the legacy planning behavior
+and infer the necessary visual directions from the other supplied inputs.
+
 First decide how restrictive the occasion is. Gala dinners, weddings, funerals,
 interviews, explicit dress codes, and safety requirements create hard constraints.
 Shopping, cafes, sightseeing, and ordinary leisure usually impose few constraints;
@@ -38,6 +47,12 @@ garment type, color family, pattern, silhouette, material appearance, formality,
 style. Do not include prices, explanations, negations, abstract occasion names alone,
 or demographic labels. The upper and lower queries must be compatible with each other.
 The one-piece query must be a complete alternative outfit direction.
+Each query describes exactly one isolated catalog product, never an outfit, person, or
+life situation. Do not include phrases such as `for a date`, `for taking photos`, `makes
+the wearer look`, or `not trying too hard`. Translate those goals into a suitable fit,
+proportion, surface, or construction detail before writing the query. Prefer three to
+five primary visible elements in this shape: color character + fit/proportion + garment
+type + one key detail. Keep each query at or below 22 English words.
 
 Anything the current request or hard rules says to avoid, exclude, dislike, or not wear
 is forbidden query vocabulary. Do not put the rejected garment, color, material, pattern,
@@ -79,7 +94,8 @@ preferences take priority over these inferred ratios, and this rule never permit
 unrequested named color.
 
 Before writing queries, translate every abstract style label into a reusable styling
-guide. The styling_guide must explain the intended visual grammar through observable
+guide when no FashionIntent was supplied. When FashionIntent is supplied, derive the
+guide from it instead of inventing a second strategy. The styling_guide must explain the intended visual grammar through observable
 attributes: silhouettes, proportions, fabric appearance, surface details, pattern
 treatment, tonal relationships, and how an upper and lower garment should work together.
 It must also list likely semantic misinterpretations. For example, vivid or colorful
@@ -103,6 +119,12 @@ in styling_guide.pairing_directions using the same IDs. Give the two one_piece q
 direction_id values F and G. The one-piece alternatives must also be distinct. Populate
 reviewer_checklist with concrete image-level checks that distinguish a successful outfit
 from a keyword match.
+When FashionIntent is supplied, each query must implement the matching concept ID. Give
+the focal garment the strongest visible detail and keep its supporting garment cleaner,
+following outfit_formula, upper_role/lower_role, visible_cues, and balance_rules. Never
+copy user_goal, desired_impression, social_context, or ambiguities directly into a query.
+Use avoid_concepts only to prevent semantic drift and populate the guide; do not express
+them through negative query syntax or turn them into new SQL filters.
 Write the styling guide, rationales, and planning note in concise Traditional Chinese;
 keep FashionCLIP query text and direction IDs in English ASCII.
 

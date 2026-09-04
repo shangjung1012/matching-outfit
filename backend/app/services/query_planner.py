@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -8,10 +9,12 @@ from pathlib import Path
 from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
+from app.core.config import settings
 from app.schemas.fashion_knowledge import StrictModel
 from app.schemas.workflow import (
     ChatTurn,
     ClarificationResponse,
+    FashionIntent,
     PlanResponse,
     QueryDraft,
     RequirementField,
@@ -28,6 +31,10 @@ QUERY_REPAIR_SYSTEM_PROMPT = (PROMPTS_DIR / "QueryPlannerSys.txt").read_text(enc
 REQUIREMENT_COLLECTOR_PROMPT = (PROMPTS_DIR / "RequirementCollector.txt").read_text(
     encoding="utf-8"
 ).strip()
+FASHION_INTENT_INTERPRETER_PROMPT = (
+    PROMPTS_DIR / "FashionIntentInterpreter.txt"
+).read_text(encoding="utf-8").strip()
+logger = logging.getLogger(__name__)
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
 QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
 REQUIREMENT_VALUE_FIELDS = (
@@ -195,6 +202,150 @@ class RequirementCollector:
             missing_fields=list(dict.fromkeys(result.missing_fields)),
             ready_to_plan=result.ready_to_plan,
         )
+
+
+class FashionIntentInterpreter:
+    """Interpret user meaning and outfit strategy without writing retrieval queries."""
+
+    name = "fashion-intent-v1"
+
+    def __init__(self, llm: LLM):
+        self.llm = llm
+
+    @staticmethod
+    def _strategy_text(intent: FashionIntent) -> str:
+        values = [
+            *intent.core_aesthetic,
+            *intent.must_have_visual_cues,
+            *intent.optional_visual_cues,
+            *intent.styling_principles,
+        ]
+        for concept in intent.concepts:
+            values.extend(
+                value
+                for value in (
+                    concept.concept_name,
+                    concept.outfit_formula,
+                    concept.upper_role,
+                    concept.lower_role,
+                    concept.one_piece_role,
+                    *concept.visible_cues,
+                    *concept.balance_rules,
+                )
+                if value
+            )
+        return " ".join(values).lower()
+
+    @classmethod
+    def _validate_hard_rule_alignment(
+        cls, intent: FashionIntent, hard: UserHardRule | None
+    ) -> None:
+        if hard is None:
+            return
+        prohibited: set[str] = set()
+        hard_values = [
+            *(hard.avoid_colours or []),
+            *(hard.avoid_article_types or []),
+            *(hard.avoid_master_categories or []),
+        ]
+        for value in hard_values:
+            normalized = value.strip().lower()
+            if not normalized:
+                continue
+            prohibited.add(normalized)
+            for aliases in COLOR_ALIASES.values():
+                if normalized in {alias.lower() for alias in aliases}:
+                    prohibited.update(alias.lower() for alias in aliases)
+            for input_aliases, query_aliases in REJECTABLE_CONCEPTS.values():
+                all_aliases = {*input_aliases, *query_aliases}
+                if normalized in {alias.lower() for alias in all_aliases}:
+                    prohibited.update(alias.lower() for alias in all_aliases)
+
+        strategy = cls._strategy_text(intent)
+        conflicts = []
+        for term in prohibited:
+            matched = (
+                re.search(rf"\b{re.escape(term)}\b", strategy) is not None
+                if term.isascii()
+                else term in strategy
+            )
+            if matched:
+                conflicts.append(term)
+        if conflicts:
+            raise RuntimeError(
+                "FashionIntent conflicts with explicit hard rules: "
+                + ", ".join(sorted(set(conflicts)))
+            )
+
+    def interpret(
+        self,
+        *,
+        raw_user_text: str,
+        requirement_summary: RequirementSummary,
+        audience: str | None,
+        hard: UserHardRule | None,
+        style_preferences: list[UserStylePreference] | None,
+        refinement: str | None = None,
+        previous_intent: FashionIntent | None = None,
+    ) -> FashionIntent:
+        payload = {
+            "raw_user_text": raw_user_text,
+            "requirement_summary": requirement_summary.model_dump(mode="json"),
+            "audience": audience,
+            "refinement": refinement,
+            "previous_fashion_intent": (
+                previous_intent.model_dump(mode="json") if previous_intent else None
+            ),
+            "user_preferences": build_planner_preference_context(
+                hard, style_preferences
+            ),
+        }
+        intent = self.llm.parse(
+            stage="fashion_intent_interpretation",
+            instructions=FASHION_INTENT_INTERPRETER_PROMPT,
+            content=[
+                {
+                    "type": "input_text",
+                    "text": json.dumps(payload, ensure_ascii=False),
+                }
+            ],
+            schema=FashionIntent,
+        )
+        self._validate_hard_rule_alignment(intent, hard)
+        return intent
+
+
+def interpret_fashion_intent_or_none(
+    interpreter: FashionIntentInterpreter,
+    *,
+    enabled: bool,
+    raw_user_text: str,
+    requirement_summary: RequirementSummary,
+    audience: str | None,
+    hard: UserHardRule | None,
+    style_preferences: list[UserStylePreference] | None,
+    refinement: str | None = None,
+    previous_intent: FashionIntent | None = None,
+) -> tuple[FashionIntent | None, bool]:
+    """Return a validated intent, falling back without breaking query planning."""
+    if not enabled:
+        return None, False
+    try:
+        return (
+            interpreter.interpret(
+                raw_user_text=raw_user_text,
+                requirement_summary=requirement_summary,
+                audience=audience,
+                hard=hard,
+                style_preferences=style_preferences,
+                refinement=refinement,
+                previous_intent=previous_intent,
+            ),
+            False,
+        )
+    except (RuntimeError, ValueError) as error:
+        logger.warning("Fashion intent fallback used: %s", error)
+        return None, True
 
 
 class RepairedCatalogQuery(StrictModel):
@@ -483,6 +634,93 @@ class QueryPlanner:
         self.llm = llm
         self.normalizer = QueryOutputNormalizer(llm)
 
+    @staticmethod
+    def _query_warnings(queries: list[QueryDraft]) -> list[str]:
+        warnings: list[str] = []
+        non_product_phrases = re.compile(
+            r"\b(?:for (?:a |the )?(?:date|photos?|wedding|restaurant)|"
+            r"taking photos?|makes? (?:you|the wearer) look|not trying too hard)\b",
+            flags=re.IGNORECASE,
+        )
+        garment_terms = {
+            "top", "tops", "tee", "tees", "t-shirt", "t-shirts", "shirt",
+            "shirts", "blouse", "blouses", "tank", "camisole", "sweater",
+            "sweaters", "cardigan", "cardigans", "jacket", "jackets", "blazer",
+            "blazers", "trousers", "pants", "jeans", "shorts", "skirt", "skirts",
+            "dress", "dresses", "jumpsuit", "jumpsuits", "romper", "rompers",
+        }
+        statement_terms = {
+            "graphic", "metallic", "multicolor", "colorful", "printed",
+            "embellished", "sequin", "rhinestone", "bold", "statement",
+        }
+        token_sets: list[tuple[str, set[str]]] = []
+        by_direction: dict[str, list[QueryDraft]] = {}
+        for query in queries:
+            words = re.findall(r"[a-z]+(?:-[a-z]+)?", query.text.lower())
+            tokens = set(words)
+            token_sets.append((query.id, tokens))
+            if len(words) > 22:
+                warnings.append(f"{query.id}: query exceeds 22 English words")
+            if non_product_phrases.search(query.text):
+                warnings.append(f"{query.id}: query contains non-product context")
+            if not tokens.intersection(garment_terms):
+                warnings.append(f"{query.id}: query may lack a recognizable garment type")
+            if query.direction_id and query.garment_zone in {"upper_body", "lower_body"}:
+                by_direction.setdefault(query.direction_id, []).append(query)
+
+        for index, (left_id, left) in enumerate(token_sets):
+            for right_id, right in token_sets[index + 1 :]:
+                union = left | right
+                if union and len(left & right) / len(union) >= 0.8:
+                    warnings.append(f"{left_id}/{right_id}: queries are highly similar")
+        for direction_id, pair in by_direction.items():
+            if len(pair) != 2:
+                continue
+            statement_counts = [
+                len(set(re.findall(r"[a-z]+", query.text.lower())) & statement_terms)
+                for query in pair
+            ]
+            if all(count >= 2 for count in statement_counts):
+                warnings.append(
+                    f"direction {direction_id}: upper and lower may both be statement pieces"
+                )
+        return list(dict.fromkeys(warnings))
+
+    @staticmethod
+    def _guide_with_intent(
+        guide: StylingGuide, intent: FashionIntent | None
+    ) -> StylingGuide:
+        if intent is None:
+            return guide
+
+        def merged(*groups: list[str], limit: int = 12) -> list[str]:
+            return list(dict.fromkeys(item for group in groups for item in group))[:limit]
+
+        return guide.model_copy(
+            update={
+                "concept": intent.user_goal,
+                "desired_impression": intent.desired_impression,
+                "visual_attributes": merged(
+                    intent.must_have_visual_cues,
+                    intent.core_aesthetic,
+                    guide.visual_attributes,
+                ),
+                "avoid_misinterpretations": merged(
+                    intent.avoid_concepts,
+                    guide.avoid_misinterpretations,
+                ),
+                "styling_principles": merged(
+                    intent.styling_principles,
+                    guide.styling_principles,
+                ),
+                "reviewer_checklist": merged(
+                    intent.must_have_visual_cues,
+                    intent.styling_principles,
+                    guide.reviewer_checklist,
+                ),
+            }
+        )
+
     def plan(
         self,
         user_input: str,
@@ -493,6 +731,8 @@ class QueryPlanner:
         style_preferences: list[UserStylePreference] | None = None,
         existing_queries: list[QueryDraft] | None = None,
         refinement: str | None = None,
+        fashion_intent: FashionIntent | None = None,
+        intent_fallback_used: bool = False,
     ) -> PlanResponse:
         # get preference payload for LLM
         preference_payload = build_planner_preference_context(hard, style_preferences)
@@ -509,6 +749,9 @@ class QueryPlanner:
                 query.model_dump(mode="json") for query in existing_queries or []
             ],
             "user_preferences": preference_payload,
+            "fashion_intent": (
+                fashion_intent.model_dump(mode="json") if fashion_intent else None
+            ),
         }
 
         # Call the LLM to generate 12 catalog-retrieval queries.
@@ -536,19 +779,58 @@ class QueryPlanner:
         )
         direction_ids = self.normalizer.normalized_direction_ids(by_zone)
 
+        queries = [
+            QueryDraft(
+                id=str(uuid4()),
+                text=normalized_queries.by_zone[zone][index],
+                garment_zone=zone,
+                rationale=by_zone[zone][index].rationale,
+                direction_id=direction_ids[zone][index],
+            )
+            for zone in QUERY_ZONES
+            for index in range(QUERY_COUNTS[zone])
+        ]
+        styling_guide = self._guide_with_intent(result.styling_guide, fashion_intent)
+        normalizer_changes = [
+            {
+                "direction_id": before.direction_id,
+                "garment_zone": before.garment_zone,
+                "before": before.text,
+                "after": after.text,
+            }
+            for before, after in zip(result.queries, queries, strict=True)
+            if before.text != after.text
+        ]
+        logger.info(
+            "query_plan_trace %s",
+            json.dumps(
+                {
+                    "raw_user_text": user_input,
+                    "requirement_summary": (
+                        requirements.model_dump(mode="json") if requirements else None
+                    ),
+                    "fashion_intent": (
+                        fashion_intent.model_dump(mode="json") if fashion_intent else None
+                    ),
+                    "generated_queries_before_normalization": [
+                        query.model_dump(mode="json") for query in result.queries
+                    ],
+                    "generated_queries_after_normalization": [
+                        query.model_dump(mode="json") for query in queries
+                    ],
+                    "normalizer_changes": normalizer_changes,
+                    "query_warnings": self._query_warnings(queries),
+                    "intent_fallback_used": intent_fallback_used,
+                    "model": settings.query_planner_model,
+                    "prompt_version": "intent-v1" if fashion_intent else "legacy-v2",
+                },
+                ensure_ascii=False,
+            ),
+        )
+
         return PlanResponse(
             original_input=user_input,
-            queries=[
-                QueryDraft(
-                    id=str(uuid4()),
-                    text=normalized_queries.by_zone[zone][index],
-                    garment_zone=zone,
-                    rationale=by_zone[zone][index].rationale,
-                    direction_id=direction_ids[zone][index],
-                )
-                for zone in QUERY_ZONES
-                for index in range(QUERY_COUNTS[zone])
-            ],
+            queries=queries,
             planner=self.name,
             audience=audience,
             knowledge_observation_ids=[],
@@ -557,5 +839,6 @@ class QueryPlanner:
                 if normalized_queries.repair_attempted
                 else result.planning_note
             ),
-            styling_guide=result.styling_guide,
+            styling_guide=styling_guide,
+            fashion_intent=fashion_intent,
         )

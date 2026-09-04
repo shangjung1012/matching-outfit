@@ -25,6 +25,59 @@ class ReferenceLink(BaseModel):
     url: str
 
 
+class OccasionInterpretation(BaseModel):
+    social_context: str = Field(min_length=2, max_length=300)
+    formality_target: float = Field(ge=0, le=1)
+    visual_impact: Literal["low", "medium", "high"]
+    practicality: Literal["low", "medium", "high"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StylingConcept(BaseModel):
+    direction_id: str = Field(min_length=1, max_length=1)
+    concept_name: str = Field(min_length=2, max_length=120)
+    outfit_formula: str = Field(min_length=3, max_length=400)
+    upper_role: str | None = Field(default=None, max_length=300)
+    lower_role: str | None = Field(default=None, max_length=300)
+    one_piece_role: str | None = Field(default=None, max_length=300)
+    visible_cues: list[str] = Field(min_length=1, max_length=10)
+    balance_rules: list[str] = Field(min_length=1, max_length=8)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class FashionIntent(BaseModel):
+    user_goal: str = Field(min_length=3, max_length=500)
+    desired_impression: list[str] = Field(min_length=1, max_length=10)
+    occasion_interpretation: OccasionInterpretation
+    core_aesthetic: list[str] = Field(min_length=1, max_length=10)
+    must_have_visual_cues: list[str] = Field(min_length=1, max_length=12)
+    optional_visual_cues: list[str] = Field(default_factory=list, max_length=12)
+    avoid_concepts: list[str] = Field(default_factory=list, max_length=12)
+    styling_principles: list[str] = Field(min_length=1, max_length=12)
+    concepts: list[StylingConcept] = Field(min_length=7, max_length=7)
+    ambiguities: list[str] = Field(default_factory=list, max_length=8)
+    confidence: float = Field(ge=0, le=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _validate_concept_contract(self) -> "FashionIntent":
+        by_id = {concept.direction_id: concept for concept in self.concepts}
+        expected = set("ABCDEFG")
+        if len(by_id) != 7 or set(by_id) != expected:
+            raise ValueError("FashionIntent concepts must have unique direction IDs A-G")
+        for direction_id in "ABCDE":
+            concept = by_id[direction_id]
+            if not concept.upper_role or not concept.lower_role:
+                raise ValueError(f"Direction {direction_id} requires upper_role and lower_role")
+        for direction_id in "FG":
+            if not by_id[direction_id].one_piece_role:
+                raise ValueError(f"Direction {direction_id} requires one_piece_role")
+        return self
+
+
 class PairingDirection(BaseModel):
     id: str = Field(min_length=1, max_length=24)
     concept: str = Field(min_length=2, max_length=300)
@@ -35,6 +88,7 @@ class PairingDirection(BaseModel):
 
 class StylingGuide(BaseModel):
     concept: str = Field(min_length=2, max_length=500)
+    desired_impression: list[str] = Field(default_factory=list, max_length=10)
     visual_attributes: list[str] = Field(default_factory=list, max_length=12)
     avoid_misinterpretations: list[str] = Field(default_factory=list, max_length=12)
     color_direction: list[str] = Field(default_factory=list, max_length=12)
@@ -42,6 +96,7 @@ class StylingGuide(BaseModel):
     material_direction: list[str] = Field(default_factory=list, max_length=12)
     pattern_direction: list[str] = Field(default_factory=list, max_length=12)
     pairing_directions: list[PairingDirection] = Field(default_factory=list, max_length=7)
+    styling_principles: list[str] = Field(default_factory=list, max_length=12)
     reviewer_checklist: list[str] = Field(default_factory=list, max_length=12)
 
 
@@ -104,11 +159,13 @@ class PlanResponse(BaseModel):
     knowledge_observation_ids: list[str] = Field(default_factory=list)
     planning_note: str = ""
     styling_guide: StylingGuide | None = None
+    fashion_intent: FashionIntent | None = None
 
 
 class RefineRequest(PlanRequest):
     existing_queries: list[QueryDraft] = Field(default_factory=list)
     original_input: str = Field(default="", max_length=1000)
+    fashion_intent: FashionIntent | None = None
 
 
 class SearchRequest(BaseModel):

@@ -11,6 +11,8 @@ from app.schemas.workflow import (
     HardRules,
     HardRulesUpdate,
     HardRulesView,
+    FashionIntent,
+    OccasionInterpretation,
     OutfitRecommendation,
     OutfitScoreBreakdown,
     PlanRequest,
@@ -32,6 +34,7 @@ from app.schemas.workflow import (
     StylePreferenceProposal,
     StylePreferenceProposalRequest,
     StylePreferenceView,
+    StylingConcept,
     StylingGuide,
 )
 from app.schemas.try_on import (
@@ -55,6 +58,8 @@ __all__ = [
     "HardRules",
     "HardRulesUpdate",
     "HardRulesView",
+    "FashionIntent",
+    "OccasionInterpretation",
     "OutfitRecommendation",
     "OutfitScoreBreakdown",
     "PlanRequest",
@@ -76,6 +81,7 @@ __all__ = [
     "StylePreferenceProposal",
     "StylePreferenceProposalRequest",
     "StylePreferenceView",
+    "StylingConcept",
     "StylingGuide",
     "TryOnCapabilities",
     "TryOnReferenceType",

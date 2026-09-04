@@ -21,6 +21,7 @@ import type {
   QueryDraft,
   RequirementSummary,
   StylingGuide,
+  FashionIntent,
   StylePreferenceProposal,
 } from '../types'
 
@@ -52,6 +53,7 @@ const originalRequest = ref('')
 const audience = ref<Audience | ''>('')
 const requirements = ref<RequirementSummary | null>(null)
 const stylingGuide = ref<StylingGuide | null>(null)
+const fashionIntent = ref<FashionIntent | null>(null)
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
 let messageId = 2
@@ -146,10 +148,12 @@ async function refine(text: string) {
       queries.value,
       previousRequest,
       requirements.value,
+      fashionIntent.value,
       audience.value || undefined,
     )
     queries.value = response.queries
     stylingGuide.value = response.styling_guide
+    fashionIntent.value = response.fashion_intent
     audience.value = response.audience ?? audience.value
     originalRequest.value = `${previousRequest} ${text}`.trim()
     addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
@@ -174,6 +178,7 @@ async function confirmRequirements() {
     )
     queries.value = response.queries
     stylingGuide.value = response.styling_guide
+    fashionIntent.value = response.fashion_intent
     audience.value = response.audience ?? audience.value
     recommendations.value = []
     discardedRecommendations.value = []
@@ -197,6 +202,7 @@ function startNewConversation() {
   showDiscarded.value = false
   requirements.value = null
   stylingGuide.value = null
+  fashionIntent.value = null
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
