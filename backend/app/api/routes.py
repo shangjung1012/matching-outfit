@@ -30,21 +30,14 @@ from app.schemas import (
     StylePreferenceProposalRequest,
     StylePreferenceView,
     FashionKnowledgeStatus,
-    StylingDemoRequest,
-    StylingDemoResponse,
-    StylingCatalogRequest,
-    StylingCatalogResponse,
 )
 from app.services.catalog_search import search_catalog
 from app.services.outfit_ranker import rank_outfits
-from app.knowledge.retrieval import retrieve_observations
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
 from app.services.query_planner import QueryPlanner
 from app.services.integration_tools.llm import LLM
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
-from app.services.styling_agent import StylingAgent
-from app.services.formula_catalog_search import search_formula_catalog
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
 from app.services.outfit_ranker import select_diverse
 
@@ -80,34 +73,6 @@ def fashion_knowledge_status(db: Session = Depends(get_db)) -> FashionKnowledgeS
     )
 
 
-@router.post("/styling/demo", response_model=StylingDemoResponse)
-def styling_demo(
-    payload: StylingDemoRequest, db: Session = Depends(get_db)
-) -> StylingDemoResponse:
-    store = fashion_knowledge_store()
-    try:
-        embedder = TextEmbeddingService(
-            settings.openai_api_key,
-            settings.knowledge_embedding_model,
-            settings.knowledge_embedding_dimensions,
-        )
-        observations = retrieve_observations_from_db(
-            db,
-            payload.user_input,
-            payload.top_k_observations,
-            embedder,
-            audience=payload.audience,
-        )
-        if not observations:
-            observations = retrieve_observations(
-                payload.user_input, store.observations(), payload.top_k_observations
-            )
-        agent = StylingAgent(LLM())
-        return agent.run(payload.user_input, observations, revise_once=payload.revise_once)
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-
-
 HARD_RULE_SCALAR_FIELDS = ("price_min", "price_max", "notes")
 HARD_RULE_LIST_FIELDS = (
     "avoid_colours",
@@ -126,35 +91,6 @@ def hard_rules_payload(preference: UserHardRule | None) -> dict:
     return {field: getattr(preference, field) for field in HARD_RULE_FIELDS}
 
 
-def soft_preferences_payload(style_preferences: list[UserStylePreference]) -> list[dict]:
-    return [
-        {
-            "axis": row.axis,
-            "value": row.value,
-            "zone": row.zone,
-            "polarity": row.polarity,
-            "weight": row.weight,
-            "source": row.source,
-            "context_occasions": row.context_occasions or [],
-            "context_seasons": row.context_seasons or [],
-            "context_climates": row.context_climates or [],
-        }
-        for row in style_preferences
-    ]
-
-
-def preference_context(
-    preference: UserHardRule | None,
-    style_preferences: list[UserStylePreference] | None = None,
-) -> dict:
-    context: dict = {}
-    if preference is not None:
-        context["hard_rules"] = hard_rules_payload(preference)
-    if style_preferences:
-        context["soft_preferences"] = soft_preferences_payload(style_preferences)
-    return context
-
-
 def semantic_fashion_knowledge(
     db: Session,
     user_input: str,
@@ -169,71 +105,6 @@ def semantic_fashion_knowledge(
     )
     return retrieve_observations_from_db(
         db, user_input, top_k, embedder, audience=audience
-    )
-
-
-@router.post("/styling/recommendations", response_model=StylingCatalogResponse)
-def styling_catalog_recommendations(
-    payload: StylingCatalogRequest, db: Session = Depends(get_db)
-) -> StylingCatalogResponse:
-    embedded_count = db.scalar(
-        select(func.count()).select_from(Cloth).where(Cloth.embedding.is_not(None))
-    )
-    if not embedded_count:
-        raise HTTPException(
-            status_code=409,
-            detail="No catalog embeddings are available. Import clothes and build embeddings first.",
-        )
-    preference = hard_rules_for(db, payload.user_key)
-    style_preferences = style_preferences_for(db, payload.user_key)
-    store = fashion_knowledge_store()
-    try:
-        embedder = TextEmbeddingService(
-            settings.openai_api_key,
-            settings.knowledge_embedding_model,
-            settings.knowledge_embedding_dimensions,
-        )
-        observations = retrieve_observations_from_db(
-            db,
-            payload.user_input,
-            payload.top_k_observations,
-            embedder,
-            audience=payload.audience,
-        )
-        if not observations:
-            observations = retrieve_observations(
-                payload.user_input, store.observations(), payload.top_k_observations
-            )
-        agent = StylingAgent(LLM())
-        styling = agent.run(
-            payload.user_input,
-            observations,
-            revise_once=payload.revise_once,
-            preference_context=preference_context(preference, style_preferences),
-        )
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    try:
-        matches = [
-            search_formula_catalog(
-                db,
-                formula,
-                candidates_per_zone=payload.candidates_per_zone,
-                outfits_per_formula=payload.outfits_per_formula,
-                hard=preference,
-                style_preferences=style_preferences,
-                audience=infer_audience(payload.user_input, payload.audience),
-            )
-            for formula in styling.final_draft.outfits
-        ]
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except Exception as error:
-        raise HTTPException(status_code=503, detail=f"FashionCLIP search unavailable: {error}") from error
-    return StylingCatalogResponse(
-        styling=styling,
-        matches=matches,
-        embedding_model=settings.fashion_clip_model,
     )
 
 

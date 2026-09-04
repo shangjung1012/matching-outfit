@@ -13,7 +13,7 @@ services:
       ARTICLE_ALLOWED_DOMAINS: ${ARTICLE_ALLOWED_DOMAINS:-elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,marieclairekorea.com,www.marieclairekorea.com,gqkorea.co.kr,www.gqkorea.co.kr}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTICLE_EXTRACTION_MODEL: ${ARTICLE_EXTRACTION_MODEL:-gpt-4.1-mini}
-      STYLING_PLANNER_MODEL: ${STYLING_PLANNER_MODEL:-gpt-4.1-mini}
+      QUERY_PLANNER_MODEL: ${QUERY_PLANNER_MODEL:-gpt-4.1-mini}
       AESTHETIC_REVIEW_MODEL: ${AESTHETIC_REVIEW_MODEL:-gpt-4.1-mini}
       AESTHETIC_REVIEW_ENABLED: ${AESTHETIC_REVIEW_ENABLED:-true}
       KNOWLEDGE_EMBEDDING_MODEL: ${KNOWLEDGE_EMBEDDING_MODEL:-text-embedding-3-small}

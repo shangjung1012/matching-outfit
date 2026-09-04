@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     article_user_agent: str = "MatchingOutfitResearchBot/0.1"
     openai_api_key: str | None = None
     article_extraction_model: str = "gpt-4.1-mini"
-    styling_planner_model: str = "gpt-4.1-mini"
+    query_planner_model: str = "gpt-4.1-mini"
     aesthetic_review_model: str = "gpt-4.1-mini"
     aesthetic_review_enabled: bool = True
     knowledge_embedding_model: str = "text-embedding-3-small"

@@ -16,19 +16,13 @@ LLMStage = Literal[
     "article_extraction",
     "query_planning",
     "query_repair",
-    "styling_planning",
-    "styling_critique",
-    "styling_revision",
     "aesthetic_review",
 ]
 
 _STAGE_MODEL_SETTING = {
     "article_extraction": "article_extraction_model",
-    "query_planning": "styling_planner_model",
-    "query_repair": "styling_planner_model",
-    "styling_planning": "styling_planner_model",
-    "styling_critique": "styling_planner_model",
-    "styling_revision": "styling_planner_model",
+    "query_planning": "query_planner_model",
+    "query_repair": "query_planner_model",
     "aesthetic_review": "aesthetic_review_model",
 }
 

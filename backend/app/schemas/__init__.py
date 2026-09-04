@@ -26,13 +26,7 @@ from app.schemas.workflow import (
     StylePreferenceView,
 )
 from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobStatus, TryOnJobView
-from app.schemas.styling import (
-    FashionKnowledgeStatus,
-    StylingCatalogRequest,
-    StylingCatalogResponse,
-    StylingDemoRequest,
-    StylingDemoResponse,
-)
+from app.schemas.fashion_knowledge import FashionKnowledgeStatus
 
 __all__ = [
     "CatalogItem",
@@ -65,8 +59,4 @@ __all__ = [
     "TryOnJobStatus",
     "TryOnJobView",
     "FashionKnowledgeStatus",
-    "StylingCatalogRequest",
-    "StylingCatalogResponse",
-    "StylingDemoRequest",
-    "StylingDemoResponse",
 ]
