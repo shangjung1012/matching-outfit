@@ -74,7 +74,7 @@ const canSubmit = computed(() => (
 const statusLabel = computed(() => {
   if (!job.value) return ''
   return {
-    queued: '等待 GPU 處理',
+    queued: '等待處理',
     running: '正在產生試穿結果',
     succeeded: '試穿完成',
     failed: '試穿失敗',
@@ -429,7 +429,6 @@ onBeforeUnmount(() => {
       <div>
         <span class="section-kicker">Virtual try-on</span>
         <h2>虛擬試穿</h2>
-        <p>上傳全身人物照與服飾參考圖片，一次預覽完整搭配。</p>
       </div>
       <button class="secondary-button" :disabled="capabilityLoading" @click="loadCapabilities">
         <RefreshCw :size="16" :class="{ spinning: capabilityLoading }" />重新檢查服務
@@ -442,11 +441,11 @@ onBeforeUnmount(() => {
       role="status"
     >
       <AlertCircle :size="19" />
-      <div><strong>試穿服務尚未連線</strong><p>{{ capabilities?.reason || 'GPU 推論服務目前無法使用' }}</p></div>
+      <div><strong>試穿服務尚未連線</strong><p>{{ capabilities?.reason || '請稍後再試' }}</p></div>
     </div>
     <div v-else-if="capabilities?.available" class="tryon-service-banner available" role="status">
       <CheckCircle2 :size="19" />
-      <div><strong>試穿服務已就緒</strong><p>圖片會在工作結束後刪除；結果保留 24 小時，可從此瀏覽器的最近試穿紀錄找回。</p></div>
+      <div><strong>試穿服務已就緒</strong></div>
     </div>
 
     <div class="tryon-layout">
@@ -483,7 +482,7 @@ onBeforeUnmount(() => {
         <section class="tryon-upload-section tryon-reference-section">
           <div class="tryon-section-heading">
             <strong>服飾參考圖片</strong>
-            <small>至少選擇一項；洋裝／連身不可與上身或下身同時使用</small>
+            <small>至少選擇一項</small>
           </div>
           <div class="tryon-reference-grid">
             <div
@@ -544,7 +543,7 @@ onBeforeUnmount(() => {
       <section class="tryon-result-card">
         <div v-if="historyJobs.length" class="tryon-history">
           <div class="tryon-history-heading">
-            <div><strong>最近試穿</strong><small>僅保存在此瀏覽器；清除後不會刪除遠端工作</small></div>
+            <div><strong>最近試穿</strong></div>
             <button type="button" title="只清除本機紀錄，不會刪除遠端工作" @click="clearHistory">
               <Trash2 :size="14" />清除本機紀錄
             </button>
@@ -575,10 +574,9 @@ onBeforeUnmount(() => {
             <LoaderCircle v-if="job?.status === 'queued' || job?.status === 'running'" :size="36" class="spinning" />
             <ScanFace v-else :size="42" />
             <h3>{{ statusLabel || '試穿結果會顯示在這裡' }}</h3>
-            <p v-if="job?.status === 'queued'">GPU 同一時間處理一個工作，可安心離開後再回來查看。</p>
-            <p v-else-if="job?.status === 'running'">生成通常需要數十秒，可安心離開後再回來查看。</p>
+            <p v-if="job?.status === 'queued'">正在等待處理。</p>
+            <p v-else-if="job?.status === 'running'">正在生成試穿結果。</p>
             <p v-else-if="job?.status === 'failed'">{{ job.error || '這次試穿未能完成，請重新送出。' }}</p>
-            <p v-else>準備好人物照片與至少一張參考圖片，並連接 GPU 服務後即可開始。</p>
           </div>
         </div>
       </section>

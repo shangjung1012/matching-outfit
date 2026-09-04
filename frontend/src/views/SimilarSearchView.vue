@@ -44,7 +44,6 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
     <header class="similarity-heading">
       <span class="section-kicker">Visual search</span>
       <h2>找相似</h2>
-      <p>選擇類別並上傳圖片，直接找資料庫中視覺相似的商品。</p>
     </header>
 
     <div class="similarity-upload-stack">
@@ -52,7 +51,7 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
         <input class="similarity-file-input" type="file" accept="image/jpeg,image/png,image/webp" @change="searchSimilar($event, option)" />
         <Upload :size="21" />
         <strong>上傳{{ option.label }}</strong>
-        <small>{{ uploadedNames[option.type] || `搜尋相似${option.label}` }}</small>
+        <small v-if="uploadedNames[option.type]">{{ uploadedNames[option.type] }}</small>
       </label>
     </div>
 
@@ -69,7 +68,7 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
       <div v-if="similarItems.length" class="product-grid similarity-product-grid">
         <ProductCard v-for="item in similarItems" :key="item.id" :item="item" show-similarity />
       </div>
-      <p v-else class="similarity-status">沒有找到已完成圖片索引的相似商品。</p>
+      <p v-else class="similarity-status">沒有找到相似商品。</p>
     </template>
   </section>
 </template>

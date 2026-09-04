@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef } from 'vue'
 import {
-  AlertCircle, ArrowLeft, BookOpenText, Check, ChevronDown, ChevronUp,
-  MessageSquare, MessageSquarePlus, RotateCcw, Send, Sparkles, Square,
+  AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp, CloudSun,
+  ImagePlus, MapPin, MessageSquare, MessageSquarePlus, RotateCcw, Send, Shirt,
+  Sparkles, Square, Thermometer, Umbrella, X,
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
@@ -16,7 +17,6 @@ import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
-  Audience,
   FashionObservationTrace,
   FashionIntent,
   OutfitRecommendation,
@@ -33,7 +33,6 @@ import type {
 const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{
   preferenceUpdated: []
-  openKnowledge: []
   debugUpdated: [trace: PipelineDebugSession]
 }>()
 const {
@@ -61,8 +60,8 @@ interface AgentRequestError {
 
 const activityLabels: Record<AgentActivityKind, string> = {
   clarifying: '正在理解你的需求',
-  planning: '正在整理需求並產生搜尋 query',
-  refining: '正在依照補充條件調整 query',
+  planning: '正在準備搭配方向',
+  refining: '正在調整搭配方向',
   searching: '正在搜尋並評估搭配',
 }
 
@@ -79,6 +78,7 @@ const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceStatus = ref('')
 const proposalArea = ref<HTMLElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
+const composerInput = ref<HTMLTextAreaElement | null>(null)
 const agentActivity = ref<AgentActivityKind | null>(null)
 const typingVisible = ref(false)
 const actionLoading = ref(false)
@@ -89,7 +89,6 @@ const isNearMessageBottom = ref(true)
 const hasUnreadMessage = ref(false)
 const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
-const audience = ref<Audience | ''>('')
 const requirements = ref<RequirementSummary | null>(null)
 const stylingGuide = ref<StylingGuide | null>(null)
 const fashionIntent = ref<FashionIntent | null>(null)
@@ -103,6 +102,7 @@ const readyToPlan = ref(false)
 const referenceImage = ref<File | null>(null)
 const referenceType = ref<'upper_body' | 'lower_body'>('upper_body')
 const referencePreviewUrl = ref('')
+const referencePickerOpen = ref(false)
 let messageId = 2
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 let activeController: AbortController | null = null
@@ -139,6 +139,10 @@ function clearReferenceImage() {
   if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
   referenceImage.value = null
   referencePreviewUrl.value = ''
+}
+
+function focusComposer() {
+  void nextTick(() => composerInput.value?.focus())
 }
 
 function requestedCatalogZones(): PlannerGarmentZone[] | null {
@@ -327,16 +331,15 @@ async function runAction(task: () => Promise<void>) {
 async function requestClarification(
   chatMessages: Array<{ role: 'agent' | 'user'; text: string }>,
   previousRequirements: RequirementSummary | null,
-  selectedAudience: Audience | undefined,
 ) {
-  const retry = () => requestClarification(chatMessages, previousRequirements, selectedAudience)
+  const retry = () => requestClarification(chatMessages, previousRequirements)
   await runAgentRequest(
     'clarifying',
     (signal) => clarifyRequirements(
       chatMessages,
       props.userKey,
       previousRequirements,
-      selectedAudience,
+      undefined,
       signal,
     ),
     (response) => {
@@ -356,7 +359,6 @@ async function requestRefinement(
   previousRequest: string,
   currentRequirements: RequirementSummary | null,
   currentFashionIntent: FashionIntent | null,
-  selectedAudience: Audience | undefined,
 ) {
   const retry = () => requestRefinement(
     text,
@@ -364,7 +366,6 @@ async function requestRefinement(
     previousRequest,
     currentRequirements,
     currentFashionIntent,
-    selectedAudience,
   )
   await runAgentRequest(
     'refining',
@@ -375,7 +376,7 @@ async function requestRefinement(
       previousRequest,
       currentRequirements,
       currentFashionIntent,
-      selectedAudience,
+      undefined,
       requestedCatalogZones(),
       signal,
     ),
@@ -387,9 +388,8 @@ async function requestRefinement(
       requirements.value = response.debug?.requirement_summary ?? requirements.value
       planningKnowledge.value = response.knowledge_observations ?? []
       recommendationDebug.value = null
-      audience.value = response.audience ?? audience.value
       originalRequest.value = `${previousRequest} ${text}`.trim()
-      addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
+      addMessage('agent', `已依照補充內容調整 ${response.queries.length} 個搭配方向。`)
       publishDebug()
     },
     retry,
@@ -399,16 +399,15 @@ async function requestRefinement(
 async function requestPlanning(
   planningInput: string,
   currentRequirements: RequirementSummary | null,
-  selectedAudience: Audience | undefined,
 ) {
-  const retry = () => requestPlanning(planningInput, currentRequirements, selectedAudience)
+  const retry = () => requestPlanning(planningInput, currentRequirements)
   await runAgentRequest(
     'planning',
     (signal) => createQueryPlan(
       planningInput,
       props.userKey,
       currentRequirements,
-      selectedAudience,
+      undefined,
       requestedCatalogZones(),
       signal,
     ),
@@ -421,14 +420,13 @@ async function requestPlanning(
       requirements.value = response.debug?.requirement_summary ?? requirements.value
       planningKnowledge.value = response.knowledge_observations ?? []
       recommendationDebug.value = null
-      audience.value = response.audience ?? audience.value
       recommendations.value = []
       discardedRecommendations.value = []
       showDiscarded.value = false
       stage.value = 'review'
       addMessage(
         'agent',
-        `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+        `需求已確認，整理出 ${response.queries.length} 個搭配方向。${response.planning_note}`,
       )
       publishDebug()
     },
@@ -441,14 +439,12 @@ async function requestRecommendations(
   userInput: string,
   currentRequirements: RequirementSummary | null,
   currentStylingGuide: StylingGuide | null,
-  selectedAudience: Audience | undefined,
 ) {
   const retry = () => requestRecommendations(
     selectedQueries,
     userInput,
     currentRequirements,
     currentStylingGuide,
-    selectedAudience,
   )
   await runAgentRequest(
     'searching',
@@ -458,7 +454,7 @@ async function requestRecommendations(
       userInput,
       currentRequirements,
       currentStylingGuide,
-      selectedAudience,
+      undefined,
       signal,
       fashionIntent.value,
       referenceImage.value,
@@ -497,14 +493,12 @@ async function sendRequest(text = draft.value) {
       originalRequest.value,
       requirements.value,
       fashionIntent.value,
-      audience.value || undefined,
     )
     return
   }
   await requestClarification(
     messages.value.map(({ role, text: messageText }) => ({ role, text: messageText })),
     requirements.value,
-    audience.value || undefined,
   )
 }
 
@@ -519,7 +513,6 @@ async function confirmRequirements() {
   await requestPlanning(
     planningInput,
     requirements.value,
-    audience.value || undefined,
   )
 }
 
@@ -542,6 +535,7 @@ function startNewConversation() {
   reviewNote.value = ''
   knowledgeNote.value = ''
   clearReferenceImage()
+  referencePickerOpen.value = false
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -563,19 +557,12 @@ async function searchOutfits() {
     originalRequest.value,
     requirements.value,
     stylingGuide.value,
-    audience.value || undefined,
   )
 }
 
 function setSelected(id: string, selected: boolean) {
   const query = queries.value.find((item) => item.id === id)
   if (query) query.selected = selected
-  publishDebug()
-}
-
-function updateQueryText(id: string, text: string) {
-  const query = queries.value.find((item) => item.id === id)
-  if (query) query.text = text
   publishDebug()
 }
 
@@ -748,34 +735,8 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="chat-composer" :class="{ 'has-confirm': stage === 'start' && hasUserDetails }">
-        <div class="audience-control">
-          <label for="outfit-audience">服裝受眾</label>
-          <select id="outfit-audience" v-model="audience" :disabled="agentBusy">
-            <option value="">依需求判斷</option>
-            <option value="women">女裝</option>
-            <option value="men">男裝</option>
-            <option value="unisex">不限性別</option>
-          </select>
-        </div>
-        <div v-if="stage !== 'results'" class="reference-image-control">
-          <label for="outfit-reference-image">指定一件已有的衣物（選填）</label>
-          <div class="reference-image-fields">
-            <select v-model="referenceType" :disabled="agentBusy">
-              <option value="upper_body">上衣：幫我找下身</option>
-              <option value="lower_body">下身：幫我找上衣</option>
-            </select>
-            <input
-              id="outfit-reference-image"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              :disabled="agentBusy"
-              @change="chooseReferenceImage"
-            />
-            <button v-if="referenceImage" type="button" :disabled="agentBusy" @click="clearReferenceImage">移除</button>
-          </div>
-          <img v-if="referencePreviewUrl" :src="referencePreviewUrl" class="reference-image-preview" alt="指定搭配單品預覽" />
-        </div>
         <textarea
+          ref="composerInput"
           v-model="draft"
           rows="3"
           :placeholder="composerPlaceholder"
@@ -811,42 +772,44 @@ onBeforeUnmount(() => {
           :disabled="agentBusy"
           @click="confirmRequirements"
         >
-          <Check :size="16" />{{ readyToPlan ? '產生搜尋 query' : '不再補充，產生 query' }}
+          <Check :size="16" />{{ readyToPlan ? '確認需求' : '依目前內容繼續' }}
         </button>
       </div>
       <p v-if="actionError" class="chat-error" role="alert">{{ actionError }}</p>
     </aside>
 
     <main class="agent-workspace">
-      <details v-if="requirements?.weather" class="debug-panel" open>
-        <summary>搭配參考天氣：{{ requirements.weather.location }}／{{ requirements.weather.target_date }}</summary>
-        <p v-if="requirements.weather.status === 'available'">
-          氣溫 {{ requirements.weather.temperature_min_c }}～{{ requirements.weather.temperature_max_c }}°C；
-          體感 {{ requirements.weather.apparent_temperature_min_c ?? '—' }}～{{ requirements.weather.apparent_temperature_max_c ?? '—' }}°C；
-          最高降雨機率 {{ requirements.weather.precipitation_probability_max ?? '—' }}%。
-        </p>
-        <p>{{ requirements.weather.note }}</p>
-        <p v-if="requirements.weather.location_assumed">未指定城市，暫用台北；可在對話補充實際地點。</p>
-        <a :href="requirements.weather.source_url" target="_blank" rel="noopener noreferrer">天氣來源：Open-Meteo</a>
-      </details>
-      <details v-if="planningKnowledge.length" class="debug-panel">
-        <summary>本次 query 規劃採用的知識（{{ planningKnowledge.length }} 條）</summary>
+      <section v-if="requirements?.weather" class="weather-card">
+        <div class="weather-card-icon"><CloudSun :size="24" /></div>
+        <div class="weather-card-main">
+          <div class="weather-card-title">
+            <strong>{{ requirements.weather.location }}</strong>
+            <span>{{ requirements.weather.target_date }}</span>
+            <small v-if="requirements.weather.location_assumed">預設地點</small>
+          </div>
+          <div v-if="requirements.weather.status === 'available'" class="weather-metrics">
+            <span><Thermometer :size="15" />{{ requirements.weather.temperature_min_c }}～{{ requirements.weather.temperature_max_c }}°C</span>
+            <span><Umbrella :size="15" />{{ requirements.weather.precipitation_probability_max ?? '—' }}%</span>
+            <span><MapPin :size="15" />{{ requirements.weather.location }}</span>
+          </div>
+          <p v-else>{{ requirements.weather.note }}</p>
+        </div>
+        <a :href="requirements.weather.source_url" target="_blank" rel="noopener noreferrer">Open-Meteo</a>
+      </section>
+
+      <details v-if="planningKnowledge.length" class="agent-context-details">
+        <summary>搭配參考（{{ planningKnowledge.length }}）</summary>
         <article v-for="item in planningKnowledge" :key="item.observation_id">
           <p>{{ item.summary }}</p>
-          <p v-if="item.evidence">依據：{{ item.evidence }}</p>
           <a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ item.source_title || item.source_name || item.source_url }}</a>
         </article>
       </details>
-      <button class="knowledge-source-button" @click="emit('openKnowledge')">
-        <BookOpenText :size="16" />知識來源
-      </button>
 
       <section v-if="showQuerySkeleton" class="agent-workspace-loading query-loading" aria-hidden="true">
         <header class="view-heading compact-heading">
           <div>
-            <span class="section-kicker">搜尋規劃</span>
-            <h2>{{ agentActivity === 'refining' ? '正在調整搜尋條件' : '正在建立搜尋條件' }}</h2>
-            <p>Agent 正在把需求整理成可搜尋的商品條件。</p>
+            <span class="section-kicker">搭配方向</span>
+            <h2>{{ agentActivity === 'refining' ? '正在調整搭配方向' : '正在準備搭配方向' }}</h2>
           </div>
           <span class="skeleton-count"></span>
         </header>
@@ -866,7 +829,6 @@ onBeforeUnmount(() => {
           <div>
             <span class="section-kicker">Recommendations</span>
             <h2>正在搜尋適合的搭配</h2>
-            <p>Agent 正在比對商品、穿搭規則與偏好。</p>
           </div>
         </header>
         <div class="skeleton-outfit-grid">
@@ -883,8 +845,22 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="stage === 'start' && !requirements" class="agent-start">
-        <div class="start-icon"><MessageSquare :size="26" /></div>
-        <h2>開始新的穿搭搜尋</h2>
+        <span class="section-kicker">Find your outfit</span>
+        <h2>想怎麼開始？</h2>
+        <div class="agent-start-modes">
+          <button type="button" :disabled="agentBusy" @click="focusComposer">
+            <span class="start-mode-icon"><MessageSquare :size="22" /></span>
+            <strong>描述穿搭需求</strong>
+            <small>告訴我場合、風格或預算</small>
+          </button>
+          <button type="button" :disabled="agentBusy" @click="referencePickerOpen = true">
+            <img v-if="referencePreviewUrl" :src="referencePreviewUrl" alt="你的單品" />
+            <span v-else class="start-mode-icon"><Shirt :size="22" /></span>
+            <strong>{{ referenceImage ? '已加入一件單品' : '從我的單品開始' }}</strong>
+            <small>{{ referenceImage ? (referenceType === 'upper_body' ? '用這件上衣找下身' : '用這件下身找上衣') : '上傳照片，找出適合的搭配' }}</small>
+          </button>
+        </div>
+        <p class="quick-prompts-title">或從這些需求開始</p>
         <div class="quick-prompts">
           <button
             v-for="prompt in quickPrompts"
@@ -900,9 +876,8 @@ onBeforeUnmount(() => {
       <section v-else-if="stage === 'start'" class="requirement-review">
         <header class="view-heading compact-heading">
           <div>
-            <span class="section-kicker">Requirement check</span>
+            <span class="section-kicker">Your request</span>
             <h2>確認穿搭需求</h2>
-            <p>繼續在左側回答 Agent，或直接確認並產生搜尋 query。</p>
           </div>
         </header>
         <dl class="requirement-summary">
@@ -916,7 +891,7 @@ onBeforeUnmount(() => {
           </div>
         </dl>
         <button class="primary-button requirement-confirm" :disabled="agentBusy" @click="confirmRequirements">
-          <Check :size="17" />{{ readyToPlan ? '確認並產生搜尋 query' : '不再補充，直接產生 query' }}
+          <Check :size="17" />{{ readyToPlan ? '確認需求' : '依目前內容繼續' }}
         </button>
       </section>
 
@@ -925,17 +900,16 @@ onBeforeUnmount(() => {
         :queries="queries"
         :loading="agentBusy"
         @select="setSelected"
-        @update-text="updateQueryText"
         @search="searchOutfits"
       />
 
       <section v-else class="recommendations-view">
         <header class="view-heading compact-heading">
           <div>
-            <button class="back-button" @click="stage = 'review'"><ArrowLeft :size="16" />調整 query</button>
+            <button class="back-button" @click="stage = 'review'"><ArrowLeft :size="16" />調整條件</button>
             <span class="section-kicker">Recommendations</span>
             <h2>推薦搭配</h2>
-            <p>{{ recommendations.length }} 組結果 · {{ selectedCount }} 個搜尋條件</p>
+            <p>{{ recommendations.length }} 組結果 · {{ selectedCount }} 個搭配方向</p>
           </div>
         </header>
 
@@ -972,7 +946,7 @@ onBeforeUnmount(() => {
         <div v-else class="empty-view">
           <MessageSquare :size="32" />
           <h3>沒有找到可組合的搭配</h3>
-          <button class="secondary-button" @click="stage = 'review'">返回調整 query</button>
+          <button class="secondary-button" @click="stage = 'review'">返回調整條件</button>
         </div>
 
         <section v-if="discardedRecommendations.length" class="discarded-outfits">
@@ -1007,5 +981,32 @@ onBeforeUnmount(() => {
         </section>
       </section>
     </main>
+
+    <div v-if="referencePickerOpen" class="reference-picker-backdrop" @click.self="referencePickerOpen = false">
+      <section class="reference-picker" role="dialog" aria-modal="true" aria-labelledby="reference-picker-title">
+        <header>
+          <div>
+            <span class="section-kicker">Start with an item</span>
+            <h2 id="reference-picker-title">從我的單品開始</h2>
+          </div>
+          <button class="icon-button" type="button" title="關閉" @click="referencePickerOpen = false"><X :size="18" /></button>
+        </header>
+        <div class="reference-type-control" aria-label="單品類型">
+          <button type="button" :class="{ active: referenceType === 'upper_body' }" @click="referenceType = 'upper_body'">上衣</button>
+          <button type="button" :class="{ active: referenceType === 'lower_body' }" @click="referenceType = 'lower_body'">下身</button>
+        </div>
+        <label class="reference-dropzone">
+          <img v-if="referencePreviewUrl" :src="referencePreviewUrl" alt="你的單品預覽" />
+          <span v-else><ImagePlus :size="28" /><strong>選擇單品照片</strong><small>JPG、PNG 或 WebP</small></span>
+          <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="agentBusy" @change="chooseReferenceImage" />
+        </label>
+        <footer>
+          <button v-if="referenceImage" class="mbti-text-button" type="button" @click="clearReferenceImage">移除照片</button>
+          <button class="primary-button" type="button" :disabled="!referenceImage" @click="referencePickerOpen = false">
+            {{ referenceType === 'upper_body' ? '用這件上衣找下身' : '用這件下身找上衣' }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>

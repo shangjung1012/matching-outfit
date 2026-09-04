@@ -59,20 +59,6 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
   return lines
 }
 
-/**
- * 英文名字取字首（最多兩個字），中文風格短語（如「極簡日常派」）取第一個字，
- * 避免把詞中夾雜的英文縮寫（如「高 CP 造型派」）誤判成字首。
- */
-function monogram(name: string): string {
-  const trimmed = name.trim()
-  if (!trimmed) return ''
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.every((word) => /^[A-Za-z]/.test(word))) {
-    return words.slice(0, 2).map((word) => word[0].toUpperCase()).join('')
-  }
-  return [...trimmed][0] ?? ''
-}
-
 interface BarRow {
   left: string
   right: string
@@ -120,26 +106,11 @@ export async function renderMbtiCard(
   context.lineTo(CARD_WIDTH / 2 + 110, 446)
   context.stroke()
 
-  context.fillStyle = '#e5e9e1'
-  context.beginPath()
-  context.arc(CARD_WIDTH / 2, 528, 46, 0, Math.PI * 2)
-  context.fill()
-  context.fillStyle = GREEN
-  context.font = `600 34px ${SERIF}`
-  context.fillText(monogram(result.representative.name), CARD_WIDTH / 2, 541)
-
-  context.fillStyle = MUTED
-  context.font = `500 22px ${SANS}`
-  drawTracked(context, '風格參照', CARD_WIDTH / 2, 612, 4)
-  context.fillStyle = INK
-  context.font = `600 34px ${SANS}`
-  context.fillText(result.representative.name, CARD_WIDTH / 2, 658)
-
   context.fillStyle = '#4c554e'
   context.font = `400 31px ${SANS}`
   const lines = wrapText(context, result.description, 780).slice(0, 3)
   lines.forEach((line, index) => {
-    context.fillText(line, CARD_WIDTH / 2, 734 + index * 52)
+    context.fillText(line, CARD_WIDTH / 2, 536 + index * 52)
   })
 
   const rows: BarRow[] = [
@@ -153,7 +124,7 @@ export async function renderMbtiCard(
   const barRight = CARD_WIDTH - 108
   const barWidth = barRight - barLeft
   rows.forEach((row, index) => {
-    const top = 906 + index * 74
+    const top = 760 + index * 92
     const leftLeads = row.leftPct >= 50
 
     context.textAlign = 'left'

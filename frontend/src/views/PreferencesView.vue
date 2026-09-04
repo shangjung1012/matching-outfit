@@ -151,8 +151,8 @@ onMounted(load)
   <section class="page-view preferences-view">
     <header class="view-heading preferences-heading">
       <div>
+        <span class="section-kicker">Preferences</span>
         <h2>偏好設定</h2>
-        <p>{{ userKey }}</p>
       </div>
     </header>
 

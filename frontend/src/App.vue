@@ -50,7 +50,7 @@ onMounted(() => {
     <header class="app-header">
       <button class="brand" title="Matching Outfit" @click="activeView = 'agent'">
         <span>MO</span>
-        <div><strong>Matching Outfit</strong><small>Styling workspace</small></div>
+        <div><strong>Matching Outfit</strong><small>個人穿搭</small></div>
       </button>
 
       <nav class="main-navigation" aria-label="主要功能">
@@ -65,7 +65,7 @@ onMounted(() => {
       </nav>
 
       <button class="user-menu" title="目前登入使用者" @click="activeView = 'preferences'">
-        <span>J</span><div><strong>Jenny</strong><small>{{ userKey }}</small></div>
+        <span>J</span><div><strong>Jenny</strong></div>
       </button>
     </header>
 
@@ -74,7 +74,6 @@ onMounted(() => {
         v-show="activeView === 'agent'"
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
-        @open-knowledge="activeView = 'knowledge'"
         @debug-updated="updateDebug"
       />
       <DebugPipelineView

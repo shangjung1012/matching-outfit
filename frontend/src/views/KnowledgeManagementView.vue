@@ -99,12 +99,12 @@ function toggleExpanded(id: number) {
 async function collectUrls(urls: string[] = [], forceRefresh = false) {
   const rawText = urls.length ? '' : urlInput.value
   if (!urls.length && !rawText.trim()) {
-    error.value = '請輸入至少一個文章網址，每行一個。'
+    error.value = '請輸入至少一個文章網址。'
     return
   }
   collecting.value = true
   error.value = ''
-  notice.value = '正在抓取文章、翻譯整理並建立 embedding，請勿關閉頁面。'
+  notice.value = '正在匯入文章…'
   collectResults.value = []
   try {
     const response = await collectFashionArticles(urls, rawText, forceRefresh)
@@ -127,7 +127,7 @@ async function autoUpdate() {
   }
   collecting.value = true
   error.value = ''
-  notice.value = '正在巡覽來源網站、比對新文章並整理搭配知識，請勿關閉頁面。'
+  notice.value = '正在更新文章…'
   collectResults.value = []
   discoveryErrors.value = {}
   try {
@@ -201,7 +201,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
         <RefreshCw :size="20" />
         <div>
           <strong>自動尋找最新穿搭文章</strong>
-          <p>系統會巡覽多頁穿搭列表、排除已收錄網址，依發布時間由新到舊自動翻譯、整理與匯入。</p>
         </div>
       </div>
       <div class="knowledge-source-grid">
@@ -230,7 +229,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
             <option :value="3">3 篇</option>
           </select>
         </label>
-        <small>頁數可自動往後掃描；每次最多 12 篇，會產生 LLM 與 embedding API 用量。</small>
         <button class="primary-button" :disabled="collecting || !sources.length" @click="autoUpdate">
           <LoaderCircle v-if="collecting" class="spinning" :size="16" />
           <RefreshCw v-else :size="16" />
@@ -268,7 +266,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     </button>
 
     <div class="knowledge-toolbar">
-      <small>輸入時使用 embedding 語意搜尋；留空顯示所有文章。首次搜尋補建缺少的文字向量，可能較久。</small>
       <button class="secondary-button" :disabled="loading" @click="loadArticles">
         <RefreshCw :class="{ spinning: loading }" :size="15" />重新整理
       </button>
@@ -280,7 +277,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     <div v-else-if="!articles.length" class="empty-view">
       <BookOpenText :size="34" />
       <h3>目前沒有符合的文章</h3>
-      <p>可以清除搜尋條件，或在上方貼入文章網址。</p>
     </div>
     <div v-else class="knowledge-article-list">
       <article v-for="article in articles" :key="article.id" class="knowledge-article-card">
@@ -322,7 +318,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
         <div v-if="expandedIds.has(article.id)" class="knowledge-observations">
           <div class="knowledge-observations-heading">
             <strong>這篇文章存下的參考句子</strong>
-            <small>停用後，搭配 Agent 不會再檢索該句。</small>
           </div>
           <div v-for="(observation, index) in article.observations" :key="observation.id"
             class="knowledge-observation" :class="{ inactive: !observation.is_active }">

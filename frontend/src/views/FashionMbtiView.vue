@@ -66,20 +66,6 @@ const bars = computed(() => {
   })
 })
 
-/**
- * 英文名字取字首（最多兩個字），中文風格短語（如「極簡日常派」）取第一個字，
- * 避免把詞中夾雜的英文縮寫（如「高 CP 造型派」）誤判成字首。
- */
-const monogram = computed(() => {
-  const name = (result.value?.representative.name ?? '').trim()
-  if (!name) return ''
-  const words = name.split(/\s+/).filter(Boolean)
-  if (words.every((word) => /^[A-Za-z]/.test(word))) {
-    return words.slice(0, 2).map((word) => word[0].toUpperCase()).join('')
-  }
-  return [...name][0] ?? ''
-})
-
 function persist() {
   saveMbtiState(props.userKey, {
     result: result.value ?? storedResult.value,
@@ -336,7 +322,7 @@ onBeforeUnmount(() => {
           <ArrowLeft :size="15" />上一題
         </button>
         <span v-else />
-        <small>鍵盤 A / B / C / D 也可以作答</small>
+        <span />
       </footer>
     </div>
 
@@ -365,15 +351,6 @@ onBeforeUnmount(() => {
             <span class="mbti-bar-side right" :class="{ lead: !bar.leftLeads }">
               <b v-if="!bar.leftLeads">{{ bar.rightPct }}%</b>{{ bar.rightLabel }}
             </span>
-          </div>
-        </div>
-
-        <div class="mbti-representative">
-          <span class="mbti-monogram">{{ monogram }}</span>
-          <div>
-            <small>風格參照</small>
-            <strong>{{ result.representative.name }}</strong>
-            <p>僅作為視覺與風格參照，不是對本人性格的描述。</p>
           </div>
         </div>
 

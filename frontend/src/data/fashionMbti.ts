@@ -97,8 +97,7 @@ const AXIS_KEYWORD: Record<MbtiAxisKey, string> = {
   V: '彩色',
 }
 
-const questionImage = (fileName: string) =>
-  `${import.meta.env.BASE_URL}images/fashion-mbti/${fileName}`
+const questionImage = (fileName: string) => `/images/fashion-mbti/${fileName}`
 
 /**
  * 十題設計：

@@ -245,7 +245,6 @@ onMounted(() => {
     <div v-else class="empty-view">
       <Bookmark :size="34" />
       <h3>尚未收藏任何商品</h3>
-      <p>在商品或推薦穿搭上按下書籤，就會顯示在這裡。</p>
     </div>
   </section>
 </template>
