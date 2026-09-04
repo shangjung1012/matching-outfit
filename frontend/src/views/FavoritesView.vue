@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Bookmark, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { Bookmark, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import ProductCard from '../components/ProductCard.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
+import { useToast } from '../composables/useToast'
 import type {
   FavoriteItem,
   FavoriteOutfit,
@@ -23,6 +24,7 @@ const {
   addOutfitReaction,
   removePreference,
 } = useUserLibrary(props.userKey)
+const { showError, showSuccess } = useToast()
 
 type FavoriteSort = 'newest' | 'oldest' | 'name' | 'price_asc' | 'price_desc'
 
@@ -40,8 +42,6 @@ const favoriteZoneDefinitions: Array<{
 
 const sort = ref<FavoriteSort>('newest')
 const actionLoading = ref(false)
-const error = ref('')
-const preferenceStatus = ref('')
 const expandedItemIds = ref(new Set<number>())
 
 const sortedFavorites = computed(() => {
@@ -85,11 +85,10 @@ function togglePairings(itemId: number) {
 
 async function runAction(task: () => Promise<void>) {
   actionLoading.value = true
-  error.value = ''
   try {
     await task()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '操作失敗'
+    showError(reason instanceof Error ? reason.message : '操作失敗')
   } finally {
     actionLoading.value = false
   }
@@ -97,18 +96,19 @@ async function runAction(task: () => Promise<void>) {
 
 async function reactToPreference(itemId: number, preferenceType: PreferenceType) {
   await runAction(async () => {
-    preferenceStatus.value = ''
     const current = outfitPreference([itemId])
     if (current?.preference_type === preferenceType) {
       await removePreference(current.id)
-      preferenceStatus.value = '這件商品的偏好已移除。'
+      showSuccess('這件商品的偏好已移除。')
       return
     }
     if (current) await removePreference(current.id)
     await addOutfitReaction([itemId], '', null, preferenceType)
-    preferenceStatus.value = preferenceType === 'avoid'
-      ? '已記錄不喜歡這件商品，下次規劃穿搭時會避開它。'
-      : '偏好已更新，下次規劃穿搭時會參考這件商品。'
+    showSuccess(
+      preferenceType === 'avoid'
+        ? '偏好已更新，下次規劃穿搭時會避開類似商品'
+        : '偏好已更新，下次規劃穿搭時會參考這件商品',
+    )
   })
 }
 
@@ -120,7 +120,7 @@ async function removeFavorite(itemId: number) {
 
 onMounted(() => {
   void loadFavorites().catch((reason) => {
-    error.value = reason instanceof Error ? reason.message : '無法載入收藏'
+    showError(reason instanceof Error ? reason.message : '無法載入收藏')
   })
 })
 </script>
@@ -144,14 +144,6 @@ onMounted(() => {
         </select>
       </label>
     </header>
-
-    <p v-if="error" class="error-banner">{{ error }}</p>
-    <div v-if="preferenceStatus" class="preference-confirmation-area">
-      <div class="preference-update-status">
-        <Check :size="17" />
-        <span>{{ preferenceStatus }}</span>
-      </div>
-    </div>
 
     <div v-if="favoritesLoading" class="loading-state">正在載入收藏…</div>
     <div v-else-if="groupedFavorites.length" class="favorite-groups">

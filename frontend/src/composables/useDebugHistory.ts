@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useToast } from './useToast'
 import type { PipelineDebugSession } from '../types'
 
 export interface DebugHistoryItem {
@@ -39,14 +40,14 @@ async function transaction<T>(mode: IDBTransactionMode, action: (store: IDBObjec
 }
 
 export function useDebugHistory(userKey: string) {
+  const { showError } = useToast()
   const history = ref<DebugHistoryItem[]>([])
   const selected = ref<PipelineDebugSession | null>(null)
   const selectedId = ref<string | null>(null)
-  const error = ref('')
   let queue = Promise.resolve()
 
   function report(reason: unknown) {
-    error.value = `除錯歷史保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。可下載目前 JSON 備份。`
+    showError(`除錯歷史保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。可下載目前 JSON 備份。`)
   }
 
   async function load() {
@@ -54,24 +55,21 @@ export function useDebugHistory(userKey: string) {
       const rows = await transaction<StoredDebug[]>('readonly', store => store.index('userKey').getAll(userKey))
       history.value = rows.map(({ trace: _trace, ...metadata }) => metadata)
         .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
-      error.value = ''
     } catch (reason) { report(reason) }
   }
 
   function save(trace: PipelineDebugSession) {
-    // Clone immediately: later Vue edits must not mutate an older snapshot.
     if (!trace.messages.some(message => message.role === 'user')) return Promise.resolve()
     const snapshot: PipelineDebugSession = JSON.parse(JSON.stringify(trace))
     const row: StoredDebug = {
       id: crypto.randomUUID(), userKey, savedAt: trace.updated_at,
       title: (trace.original_input || trace.messages.filter(message => message.role === 'user').map(message => message.text).join('；')).slice(0, 160),
-      stage: trace.recommendation_debug ? '配對／美感結果' : trace.plan_debug ? 'Intent／query 規劃' : '需求整理',
+      stage: trace.recommendation_debug ? '配對結果' : trace.plan_debug ? 'Query 規劃' : '需求整理',
       trace: snapshot,
     }
     queue = queue.then(async () => {
       await transaction('readwrite', store => store.put(row))
       history.value = [row, ...history.value].map(({ id, userKey, savedAt, title, stage }) => ({ id, userKey, savedAt, title, stage }))
-      error.value = ''
     }).catch(report)
     return queue
   }
@@ -82,7 +80,6 @@ export function useDebugHistory(userKey: string) {
       if (!row || row.userKey !== userKey) throw new Error('找不到這次紀錄')
       selected.value = row.trace
       selectedId.value = id
-      error.value = ''
     } catch (reason) { report(reason) }
   }
 
@@ -95,9 +92,8 @@ export function useDebugHistory(userKey: string) {
       await transaction('readwrite', store => store.delete(id))
       history.value = history.value.filter(item => item.id !== id)
       if (selectedId.value === id) showCurrent()
-      error.value = ''
     } catch (reason) { report(reason) }
   }
 
-  return { history, selected, selectedId, error, load, save, select, showCurrent, remove }
+  return { history, selected, selectedId, load, save, select, showCurrent, remove }
 }

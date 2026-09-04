@@ -15,7 +15,6 @@ const props = defineProps<{
   trace: PipelineDebugSession | null
   history: DebugHistoryItem[]
   selectedId: string | null
-  storageError: string
 }>()
 const emit = defineEmits<{
   selectHistory: [id: string]
@@ -23,7 +22,7 @@ const emit = defineEmits<{
   deleteHistory: [id: string]
 }>()
 function deleteHistory(id: string) {
-  if (window.confirm('確定刪除這份除錯快照？此操作不會刪除商品、文章或其他分析。')) emit('deleteHistory', id)
+  if (window.confirm('確定刪除這份除錯報告？')) emit('deleteHistory', id)
 }
 
 const reviewedCandidates = computed(() => [
@@ -94,7 +93,6 @@ function downloadTrace() {
       <div>
         <span class="section-kicker">Pipeline inspector</span>
         <h2>推薦流程除錯</h2>
-        <p>每次階段更新自動保存為快照，可選取歷史紀錄查看完整分析。</p>
       </div>
       <button v-if="trace" class="secondary-button" @click="downloadTrace">
         <Download :size="16" />下載完整 JSON
@@ -103,8 +101,6 @@ function downloadTrace() {
 
     <section class="debug-panel debug-history">
       <h3>分析歷史（{{ history.length }} 筆）</h3>
-      <p>保存在這個瀏覽器；重新整理後仍可查看。不會自動同步到隊友或其他裝置。圖片保留連結，原圖刪除後可能無法顯示。</p>
-      <p v-if="storageError" class="chat-error" role="alert">{{ storageError }}</p>
       <button class="secondary-button" @click="emit('showCurrent')">查看目前分析</button>
       <div class="debug-history-list">
         <article v-for="item in history" :key="item.id" class="debug-history-row">
@@ -115,13 +111,12 @@ function downloadTrace() {
           <button class="secondary-button" @click="deleteHistory(item.id)">刪除快照</button>
         </article>
       </div>
-      <p v-if="!history.length">尚未保存分析；後續有使用者需求的階段更新會自動保存。</p>
+      <p v-if="!history.length">尚未保存分析</p>
     </section>
 
     <div v-if="!trace" class="empty-view debug-empty">
       <SearchCode :size="34" />
       <h3>尚無流程紀錄</h3>
-      <p>先到 Agent 搜尋輸入需求；每完成一個階段，這裡就會更新。</p>
     </div>
 
     <template v-else>
@@ -275,11 +270,11 @@ function downloadTrace() {
             </div>
           </details>
         </div>
-        <div v-else class="debug-panel debug-muted">執行「開始搭配」後才會取得 FashionCLIP 候選。</div>
+        <div v-else class="debug-panel debug-muted">尚無搭配紀錄</div>
       </section>
 
       <section class="debug-section">
-        <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及送進視覺審查的候選（最多 30 套）。</p></div></header>
+        <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及送進視覺 Reviewer 的候選</p></div></header>
         <div v-if="trace.recommendation_debug" class="debug-panel">
           <p class="debug-count-line"><Database :size="16" />產生 {{ trace.recommendation_debug.ranked_candidate_count }} 套組合，shortlist {{ trace.recommendation_debug.shortlist_before_review.length }} 套。</p>
           <details>

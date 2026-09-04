@@ -179,7 +179,6 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
         :trace="debugHistory.selected.value ?? debugTrace"
         :history="debugHistory.history.value"
         :selected-id="debugHistory.selectedId.value"
-        :storage-error="debugHistory.error.value"
         @select-history="debugHistory.select"
         @show-current="debugHistory.showCurrent"
         @delete-history="debugHistory.remove"

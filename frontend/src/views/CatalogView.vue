@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Check, Search, Shirt } from 'lucide-vue-next'
+import { Search, Shirt } from 'lucide-vue-next'
 import { getCatalog, searchCatalogByEmbedding } from '../api'
 import ProductCard from '../components/ProductCard.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
+import { useToast } from '../composables/useToast'
 import type { CatalogItem, ClothResult, PreferenceType } from '../types'
 
 const props = defineProps<{ userKey: string }>()
@@ -14,6 +15,7 @@ const {
   addOutfitReaction,
   removePreference,
 } = useUserLibrary(props.userKey)
+const { showError, showSuccess } = useToast()
 
 const items = ref<Array<CatalogItem | ClothResult>>([])
 const total = ref(0)
@@ -22,8 +24,6 @@ const search = ref('')
 const semanticSearchActive = ref(false)
 const loading = ref(false)
 const actionLoading = ref(false)
-const error = ref('')
-const preferenceStatus = ref('')
 
 const zones = [
   { value: '', label: '全部' },
@@ -35,7 +35,6 @@ const zones = [
 
 async function loadCatalog() {
   loading.value = true
-  error.value = ''
   try {
     const query = search.value.trim()
     const response = query
@@ -45,7 +44,7 @@ async function loadCatalog() {
     total.value = response.total
     semanticSearchActive.value = Boolean(query)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '無法載入商品'
+    showError(reason instanceof Error ? reason.message : '無法載入商品')
   } finally {
     loading.value = false
   }
@@ -53,11 +52,10 @@ async function loadCatalog() {
 
 async function runAction(task: () => Promise<void>) {
   actionLoading.value = true
-  error.value = ''
   try {
     await task()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '操作失敗'
+    showError(reason instanceof Error ? reason.message : '操作失敗')
   } finally {
     actionLoading.value = false
   }
@@ -65,18 +63,19 @@ async function runAction(task: () => Promise<void>) {
 
 async function reactToPreference(itemId: number, preferenceType: PreferenceType) {
   await runAction(async () => {
-    preferenceStatus.value = ''
     const current = outfitPreference([itemId])
     if (current?.preference_type === preferenceType) {
       await removePreference(current.id)
-      preferenceStatus.value = '這件商品的偏好已移除。'
+      showSuccess('這件商品的偏好已移除。')
       return
     }
     if (current) await removePreference(current.id)
     await addOutfitReaction([itemId], '', null, preferenceType)
-    preferenceStatus.value = preferenceType === 'avoid'
-      ? '已記錄不喜歡這件商品，下次規劃穿搭時會避開它。'
-      : '偏好已更新，下次規劃穿搭時會參考這件商品。'
+    showSuccess(
+      preferenceType === 'avoid'
+        ? '已記錄不喜歡這件商品，下次規劃穿搭時會避開它。'
+        : '偏好已更新，下次規劃穿搭時會參考這件商品。',
+    )
   })
 }
 
@@ -117,13 +116,6 @@ onMounted(loadCatalog)
       <button class="secondary-button" :disabled="loading" @click="loadCatalog"><Search :size="16" />搜尋</button>
     </div>
 
-    <p v-if="error" class="error-banner">{{ error }}</p>
-    <div v-if="preferenceStatus" class="preference-confirmation-area">
-      <div class="preference-update-status">
-        <Check :size="17" />
-        <span>{{ preferenceStatus }}</span>
-      </div>
-    </div>
     <div v-if="loading" class="loading-state">正在載入商品…</div>
     <div v-else-if="items.length" class="product-grid">
       <ProductCard

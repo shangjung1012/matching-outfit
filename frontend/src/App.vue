@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import LoginView from './views/LoginView.vue'
 import MainApp from './MainApp.vue'
+import ToastContainer from './components/ToastContainer.vue'
 
 const CURRENT_USER_STORAGE_KEY = 'matching-outfit.current-user'
 
@@ -37,4 +38,5 @@ function logout() {
 <template>
   <LoginView v-if="!userKey" @login="login" />
   <MainApp v-else :key="userKey" :user-key="userKey" @logout="logout" />
+  <ToastContainer />
 </template>

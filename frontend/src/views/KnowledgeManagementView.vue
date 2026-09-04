@@ -9,18 +9,18 @@ import {
   getFashionKnowledgeSources,
   setFashionObservationActive,
 } from '../api'
+import { useToast } from '../composables/useToast'
 import type {
   FashionArticleAdmin, FashionArticleCollectResult, FashionKnowledgeSource,
 } from '../types'
 
+const { showError, showSuccess } = useToast()
 const articles = ref<FashionArticleAdmin[]>([])
 const total = ref(0)
 const search = ref('')
 const urlInput = ref('')
 const loading = ref(false)
 const collecting = ref(false)
-const error = ref('')
-const notice = ref('')
 const expandedIds = ref(new Set<number>())
 const collectResults = ref<FashionArticleCollectResult[]>([])
 const sources = ref<FashionKnowledgeSource[]>([])
@@ -90,7 +90,6 @@ function observationTags(observation: FashionArticleAdmin['observations'][number
 
 async function loadArticles() {
   loading.value = true
-  error.value = ''
   try {
     const response = await getFashionArticles(search.value)
     articles.value = response.items
@@ -98,7 +97,7 @@ async function loadArticles() {
   } catch (reason) {
     articles.value = []
     total.value = 0
-    error.value = reason instanceof Error ? reason.message : '無法讀取文章資料。'
+    showError(reason instanceof Error ? reason.message : '無法讀取文章資料。')
   } finally {
     loading.value = false
   }
@@ -109,7 +108,7 @@ async function loadSources() {
     sources.value = await getFashionKnowledgeSources()
     selectedSourceKeys.value = sources.value.map(source => source.key)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '無法讀取自動更新來源。'
+    showError(reason instanceof Error ? reason.message : '無法讀取自動更新來源。')
   }
 }
 
@@ -122,22 +121,19 @@ function toggleExpanded(id: number) {
 async function collectUrls(urls: string[] = [], forceRefresh = false) {
   const rawText = urls.length ? '' : urlInput.value
   if (!urls.length && !rawText.trim()) {
-    error.value = '請輸入至少一個文章網址。'
+    showError('請輸入至少一個文章網址。')
     return
   }
   collecting.value = true
-  error.value = ''
-  notice.value = '正在匯入文章…'
   collectResults.value = []
   try {
     const response = await collectFashionArticles(urls, rawText, forceRefresh)
     collectResults.value = response.results
-    notice.value = `成功匯入 ${response.succeeded}；略過 ${response.skipped}；網域未開放 ${response.unsupported}；抓取或整理失敗 ${response.failed}。`
+    showSuccess(`成功匯入 ${response.succeeded}；略過 ${response.skipped}；網域未開放 ${response.unsupported}；抓取或整理失敗 ${response.failed}。`)
     if (!response.failed && !response.unsupported) urlInput.value = ''
     await loadArticles()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '文章抓取失敗。'
-    notice.value = ''
+    showError(reason instanceof Error ? reason.message : '文章抓取失敗。')
   } finally {
     collecting.value = false
   }
@@ -145,12 +141,10 @@ async function collectUrls(urls: string[] = [], forceRefresh = false) {
 
 async function autoUpdate() {
   if (!selectedSourceKeys.value.length) {
-    error.value = '請至少選擇一個文章來源。'
+    showError('請至少選擇一個文章來源。')
     return
   }
   collecting.value = true
-  error.value = ''
-  notice.value = '正在更新文章…'
   collectResults.value = []
   discoveryErrors.value = {}
   try {
@@ -161,13 +155,14 @@ async function autoUpdate() {
     )
     collectResults.value = response.results
     discoveryErrors.value = response.discovery_errors
-    notice.value = response.discovered
-      ? `發現 ${response.discovered} 篇未收錄文章；${response.succeeded} 篇成功，${response.failed} 篇失敗。`
-      : `已檢查最新文章，目前沒有尚未收錄的內容（略過 ${response.skipped_existing} 個既有連結）。`
+    showSuccess(
+      response.discovered
+        ? `發現 ${response.discovered} 篇未收錄文章；${response.succeeded} 篇成功，${response.failed} 篇失敗。`
+        : `已檢查最新文章，目前沒有尚未收錄的內容（略過 ${response.skipped_existing} 個既有連結）。`,
+    )
     await loadArticles()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '自動更新失敗。'
-    notice.value = ''
+    showError(reason instanceof Error ? reason.message : '自動更新失敗。')
   } finally {
     collecting.value = false
   }
@@ -181,13 +176,12 @@ async function refreshArticle(article: FashionArticleAdmin) {
 
 async function removeArticle(article: FashionArticleAdmin) {
   if (!window.confirm(`確定刪除「${article.title}」及其 ${article.observation_count} 條參考句子？`)) return
-  error.value = ''
   try {
     await deleteFashionArticle(article.id)
-    notice.value = '文章與相關參考句子已刪除。'
+    showSuccess('文章與相關參考句子已刪除。')
     await loadArticles()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '刪除失敗。'
+    showError(reason instanceof Error ? reason.message : '刪除失敗。')
   }
 }
 
@@ -198,7 +192,7 @@ async function toggleObservation(article: FashionArticleAdmin, observationId: nu
     if (observation) observation.is_active = active
     article.active_observation_count = article.observations.filter(item => item.is_active).length
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '更新參考句子失敗。'
+    showError(reason instanceof Error ? reason.message : '更新參考句子失敗。')
   }
 }
 
@@ -279,8 +273,6 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
       </details>
     </section>
 
-    <p v-if="error" class="error-banner">{{ error }}</p>
-    <p v-if="notice" class="success-banner">{{ notice }}</p>
     <ul v-if="Object.keys(discoveryErrors).length" class="discovery-errors">
       <li v-for="(message, key) in discoveryErrors" :key="key"><strong>{{ key }}</strong>：{{ message }}</li>
     </ul>

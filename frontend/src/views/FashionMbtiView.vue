@@ -9,6 +9,7 @@ import {
   saveMbtiState,
 } from '../data/fashionMbti'
 import { useUserLibrary } from '../composables/useUserLibrary'
+import { useToast } from '../composables/useToast'
 import { renderMbtiCard, saveMbtiCard } from '../utils/mbtiCard'
 import type { FashionMbtiAnswer, FashionMbtiOption, FashionMbtiResult } from '../types'
 
@@ -21,6 +22,7 @@ const {
   confirmPreferences,
   deactivatePreferenceOrigin,
 } = useUserLibrary(props.userKey)
+const { showError, showSuccess } = useToast()
 
 type Stage = 'landing' | 'quiz' | 'result'
 
@@ -31,9 +33,6 @@ const picked = ref<string>('')
 const result = ref<FashionMbtiResult | null>(null)
 const storedResult = ref<FashionMbtiResult | null>(null)
 const confirmingRetake = ref(false)
-const saveStatus = ref('')
-const preferenceStatus = ref('')
-const preferenceError = ref('')
 const savingPreference = ref(false)
 const cardCanvas = ref<HTMLCanvasElement | null>(null)
 let advanceTimer: number | undefined
@@ -60,7 +59,6 @@ const bars = computed(() => {
       leftPct,
       rightPct: 100 - leftPct,
       leftLeads: leftPct >= 50,
-      // 填色從勝出的那一側長出來，才會跟顯示的百分比對得起來。
       leadPct: Math.max(leftPct, 100 - leftPct),
     }
   })
@@ -96,7 +94,6 @@ function finish() {
   storedResult.value = outcome
   stage.value = 'result'
   confirmingRetake.value = false
-  saveStatus.value = ''
   persist()
 }
 
@@ -135,7 +132,6 @@ function retake() {
   start()
 }
 
-/** 把結果寫成一句偏好敘述，讓後續規劃可以直接引用。 */
 function preferenceText(row: FashionMbtiResult): string {
   const { scores } = row
   const balance = [
@@ -159,8 +155,6 @@ const alreadySaved = computed(
 async function saveToPreferences() {
   if (!result.value || savingPreference.value) return
   savingPreference.value = true
-  preferenceStatus.value = ''
-  preferenceError.value = ''
   try {
     // 先停用上一次的穿搭人格偏好，同時間只保留一組。
     await deactivatePreferenceOrigin(MBTI_ORIGIN)
@@ -179,9 +173,9 @@ async function saveToPreferences() {
         styles: result.value.keywords,
       },
     ])
-    preferenceStatus.value = '已寫入「我的偏好」，之後規劃穿搭時會參考這組風格。'
+    showSuccess('已寫入「我的偏好」，之後規劃穿搭時會參考這組風格。')
   } catch (reason) {
-    preferenceError.value = reason instanceof Error ? reason.message : '寫入偏好失敗'
+    showError(reason instanceof Error ? reason.message : '寫入偏好失敗')
   } finally {
     savingPreference.value = false
   }
@@ -189,12 +183,11 @@ async function saveToPreferences() {
 
 async function saveImage() {
   if (!cardCanvas.value || !result.value) return
-  saveStatus.value = ''
   try {
     const outcome = await saveMbtiCard(cardCanvas.value, result.value.code)
-    saveStatus.value = outcome === 'shared' ? '已送出分享。' : '已下載分享圖。'
+    showSuccess(outcome === 'shared' ? '已送出分享。' : '已下載分享圖。')
   } catch {
-    saveStatus.value = '圖片產生失敗，請再試一次。'
+    showError('圖片產生失敗，請再試一次。')
   }
 }
 
@@ -246,12 +239,11 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page-view mbti-view">
-    <!-- 開場：不解釋四個維度，直接讓使用者進第一題 -->
     <div v-if="stage === 'landing'" class="mbti-landing">
       <div class="mbti-landing-copy">
         <span class="section-kicker">Fashion MBTI</span>
         <h2>你的穿搭<em>人格</em>是哪一種？</h2>
-        <p>10 個生活情境，一題一個直覺選擇，最後給你一組四個字母的穿搭人格與完整分數。</p>
+        <p>11 個生活情境，一題一個直覺選擇，最後給你一組四個字母的穿搭人格與完整分數。</p>
         <div class="mbti-landing-actions">
           <button class="primary-button" @click="start">
             開始測驗<ArrowRight :size="16" />
@@ -271,7 +263,6 @@ onBeforeUnmount(() => {
             看上次的結果 · {{ storedResult.code }}
           </button>
         </div>
-        <small class="mbti-landing-note">約 2 分鐘 · 結果可存成分享圖</small>
       </div>
       <ol class="mbti-letter-wall" aria-hidden="true">
         <li v-for="letter in ['C', 'S', 'B', 'I', 'M', 'O', 'N', 'V']" :key="letter">{{ letter }}</li>
@@ -372,9 +363,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <p v-if="preferenceError" class="error-banner">{{ preferenceError }}</p>
-        <p v-else-if="preferenceStatus" class="mbti-save-status">{{ preferenceStatus }}</p>
-        <p v-if="saveStatus" class="mbti-save-status">{{ saveStatus }}</p>
         <div v-if="confirmingRetake" class="mbti-confirm">
           <p>重新測驗會覆蓋目前這組結果，確定嗎？</p>
           <div>

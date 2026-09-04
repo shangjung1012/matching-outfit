@@ -3,11 +3,12 @@ import { ref } from 'vue'
 import { Upload } from 'lucide-vue-next'
 import { getSimilarClothes } from '../api'
 import ProductCard from '../components/ProductCard.vue'
+import { useToast } from '../composables/useToast'
 import type { ClothResult, GarmentZone } from '../types'
 
+const { showError } = useToast()
 const similarItems = ref<ClothResult[]>([])
 const loading = ref(false)
-const error = ref('')
 const activeType = ref<GarmentZone | null>(null)
 const uploadedNames = ref<Partial<Record<GarmentZone, string>>>({})
 
@@ -24,13 +25,12 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
   const image = input.files?.[0]
   if (!image || loading.value) return
   loading.value = true
-  error.value = ''
   activeType.value = option.type
   uploadedNames.value = { ...uploadedNames.value, [option.type]: image.name }
   try {
     similarItems.value = await getSimilarClothes(image, option.type)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '無法搜尋相似商品'
+    showError(reason instanceof Error ? reason.message : '無法搜尋相似商品')
     similarItems.value = []
   } finally {
     loading.value = false
@@ -55,8 +55,7 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
       </label>
     </div>
 
-    <p v-if="error" class="error-banner">{{ error }}</p>
-    <p v-else-if="loading" class="similarity-status">正在找相似商品…</p>
+    <p v-if="loading" class="similarity-status">正在找相似商品…</p>
     <template v-else-if="activeType">
       <header class="similarity-results-heading">
         <div>

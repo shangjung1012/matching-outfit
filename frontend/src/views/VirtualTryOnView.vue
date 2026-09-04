@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { AlertCircle, CheckCircle2, ImagePlus, LoaderCircle, RefreshCw, ScanFace, Trash2 } from 'lucide-vue-next'
+import { CheckCircle2, ImagePlus, LoaderCircle, RefreshCw, ScanFace, Trash2 } from 'lucide-vue-next'
 import { createTryOnJob, getTryOnCapabilities, getTryOnJob } from '../api'
+import { useToast } from '../composables/useToast'
 import type { TryOnCapabilities, TryOnJob, TryOnReferenceType } from '../types'
 
 const props = defineProps<{ userKey: string }>()
+const { showError } = useToast()
 
 const HISTORY_STORAGE_VERSION = 2
 const HISTORY_LIMIT = 20
@@ -13,7 +15,7 @@ const REFERENCE_TYPES = ['upper', 'lower', 'overall', 'shoe', 'bag'] as const sa
 const REFERENCE_LABELS: Record<TryOnReferenceType, string> = {
   upper: '上身',
   lower: '下身',
-  overall: '洋裝／連身',
+  overall: '洋裝或連身',
   shoe: '鞋子',
   bag: '包包',
 }
@@ -39,9 +41,7 @@ const referenceFiles = ref<Partial<Record<TryOnReferenceType, File>>>({})
 const referencePreviews = ref<Partial<Record<TryOnReferenceType, string>>>({})
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
-const historySyncError = ref('')
 const submitting = ref(false)
-const error = ref('')
 let pollTimer: number | undefined
 let cleanupTimer: number | undefined
 let componentActive = false
@@ -135,7 +135,7 @@ function persistHistory() {
     }
     window.localStorage.setItem(historyStorageKey.value, JSON.stringify(payload))
   } catch {
-    historySyncError.value = '瀏覽器無法保存最近試穿紀錄。'
+    showError('瀏覽器無法保存最近試穿紀錄。')
   }
 }
 
@@ -149,7 +149,6 @@ function discardStoredHistory() {
 
 function selectHistoryJob(historyJob: TryOnJob) {
   job.value = historyJob
-  error.value = historyJob.status === 'failed' ? historyJob.error || '試穿工作失敗' : ''
   persistHistory()
 }
 
@@ -200,9 +199,7 @@ function clearHistory() {
   historyGeneration += 1
   retryJobIds.clear()
   historyJobs.value = []
-  historySyncError.value = ''
   job.value = null
-  error.value = ''
   discardStoredHistory()
 }
 
@@ -235,13 +232,11 @@ function choosePersonImage(event: Event) {
   const file = input.files?.[0] ?? null
   personPreview.value = replacePreview(personPreview.value, file)
   personFile.value = file
-  error.value = ''
 }
 
 function removePersonImage() {
   personPreview.value = replacePreview(personPreview.value, null)
   personFile.value = null
-  error.value = ''
 }
 
 function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
@@ -257,7 +252,6 @@ function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
     [referenceType]: replacePreview(currentPreview, file),
   }
   referenceFiles.value = { ...referenceFiles.value, [referenceType]: file }
-  error.value = ''
 }
 
 function removeReferenceImage(referenceType: TryOnReferenceType) {
@@ -269,7 +263,6 @@ function removeReferenceImage(referenceType: TryOnReferenceType) {
   delete nextFiles[referenceType]
   referencePreviews.value = nextPreviews
   referenceFiles.value = nextFiles
-  error.value = ''
 }
 
 function isReferenceDisabled(referenceType: TryOnReferenceType) {
@@ -315,12 +308,14 @@ function referenceIsSelected(referenceType: TryOnReferenceType) {
 
 async function loadCapabilities() {
   capabilityLoading.value = true
-  error.value = ''
   try {
     capabilities.value = await getTryOnCapabilities()
+    if (!capabilities.value.available) {
+      showError(`試穿服務尚未連線：${capabilities.value.reason || '請稍後再試'}`)
+    }
   } catch (reason) {
     capabilities.value = null
-    error.value = reason instanceof Error ? reason.message : '無法檢查試穿服務狀態'
+    showError(reason instanceof Error ? reason.message : '無法檢查試穿服務狀態')
   } finally {
     capabilityLoading.value = false
   }
@@ -364,10 +359,9 @@ async function synchronizeHistory(refreshAll = false) {
   }
   persistHistory()
 
-  historySyncError.value = failedRequests
-    ? `有 ${failedRequests} 筆紀錄暫時無法更新，將自動重試。`
-    : ''
-  if (job.value?.status === 'failed') error.value = job.value.error || '試穿工作失敗'
+  if (failedRequests) {
+    showError(`有 ${failedRequests} 筆紀錄暫時無法更新，將自動重試。`)
+  }
 
   const hasPendingJobs = historyJobs.value.some(
     (historyJob) => historyJob.status === 'queued' || historyJob.status === 'running',
@@ -381,7 +375,6 @@ async function submit() {
   if (!canSubmit.value || !personFile.value) return
   stopPolling()
   submitting.value = true
-  error.value = ''
   try {
     const createdJob = await createTryOnJob(
       personFile.value,
@@ -393,7 +386,7 @@ async function submit() {
   } catch (reason) {
     const submitError = reason instanceof Error ? reason.message : '無法建立試穿工作'
     await loadCapabilities()
-    error.value = submitError
+    showError(submitError)
   } finally {
     submitting.value = false
     const hasPendingJobs = historyJobs.value.some(
@@ -434,19 +427,6 @@ onBeforeUnmount(() => {
         <RefreshCw :size="16" :class="{ spinning: capabilityLoading }" />重新檢查服務
       </button>
     </header>
-
-    <div
-      v-if="!capabilityLoading && !capabilities?.available"
-      class="tryon-service-banner unavailable"
-      role="status"
-    >
-      <AlertCircle :size="19" />
-      <div><strong>試穿服務尚未連線</strong><p>{{ capabilities?.reason || '請稍後再試' }}</p></div>
-    </div>
-    <div v-else-if="capabilities?.available" class="tryon-service-banner available" role="status">
-      <CheckCircle2 :size="19" />
-      <div><strong>試穿服務已就緒</strong></div>
-    </div>
 
     <div class="tryon-layout">
       <section class="tryon-form-card">
@@ -531,7 +511,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <p v-if="error" class="error-banner">{{ error }}</p>
         <button class="primary-button tryon-submit" :disabled="!canSubmit" @click="submit">
           <LoaderCircle v-if="submitting" :size="17" class="spinning" />
           <ScanFace v-else :size="17" />
@@ -563,7 +542,6 @@ onBeforeUnmount(() => {
               <small>{{ formatHistoryTime(historyJob.created_at) }}</small>
             </button>
           </div>
-          <p v-if="historySyncError" class="tryon-history-error">{{ historySyncError }}</p>
         </div>
         <div class="tryon-result-body">
           <div v-if="job?.status === 'succeeded' && job.result_url" class="tryon-result">

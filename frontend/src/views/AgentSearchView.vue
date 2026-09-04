@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import {
-  AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp, CloudSun,
-  ImagePlus, MapPin, MessageSquare, MessageSquarePlus, RotateCcw, Send, Shirt,
+  ArrowLeft, Check, ChevronDown, ChevronUp, CloudSun,
+  ImagePlus, MapPin, MessageSquare, MessageSquarePlus, Send, Shirt,
   Sparkles, Square, Thermometer, Umbrella, X,
 } from 'lucide-vue-next'
 import {
@@ -14,6 +14,7 @@ import {
 import OutfitCard from '../components/OutfitCard.vue'
 import QueryReview from '../components/QueryReview.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
+import { useToast } from '../composables/useToast'
 import type {
   FashionObservationTrace,
   FashionIntent,
@@ -41,6 +42,7 @@ const {
   addOutfitReaction,
   removePreference,
 } = useUserLibrary(props.userKey)
+const { showError, showInfo } = useToast()
 
 interface ChatMessage {
   id: number
@@ -49,11 +51,6 @@ interface ChatMessage {
 }
 
 type AgentActivityKind = 'clarifying' | 'planning' | 'refining' | 'searching'
-
-interface AgentRequestError {
-  message: string
-  retry: () => Promise<void>
-}
 
 const activityLabels: Record<AgentActivityKind, string> = {
   clarifying: '正在理解你的需求',
@@ -75,9 +72,6 @@ const composerInput = ref<HTMLTextAreaElement | null>(null)
 const agentActivity = ref<AgentActivityKind | null>(null)
 const typingVisible = ref(false)
 const actionLoading = ref(false)
-const actionError = ref('')
-const requestError = shallowRef<AgentRequestError | null>(null)
-const stoppedNotice = ref('')
 const isNearMessageBottom = ref(true)
 const hasUnreadMessage = ref(false)
 const stage = ref<'start' | 'review' | 'results'>('start')
@@ -252,10 +246,8 @@ function cancelAgentRequest(showNotice: boolean) {
   clearTypingTimer()
   agentActivity.value = null
   typingVisible.value = false
-  requestError.value = null
   if (showNotice) {
-    stoppedNotice.value = '已停止目前操作。你的草稿仍保留，可以修改後再送出。'
-    scrollConversation()
+    showInfo('已停止目前操作。你的草稿仍保留，可以修改後再送出。')
   }
 }
 
@@ -274,9 +266,6 @@ async function runAgentRequest<T>(
   const controller = new AbortController()
   activeController = controller
   agentActivity.value = kind
-  requestError.value = null
-  stoppedNotice.value = ''
-  actionError.value = ''
   typingVisible.value = false
   clearTypingTimer()
   typingTimer = setTimeout(() => {
@@ -291,8 +280,12 @@ async function runAgentRequest<T>(
     onSuccess(response)
   } catch (reason) {
     if (sequence !== requestSequence || isAbortError(reason)) return
-    requestError.value = { message: errorMessage(reason), retry }
-    scrollConversation()
+    showError(errorMessage(reason), {
+      action: {
+        label: '重試',
+        onClick: () => { if (!agentBusy.value) void retry() },
+      },
+    })
   } finally {
     if (sequence === requestSequence) {
       clearTypingTimer()
@@ -303,19 +296,13 @@ async function runAgentRequest<T>(
   }
 }
 
-async function retryAgentRequest() {
-  const retry = requestError.value?.retry
-  if (retry && !agentBusy.value) await retry()
-}
-
 async function runAction(task: () => Promise<void>) {
   if (actionLoading.value) return
   actionLoading.value = true
-  actionError.value = ''
   try {
     await task()
   } catch (reason) {
-    actionError.value = errorMessage(reason)
+    showError(errorMessage(reason))
   } finally {
     actionLoading.value = false
   }
@@ -529,8 +516,6 @@ function startNewConversation() {
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
-  actionError.value = ''
-  stoppedNotice.value = ''
   hasUnreadMessage.value = false
   isNearMessageBottom.value = true
   stage.value = 'start'
@@ -661,20 +646,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="requestError" class="message agent error-message" role="alert">
-            <span class="message-avatar error-avatar"><AlertCircle :size="13" /></span>
-            <div>
-              <strong>這次沒有完成</strong>
-              <p>{{ requestError.message }}</p>
-              <button type="button" :disabled="agentBusy" @click="retryAgentRequest">
-                <RotateCcw :size="14" />重試
-              </button>
-            </div>
-          </div>
-
-          <p v-if="stoppedNotice" class="chat-system-notice" role="status">
-            {{ stoppedNotice }}
-          </p>
         </div>
 
         <button
@@ -728,7 +699,6 @@ onBeforeUnmount(() => {
           <Check :size="16" />{{ readyToPlan ? '確認需求' : '依目前內容繼續' }}
         </button>
       </div>
-      <p v-if="actionError" class="chat-error" role="alert">{{ actionError }}</p>
     </aside>
 
     <main class="agent-workspace">

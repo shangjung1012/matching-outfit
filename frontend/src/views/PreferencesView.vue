@@ -7,6 +7,7 @@ import {
 import ColorPreferenceEditor from '../components/ColorPreferenceEditor.vue'
 import TagInput from '../components/TagInput.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
+import { useToast } from '../composables/useToast'
 import type { HardRules, StylePreference } from '../types'
 
 const props = defineProps<{ userKey: string }>()
@@ -17,6 +18,7 @@ const {
   patchPreference,
   removePreference,
 } = useUserLibrary(props.userKey)
+const { showError, showSuccess } = useToast()
 
 function emptyHard(): HardRules {
   return {
@@ -39,8 +41,6 @@ const editingId = ref<number | null>(null)
 const editingText = ref('')
 const loading = ref(false)
 const savingHard = ref(false)
-const message = ref('')
-const error = ref('')
 
 function applyHard(source: Partial<HardRules> | null | undefined): void {
   Object.assign(hard, emptyHard(), source ?? {})
@@ -51,13 +51,12 @@ function applyHard(source: Partial<HardRules> | null | undefined): void {
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
     const bundle = await loadPreferences()
     applyHard(bundle?.hard)
     soft.value = Array.isArray(bundle?.soft) ? bundle.soft : []
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '無法載入偏好'
+    showError(reason instanceof Error ? reason.message : '無法載入偏好')
   } finally {
     loading.value = false
   }
@@ -65,8 +64,6 @@ async function load() {
 
 async function saveHard() {
   savingHard.value = true
-  message.value = ''
-  error.value = ''
   try {
     const saved = await saveHardRules(props.userKey, {
       ...hard,
@@ -77,9 +74,9 @@ async function saveHard() {
       price_max: hard.price_max || null,
     })
     applyHard(saved)
-    message.value = '個人資料與購物條件已儲存'
+    showSuccess('個人資料與購物條件已儲存')
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '儲存失敗'
+    showError(reason instanceof Error ? reason.message : '儲存失敗')
   } finally {
     savingHard.value = false
   }
@@ -88,7 +85,6 @@ async function saveHard() {
 async function addSoft() {
   const preferenceText = newPreference.text.trim()
   if (!preferenceText) return
-  error.value = ''
   try {
     await addPreference({
       preference_text: preferenceText,
@@ -105,7 +101,7 @@ async function addSoft() {
     })
     newPreference.text = ''
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '新增失敗'
+    showError(reason instanceof Error ? reason.message : '新增失敗')
   }
 }
 
@@ -276,9 +272,6 @@ onMounted(load)
           </button>
         </div>
       </section>
-
-      <p v-if="message" class="success-banner">{{ message }}</p>
-      <p v-if="error" class="error-banner">{{ error }}</p>
 
       <div class="settings-actions preference-save-actions">
         <button class="primary-button" :disabled="savingHard" @click="saveHard">
