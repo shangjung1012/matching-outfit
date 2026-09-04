@@ -20,11 +20,8 @@ RUN pip install \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-ENV TRYON_BIND_ADDRESS=0.0.0.0 \
-    TRYON_PORT=9001
-
 COPY . .
 
 EXPOSE 9001
 
-CMD ["sh", "-c", "exec uvicorn service:app --host \"$TRYON_BIND_ADDRESS\" --port \"$TRYON_PORT\""]
+CMD ["uvicorn", "service:app", "--host", "0.0.0.0", "--port", "9001"]

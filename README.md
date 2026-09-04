@@ -219,31 +219,24 @@ The service requires an NVIDIA CUDA GPU, a compatible driver, Docker Compose, an
 ```bash
 cd tryon
 cp .env.example .env
-# Replace every placeholder in .env with private values.
-docker compose up --build -d
-docker compose logs -f tryon
-```
-
-The default stack starts the TryOn API and its private MinIO object store. The API is exposed only inside that Compose network. To make it available through the included Cloudflare Tunnel service, set `CLOUDFLARE_TUNNEL_TOKEN` in `tryon/.env` and start the tunnel profile instead:
-
-```bash
-cd tryon
+# Set the API key, MinIO credentials, and Cloudflare Tunnel token.
 docker compose --profile tunnel up --build -d
+docker compose logs -f tryon cloudflared
 ```
 
-In the Cloudflare Tunnel configuration, route the published hostname to
-`http://tryon:9001` on the TryOn Compose network. Set the root
+The TryOn API and MinIO object store are private to their Compose network;
+neither publishes a host port, including the MinIO console. In the Cloudflare
+Tunnel configuration, route the published hostname to the fixed origin
+`http://tryon:9001`. Set the root
 `TRYON_API_URL` to that hostname's HTTPS endpoint, and set root
 `TRYON_API_KEY` to the exact same secret as `TRYON_API_KEY` in `tryon/.env`.
-If you override `TRYON_PORT`, use that same container port in the tunnel
-origin instead of `9001`; `TRYON_BIND_ADDRESS` controls Uvicorn's bind address.
 Leave both root values empty when the GPU service is unavailable; the rest of
 Matching Outfit continues to run and the try-on screen reports the service as
 unavailable.
 
 The first API startup downloads `zhengchong/FastFit-MR-1024` plus the DWPose, DensePose, and SCHP trees from `zhengchong/Human-Toolkit`. They are cached in the `tryon_hf_cache` Docker volume, so later container starts reuse them. Job manifests and results use the `tryon_minio_data` volume. Input deletion is attempted after every inference; transient failures retain their object keys and are retried by the periodic cleanup worker. Job results and any remaining job objects expire after 24 hours. Ordinary `docker compose down` preserves both volumes; do not add `-v` unless you intentionally want to erase the model cache and stored jobs.
 
-Inference uses a 768 x 1024 person canvas, five 384 x 512 reference slots in canonical order, 30 denoising steps, guidance scale 2.5, and seed 42. TF32 is enabled. Mixed precision defaults to `bf16` and can be changed with `TRYON_MIXED_PRECISION` on hardware that requires another supported mode.
+Inference uses a 768 x 1024 person canvas, five 384 x 512 reference slots in canonical order, 30 denoising steps, guidance scale 2.5, and seed 42. TF32 is enabled and mixed precision is fixed to `bf16` for the target GPU host.
 
 ### Usage restriction
 
