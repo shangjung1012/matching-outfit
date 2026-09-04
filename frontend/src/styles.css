@@ -287,7 +287,26 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tryon-type-field .segmented-control { width: fit-content; }
 .tryon-submit { width: 100%; margin-top: 18px; }
 .tryon-limit { margin: 8px 0 0; color: #858b85; text-align: center; font-size: .65rem; }
-.tryon-result-card { display: grid; min-height: 570px; }
+.tryon-result-card { display: flex; min-height: 570px; flex-direction: column; }
+.tryon-history { margin: -4px -4px 16px; padding: 4px 4px 14px; border-bottom: 1px solid #e1e4df; }
+.tryon-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.tryon-history-heading > div { display: flex; align-items: baseline; gap: 7px; }
+.tryon-history-heading strong { color: #3f4740; font-size: .76rem; }
+.tryon-history-heading small { color: #8a908a; font-size: .62rem; }
+.tryon-history-heading button { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 4px; color: #7e6d65; background: transparent; font-size: .63rem; cursor: pointer; }
+.tryon-history-heading button:hover { color: #804838; }
+.tryon-history-list { display: flex; gap: 7px; overflow-x: auto; padding: 1px 1px 5px; scrollbar-width: thin; }
+.tryon-history-item { min-width: 108px; display: grid; gap: 3px; border: 1px solid #d9ddd7; border-radius: 5px; padding: 8px 9px; color: #545c55; background: #fafbfa; text-align: left; cursor: pointer; }
+.tryon-history-item:hover { border-color: #aebbb2; background: #f5f8f5; }
+.tryon-history-item.active { border-color: #4d7964; box-shadow: 0 0 0 1px #4d7964; background: #f1f7f3; }
+.tryon-history-item span { width: fit-content; border-radius: 999px; padding: 2px 6px; color: #626b64; background: #ecefeb; font-size: .57rem; font-weight: 800; }
+.tryon-history-item.queued span, .tryon-history-item.running span { color: #76501e; background: #fff0d9; }
+.tryon-history-item.succeeded span { color: #276044; background: #dff1e6; }
+.tryon-history-item.failed span { color: #874d42; background: #f7e5e1; }
+.tryon-history-item strong { font-size: .7rem; }
+.tryon-history-item small { color: #858c86; font-size: .59rem; }
+.tryon-history-error { margin: 4px 0 0; color: #8a5e25; font-size: .64rem; }
+.tryon-result-body { min-height: 0; display: grid; flex: 1; }
 .tryon-result-placeholder { min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 9px; color: #778078; background: #f4f6f3; text-align: center; }
 .tryon-result-placeholder.processing { color: #34604b; background: #f0f6f2; }
 .tryon-result-placeholder h3 { margin: 4px 0 0; color: #3c443d; font-size: .95rem; }
@@ -337,4 +356,7 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .two-column-section, .preference-fields-grid { grid-template-columns: 1fr; }
   .tryon-layout, .tryon-upload-grid { grid-template-columns: 1fr; }
   .tryon-result-card { min-height: 420px; }
+  .tryon-history-heading { align-items: flex-start; }
+  .tryon-history-heading > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .tryon-history-item { min-width: 104px; }
 }
