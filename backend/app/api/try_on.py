@@ -106,7 +106,12 @@ async def validated_image(upload: UploadFile) -> tuple[bytes, str]:
             image_format = image.format
             width, height = image.size
             image.verify()
-    except (UnidentifiedImageError, OSError, ValueError) as error:
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+    ) as error:
         raise HTTPException(status_code=422, detail=f"{upload.filename or '檔案'} 不是有效圖片") from error
     if image_format not in IMAGE_TYPES:
         raise HTTPException(status_code=422, detail="只支援 JPEG、PNG 或 WebP 圖片")

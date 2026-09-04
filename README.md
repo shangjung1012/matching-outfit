@@ -231,7 +231,13 @@ cd tryon
 docker compose --profile tunnel up --build -d
 ```
 
-Set the root `TRYON_API_URL` to the resulting HTTPS endpoint and set root `TRYON_API_KEY` to the exact same secret as `TRYON_API_KEY` in `tryon/.env`. Leave both root values empty when the GPU service is unavailable; the rest of Matching Outfit continues to run and the try-on screen reports the service as unavailable.
+In the Cloudflare Tunnel configuration, route the published hostname to
+`http://tryon:9001` on the TryOn Compose network. Set the root
+`TRYON_API_URL` to that hostname's HTTPS endpoint, and set root
+`TRYON_API_KEY` to the exact same secret as `TRYON_API_KEY` in `tryon/.env`.
+Leave both root values empty when the GPU service is unavailable; the rest of
+Matching Outfit continues to run and the try-on screen reports the service as
+unavailable.
 
 The first API startup downloads `zhengchong/FastFit-MR-1024` plus the DWPose, DensePose, and SCHP trees from `zhengchong/Human-Toolkit`. They are cached in the `tryon_hf_cache` Docker volume, so later container starts reuse them. Job manifests and results use the `tryon_minio_data` volume. Input images are deleted after each inference attempt, and job results expire after 24 hours. Ordinary `docker compose down` preserves both volumes; do not add `-v` unless you intentionally want to erase the model cache and stored jobs.
 

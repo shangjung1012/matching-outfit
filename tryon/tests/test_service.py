@@ -7,6 +7,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 from PIL import Image
+import pytest
 
 import service
 
@@ -129,6 +130,19 @@ def post_job(client: TestClient, **references: tuple[str, bytes, str]):
     files = {"person_image": ("person.png", png_bytes(), "image/png")}
     files.update(references)
     return client.post("/v1/jobs", headers=API_HEADERS, files=files)
+
+
+def test_validate_image_maps_decompression_bomb_to_422(monkeypatch) -> None:
+    def raise_bomb(_content):
+        raise Image.DecompressionBombError("too many pixels")
+
+    monkeypatch.setattr(service.Image, "open", raise_bomb)
+
+    with pytest.raises(service.HTTPException) as error:
+        service.validate_image(png_bytes())
+
+    assert error.value.status_code == 422
+    assert error.value.detail == "Invalid image"
 
 
 def test_job_lifecycle_uses_canonical_reference_order_and_delete(monkeypatch) -> None:

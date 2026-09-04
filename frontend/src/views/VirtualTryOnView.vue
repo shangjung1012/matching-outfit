@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
                   :key="personInputKey()"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  :aria-label="`${personFile ? '更換' : '選擇'}人物照片`"
+                  :aria-label="`${personFile ? '更換圖片' : '選擇圖片'}：人物照片`"
                   @change="choosePersonImage"
                 />
               </label>
@@ -519,7 +519,7 @@ onBeforeUnmount(() => {
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     :disabled="isReferenceDisabled(option.type)"
-                    :aria-label="`${referenceFile(option.type) ? '更換' : '選擇'}${referenceLabel(option.type)}參考圖片`"
+                    :aria-label="`${referenceFile(option.type) ? '更換圖片' : '選擇圖片'}：${referenceLabel(option.type)}參考圖片`"
                     @change="chooseReferenceImage($event, option.type)"
                   />
                 </label>

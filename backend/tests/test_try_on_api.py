@@ -208,6 +208,30 @@ def test_create_job_validates_each_present_image_before_remote_call(
     assert fake_tryon.create_calls == []
 
 
+def test_create_job_maps_decompression_bomb_to_invalid_image(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_client, _, fake_tryon = client
+
+    def raise_bomb(_content):
+        raise Image.DecompressionBombError("too many pixels")
+
+    monkeypatch.setattr(try_on_api.Image, "open", raise_bomb)
+
+    response = test_client.post(
+        "/api/try-on/jobs",
+        files={
+            "person_image": ("person.png", png_bytes(), "image/png"),
+            "upper_image": ("upper.png", png_bytes("red"), "image/png"),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "不是有效圖片" in response.json()["detail"]
+    assert fake_tryon.create_calls == []
+
+
 def test_status_updates_reference_types_and_result_is_proxied(client) -> None:
     test_client, test_session, fake_tryon = client
     local_job_id = uuid.uuid4()

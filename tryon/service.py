@@ -169,7 +169,12 @@ def validate_image(content: bytes) -> Image.Image:
         return image.convert("RGB")
     except HTTPException:
         raise
-    except (UnidentifiedImageError, OSError, ValueError) as error:
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+    ) as error:
         raise HTTPException(status_code=422, detail="Invalid image") from error
 
 
