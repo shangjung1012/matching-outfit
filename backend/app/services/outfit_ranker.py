@@ -121,6 +121,7 @@ def rank_outfits(
 ) -> list[OutfitRecommendation]:
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
     pooled_by_direction: dict[str, dict[str, dict[int, ClothResult]]] = {}
+    one_piece_directions: dict[int, tuple[str, float]] = {}
     for group in groups:
         zone_pool = pooled_by_zone.setdefault(group.query.garment_zone, {})
         for item in group.clothes:
@@ -131,6 +132,11 @@ def rank_outfits(
             preferred = item if item.similarity > current.similarity else current
             zone_pool[item.id] = preferred
         direction_id = group.query.direction_id
+        if direction_id and group.query.garment_zone == "one_piece":
+            for item in group.clothes:
+                current = one_piece_directions.get(item.id)
+                if current is None or item.similarity > current[1]:
+                    one_piece_directions[item.id] = (direction_id, item.similarity)
         if direction_id and group.query.garment_zone in {"upper_body", "lower_body"}:
             direction_pool = pooled_by_direction.setdefault(direction_id, {}).setdefault(
                 group.query.garment_zone, {}
@@ -213,10 +219,11 @@ def rank_outfits(
             )
     for item, accessory in product(by_zone.get("one_piece", []), accessory_options):
         items = [item, *([accessory] if accessory else [])]
+        direction_id = one_piece_directions.get(item.id, (None, 0.0))[0]
         recommendations.append(
             _recommendation(
                 "one_piece", items,
-                "One-piece candidate coverage", user_context, None,
+                "One-piece candidate coverage", user_context, direction_id,
             )
         )
     # Price is a whole-outfit gate, so apply it only after garments have been

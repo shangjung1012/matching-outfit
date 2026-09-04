@@ -163,6 +163,19 @@ export interface StylingGuide {
   reviewer_checklist: string[]
 }
 
+export interface ShoeSpec {
+  shoe_type: string
+  shoe_color: string
+  shoe_query: string
+  material_appearance: string
+  profile: string
+}
+
+export interface DirectionShoePlan {
+  direction_id: string
+  shoe_spec: ShoeSpec
+}
+
 export interface ClothResult {
   id: number
   source_item_id?: number | null
@@ -296,6 +309,7 @@ export interface QueryPlanResponse {
   knowledge_gaps: string[]
   knowledge_note: string
   queries: QueryDraft[]
+  shoe_plans: DirectionShoePlan[]
   planner: string
   audience: Audience | null
   knowledge_observation_ids: string[]
@@ -329,11 +343,14 @@ export interface QueryPlanDebug {
   fashion_intent: FashionIntent | null
   generated_queries_before_normalization: GeneratedQueryTrace[]
   generated_queries_after_normalization: QueryDraft[]
+  shoe_plans: DirectionShoePlan[]
   normalizer_changes: QueryNormalizationChange[]
   query_warnings: string[]
   intent_fallback_used: boolean
+  intent_fallback_error: string
   model: string
   prompt_version: string
+  stage_timings_ms: Record<string, number>
 }
 
 export interface RequirementSummary {

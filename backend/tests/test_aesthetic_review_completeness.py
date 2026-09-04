@@ -9,10 +9,14 @@ from tests.test_recommendation_debug import _outfit, _query
 
 def review(identifier):
     return CandidateAestheticReview(
-        candidate_id=identifier, occasion_fit=80, color_harmony=80,
-        silhouette_balance=80, material_coherence=80, overall_aesthetic=80,
+        candidate_id=identifier,
+        style_identity_match=80,
+        silhouette_proportion=80,
+        pairing_coherence=80,
+        color_material_harmony=80,
+        constraint_compliance=80,
+        style_drift_detected=False,
         reason="輪廓與配色協調",
-        inner_layer_suggestion="內可穿同色系合身圓領短袖上衣，以輕薄平滑材質控制份量。",
     )
 
 
@@ -42,7 +46,7 @@ def test_thirty_partial_response_retries_only_missing_and_recovers_all(monkeypat
     reviewer = AestheticReviewer(LLM())
     result = reviewer.review("夏季度假", candidates(30))
     assert len(result) == 30
-    assert all(value.inner_layer_suggestion for value in result.values())
+    assert all(value.overall_aesthetic == 80 for value in result.values())
     assert len(calls[0]) == 30
     assert all(set(ids).isdisjoint(calls[0][:15]) for ids in calls[1:])
     assert reviewer.last_debug["attempts"][0]["duplicate_ids"] == ["candidate-0"]

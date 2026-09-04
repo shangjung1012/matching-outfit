@@ -89,7 +89,7 @@ def test_shoe_debug_keeps_query_and_top_candidates(monkeypatch) -> None:
 
     assert result[0].shoe_suggestion is not None
     assert traces[0].original_query == "black leather loafers"
-    assert traces[0].query == "off-white loafer"
+    assert traces[0].query == "black leather loafers"
     assert [item.id for item in traces[0].candidates] == [901, 902]
     assert traces[0].selected_item_id == 901
 

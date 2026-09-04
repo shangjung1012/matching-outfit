@@ -43,7 +43,7 @@ def test_review_schema_requires_new_dimensions():
     assert set([
         "style_identity_match", "silhouette_proportion", "pairing_coherence",
         "color_material_harmony", "constraint_compliance",
-        "style_drift_detected", "style_drift_evidence",
+        "style_drift_detected",
     ]).issubset(required)
 
 
@@ -68,7 +68,7 @@ def test_minor_sporty_elements_do_not_cap_or_reject(monkeypatch):
         requested_visual_identity="女團造型",
     ))
     result = AestheticReviewer(LLM()).review("女團舞", [outfit], fashion_intent=intent)[outfit.id]
-    assert result.overall_aesthetic == 75
+    assert result.overall_aesthetic == 72
     assert not result.fatal_issues
 
 
@@ -115,8 +115,8 @@ def test_practicality_cannot_rescue_failed_appearance_identity(monkeypatch, mode
             assert payload["activity_context"]["requested_visual_identity"] == "女團造型"
             return AestheticReviewBatch(reviews=[CandidateAestheticReview(
                 candidate_id=outfit.id, style_identity_match=30,
-                occasion_fit=100, color_harmony=100, silhouette_balance=100,
-                material_coherence=100, overall_aesthetic=95,
+                silhouette_proportion=100, pairing_coherence=100,
+                color_material_harmony=100, constraint_compliance=100,
                 style_drift_detected=expected_fatal,
                 style_drift_evidence=["可見專業訓練服的機能結構"] if expected_fatal else [],
                 reason="服裝看似運動訓練款，未呈現所要求的舞台造型。",
@@ -130,10 +130,10 @@ def test_practicality_cannot_rescue_failed_appearance_identity(monkeypatch, mode
         assert review.overall_aesthetic <= 49
         assert result.score <= 0.49
     else:
-        assert review.overall_aesthetic == 95
+        assert review.overall_aesthetic == 79
 
 
-def test_missing_required_identity_score_uses_local_fallback_without_retry(monkeypatch):
+def test_missing_required_identity_score_is_retried(monkeypatch):
     monkeypatch.setattr(module, "outfit_contact_sheet_data_url", lambda _: "data:image/jpeg;base64,test")
     outfit = _outfit(_query())
     calls = []
@@ -143,15 +143,16 @@ def test_missing_required_identity_score_uses_local_fallback_without_retry(monke
             calls.append(1)
             return AestheticReviewBatch(reviews=[CandidateAestheticReview(
                 candidate_id=outfit.id, style_identity_match=None if len(calls) == 1 else 85,
-                occasion_fit=80, color_harmony=80, silhouette_balance=80,
-                material_coherence=80, overall_aesthetic=80, reason="舞台比例清楚。",
+                silhouette_proportion=80, pairing_coherence=80,
+                color_material_harmony=80, constraint_compliance=80,
+                style_drift_detected=False, reason="舞台比例清楚。",
             )])
 
     reviewer = AestheticReviewer(LLM())
     result = reviewer.review("舞台表演", [outfit], fashion_intent=make_fashion_intent(
         activity_context=ActivityContext(activity_mode="appearance_led_performance"),
     ))
-    assert len(calls) == 1
-    assert reviewer.last_debug["attempts"][0]["local_fallbacks"][0]["candidate_id"] == outfit.id
-    assert result[outfit.id].style_identity_match == 80
-    assert "style_identity_match" in result[outfit.id].local_fallback_fields
+    assert len(calls) == 2
+    assert reviewer.last_debug["attempts"][0]["missing_ids"] == [outfit.id]
+    assert result[outfit.id].style_identity_match == 85
+    assert result[outfit.id].local_fallback_fields == []

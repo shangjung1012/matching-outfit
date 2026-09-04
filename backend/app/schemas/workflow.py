@@ -205,6 +205,23 @@ class QueryDraft(BaseModel):
     references: list[ReferenceLink] = Field(default_factory=list)
 
 
+class ShoeSpec(BaseModel):
+    """A conservative, retrieval-ready shoe brief produced by Query Planner."""
+
+    shoe_type: str = Field(default="", max_length=80)
+    shoe_color: str = Field(default="", max_length=80)
+    shoe_query: str = Field(default="", max_length=240)
+    material_appearance: str = Field(default="", max_length=80)
+    profile: str = Field(default="", max_length=80)
+
+
+class DirectionShoePlan(BaseModel):
+    """One shoe retrieval brief shared by outfits from the same A-G direction."""
+
+    direction_id: str = Field(min_length=1, max_length=24)
+    shoe_spec: ShoeSpec
+
+
 class ChatTurn(BaseModel):
     role: Literal["agent", "user"]
     text: str = Field(min_length=1, max_length=2000)
@@ -272,11 +289,14 @@ class QueryPlanDebug(BaseModel):
         default_factory=list
     )
     generated_queries_after_normalization: list[QueryDraft] = Field(default_factory=list)
+    shoe_plans: list[DirectionShoePlan] = Field(default_factory=list)
     normalizer_changes: list[QueryNormalizationChange] = Field(default_factory=list)
     query_warnings: list[str] = Field(default_factory=list)
     intent_fallback_used: bool = False
+    intent_fallback_error: str = ""
     model: str
     prompt_version: str
+    stage_timings_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class PlanRequest(BaseModel):
@@ -309,6 +329,7 @@ class PlanResponse(BaseModel):
     knowledge_note: str = ""
     original_input: str
     queries: list[QueryDraft]
+    shoe_plans: list[DirectionShoePlan] = Field(default_factory=list)
     planner: str
     audience: Audience | None = None
     knowledge_observation_ids: list[str] = Field(default_factory=list)
@@ -334,6 +355,7 @@ class SearchRequest(BaseModel):
     audience: Audience | None = None
     requirements: RequirementSummary | None = None
     styling_guide: StylingGuide | None = None
+    shoe_specs: dict[str, ShoeSpec] = Field(default_factory=dict)
     shortlist_count: int = Field(default=30, ge=5, le=30)
     fashion_intent: FashionIntent | None = None
     final_count: int = Field(default=10, ge=1, le=10)
@@ -400,16 +422,6 @@ class AestheticReview(BaseModel):
     fatal_issues: list[str] = Field(default_factory=list)
     reason: str
     knowledge_observation_ids: list[str] = Field(default_factory=list)
-
-
-class ShoeSpec(BaseModel):
-    """A conservative, retrieval-ready shoe brief produced before visual review."""
-
-    shoe_type: str = Field(default="", max_length=80)
-    shoe_color: str = Field(default="", max_length=80)
-    shoe_query: str = Field(default="", max_length=240)
-    material_appearance: str = Field(default="", max_length=80)
-    profile: str = Field(default="", max_length=80)
 
 
 class ShoeSuggestion(BaseModel):

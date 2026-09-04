@@ -5,9 +5,11 @@ from app.models.user_preference import UserHardRule, UserStylePreference
 from app.preferences.context import build_planner_preference_context
 from app.schemas import (
     ChatTurn,
+    DirectionShoePlan,
     PairingDirection,
     QueryDraft,
     RequirementSummary,
+    ShoeSpec,
     StylingGuide,
 )
 from app.services.query_planner import (
@@ -21,7 +23,9 @@ from app.services.query_planner import (
     RequirementAssessment,
     RequirementCollector,
     TagTranslation,
+    is_skirt_outfit_request,
     interpret_fashion_intent_or_none,
+    query_counts_for,
 )
 from tests.test_fashion_intent import FakeIntentLLM, make_fashion_intent
 
@@ -239,6 +243,19 @@ class FakeLLM:
                 reviewer_checklist=["Judge visible proportions, not style keywords"],
             ),
             queries=query_rows(chinese=self.chinese),
+            shoe_plans=[
+                DirectionShoePlan(
+                    direction_id=direction_id,
+                    shoe_spec=ShoeSpec(
+                        shoe_type="loafers",
+                        shoe_color="black",
+                        shoe_query="black low-profile leather loafers",
+                        material_appearance="matte leather",
+                        profile="low profile closed toe",
+                    ),
+                )
+                for direction_id in "ABCDEFG"
+            ],
             planning_note="已檢查搜尋方向。",
         )
 
@@ -268,6 +285,15 @@ def test_planner_returns_five_five_two_without_article_knowledge() -> None:
     assert all(not query.references for query in result.queries)
     assert result.styling_guide is not None
     assert [query.direction_id for query in result.queries[:5]] == list("ABCDE")
+    assert [plan.direction_id for plan in result.shoe_plans] == list("ABCDEFG")
+
+
+def test_explicit_dress_request_is_treated_as_skirt_outfit_not_pants() -> None:
+    assert is_skirt_outfit_request(
+        "粉色夏季洋裝，不要沒有袖子的，不要漏肩膀"
+    )
+    assert query_counts_for(["one_piece"]) == {"one_piece": 2}
+    assert not is_skirt_outfit_request("夏天不要洋裝，想穿褲子")
 
 
 def test_planner_receives_intent_without_changing_query_contract() -> None:

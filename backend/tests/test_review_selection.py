@@ -60,7 +60,8 @@ def test_single_batch_thirty_selects_best_reviewed_ten(monkeypatch, partial):
         [candidate.score for candidate in result.recommendations], reverse=True
     )
     if not partial:
-        assert result.recommendations[0].id == "candidate-29"
+        # Equal reviewer scores remain tied; the stable shortlist order wins.
+        assert result.recommendations[0].id == "candidate-0"
     else:
         assert "23 套" in result.review_note
 

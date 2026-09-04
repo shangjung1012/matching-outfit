@@ -1,4 +1,5 @@
 from app.api import routes
+from fastapi import BackgroundTasks
 from app.schemas import (
     ClothResult,
     OutfitRecommendation,
@@ -6,6 +7,7 @@ from app.schemas import (
     QueryDraft,
     QuerySearchResult,
     SearchRequest,
+    ShoeSpec,
 )
 
 
@@ -35,6 +37,7 @@ def _outfit(query: QueryDraft) -> OutfitRecommendation:
     return OutfitRecommendation(
         id="outfit-a",
         kind="separates",
+        direction_id=query.direction_id,
         items=[item],
         score=0.75,
         reasons=["test candidate"],
@@ -59,10 +62,13 @@ def test_recommendation_debug_contains_retrieval_and_ranker_stages(monkeypatch) 
     monkeypatch.setattr(routes.settings, "aesthetic_review_enabled", False)
 
     response = routes.recommendations(
-        SearchRequest(
-            queries=[query],
-            user_input="夏天拍照",
-            include_debug=True,
+        BackgroundTasks(),
+        routes.RecommendationInput(
+            payload=SearchRequest(
+                queries=[query],
+                user_input="夏天拍照",
+                include_debug=True,
+            )
         ),
         db=object(),
     )
@@ -87,8 +93,46 @@ def test_recommendation_debug_is_additive_and_off_by_default(monkeypatch) -> Non
     monkeypatch.setattr(routes.settings, "aesthetic_review_enabled", False)
 
     response = routes.recommendations(
-        SearchRequest(queries=[query], user_input="夏天拍照"),
+        BackgroundTasks(),
+        routes.RecommendationInput(
+            payload=SearchRequest(queries=[query], user_input="夏天拍照")
+        ),
         db=object(),
     )
 
     assert response.debug is None
+
+
+def test_recommendations_map_direction_shoe_plan_without_another_llm(monkeypatch) -> None:
+    query = _query()
+    outfit = _outfit(query)
+    spec = ShoeSpec(
+        shoe_type="loafers",
+        shoe_color="black",
+        shoe_query="black low-profile leather loafers",
+    )
+    received: dict[str, ShoeSpec] = {}
+
+    monkeypatch.setattr(routes, "hard_rules_for", lambda *_: None)
+    monkeypatch.setattr(routes, "search_catalog", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(routes, "rank_outfits", lambda *_args, **_kwargs: [outfit])
+    monkeypatch.setattr(routes.settings, "aesthetic_review_enabled", False)
+
+    def fake_attach(_db, outfits, shoe_specs, **_kwargs):
+        received.update(shoe_specs)
+        return outfits
+
+    monkeypatch.setattr(routes, "attach_post_review_shoes", fake_attach)
+
+    routes.recommendations(
+        BackgroundTasks(),
+        routes.RecommendationInput(
+            payload=SearchRequest(
+                queries=[query],
+                shoe_specs={"A": spec},
+            )
+        ),
+        db=object(),
+    )
+
+    assert received == {outfit.id: spec}

@@ -680,6 +680,11 @@ For A-E:
 - `lower_role` must be non-null.
 - `one_piece_role` must be null.
 
+This A-E contract still applies when the user asks for 洋裝, 裙裝, a dress, or a
+skirt-based look. In that case A-E must use a covered upper garment plus a skirt and
+must not introduce trousers, jeans, or shorts. Do not turn A-E into one-piece concepts;
+doing so makes the entire structured result invalid.
+
 F-G are one-piece outfits.
 
 For F-G:

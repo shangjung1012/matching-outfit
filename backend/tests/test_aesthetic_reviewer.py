@@ -31,8 +31,45 @@ def test_aesthetic_review_changes_final_score_and_is_attached() -> None:
     assert result.aesthetic_review.inner_layer_suggestion == review.inner_layer_suggestion
     assert result.score_breakdown is not None
     assert result.score_breakdown.aesthetic is not None
-    assert result.score != recommendation.score
+    assert result.score == 0.9
     assert review.reason in result.reasons
+
+
+def test_final_order_uses_only_reviewer_score() -> None:
+    recommendations = rank_outfits(
+        [
+            group("upper_body", [
+                cloth(1, "upper_body", "White", 0.99),
+                cloth(2, "upper_body", "Blue", 0.60),
+            ]),
+            group("lower_body", [cloth(3, "lower_body", "Black", 0.80)]),
+        ],
+        limit=2,
+    )
+    high_ranker, low_ranker = recommendations
+    reviews = {
+        high_ranker.id: AestheticReview(
+            occasion_fit=40,
+            color_harmony=40,
+            silhouette_balance=40,
+            material_coherence=40,
+            overall_aesthetic=40,
+            reason="視覺協調度較低。",
+        ),
+        low_ranker.id: AestheticReview(
+            occasion_fit=90,
+            color_harmony=90,
+            silhouette_balance=90,
+            material_coherence=90,
+            overall_aesthetic=90,
+            reason="視覺協調度較高。",
+        ),
+    }
+
+    result = apply_aesthetic_reviews(recommendations, reviews, final_count=2)
+
+    assert [item.id for item in result] == [low_ranker.id, high_ranker.id]
+    assert [item.score for item in result] == [0.9, 0.4]
 
 
 def test_outfit_review_maps_only_used_observations_to_references() -> None:

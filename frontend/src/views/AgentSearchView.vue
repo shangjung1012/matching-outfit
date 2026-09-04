@@ -25,6 +25,7 @@ import type {
   PlannerGarmentZone,
   RecommendationDebug,
   RequirementSummary,
+  ShoeSpec,
   StylingGuide,
 } from '../types'
 
@@ -78,6 +79,7 @@ const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
 const requirements = ref<RequirementSummary | null>(null)
 const stylingGuide = ref<StylingGuide | null>(null)
+const shoeSpecs = ref<Record<string, ShoeSpec>>({})
 const fashionIntent = ref<FashionIntent | null>(null)
 const planDebug = ref<QueryPlanDebug | null>(null)
 const planningKnowledge = ref<FashionObservationTrace[]>([])
@@ -369,6 +371,9 @@ async function requestRefinement(
     (response) => {
       queries.value = response.queries
       stylingGuide.value = response.styling_guide
+      shoeSpecs.value = Object.fromEntries(
+        response.shoe_plans.map((plan) => [plan.direction_id, plan.shoe_spec]),
+      )
       fashionIntent.value = response.fashion_intent
       planDebug.value = response.debug
       requirements.value = response.debug?.requirement_summary ?? requirements.value
@@ -401,6 +406,9 @@ async function requestPlanning(
       originalRequest.value = planningInput
       queries.value = response.queries
       stylingGuide.value = response.styling_guide
+      shoeSpecs.value = Object.fromEntries(
+        response.shoe_plans.map((plan) => [plan.direction_id, plan.shoe_spec]),
+      )
       fashionIntent.value = response.fashion_intent
       planDebug.value = response.debug
       requirements.value = response.debug?.requirement_summary ?? requirements.value
@@ -440,6 +448,7 @@ async function requestRecommendations(
       userInput,
       currentRequirements,
       currentStylingGuide,
+      shoeSpecs.value,
       undefined,
       signal,
       fashionIntent.value,

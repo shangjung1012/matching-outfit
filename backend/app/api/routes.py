@@ -69,7 +69,6 @@ from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
 from app.services.post_review_shoes import attach_post_review_shoes
-from app.services.shoe_planner import ShoePlanner
 from app.services.outfit_compatibility import rerank_outfits_by_compatibility
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
@@ -816,17 +815,24 @@ def planning_context_and_knowledge(
 
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
+    planning_started = perf_counter()
+    planning_timings: dict[str, float] = {}
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
     requirements, observations, knowledge_note = planning_context_and_knowledge(
         db, payload.user_input, payload.requirements, audience
     )
+    planning_timings["context_and_knowledge"] = round(
+        (perf_counter() - planning_started) * 1000, 1
+    )
     payload = payload.model_copy(update={"requirements": requirements})
     try:
         llm = LLM()
+        intent_started = perf_counter()
+        intent_interpreter = FashionIntentInterpreter(llm)
         intent, fallback_used = interpret_fashion_intent_or_none(
-            FashionIntentInterpreter(llm),
+            intent_interpreter,
             enabled=settings.fashion_intent_interpreter_enabled,
             raw_user_text=payload.user_input,
             requirement_summary=(
@@ -838,8 +844,12 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             style_preferences=style_preferences,
             observations=observations,
         )
+        planning_timings["fashion_intent"] = round(
+            (perf_counter() - intent_started) * 1000, 1
+        )
         planner = QueryPlanner(llm)
-        return planner.plan(
+        query_planner_started = perf_counter()
+        response = planner.plan(
             payload.user_input,
             audience=audience,
             hard=preference,
@@ -848,10 +858,24 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             fashion_intent=intent,
             search_garment_zones=payload.search_garment_zones,
             intent_fallback_used=fallback_used,
+            intent_fallback_error=intent_interpreter.last_error,
             include_debug=payload.include_debug,
             observations=observations,
             knowledge_retrieval_note=knowledge_note,
         )
+        planning_timings["query_planner"] = round(
+            (perf_counter() - query_planner_started) * 1000, 1
+        )
+        planning_timings["total"] = round(
+            (perf_counter() - planning_started) * 1000, 1
+        )
+        if response.debug is not None:
+            response = response.model_copy(update={
+                "debug": response.debug.model_copy(update={
+                    "stage_timings_ms": planning_timings,
+                })
+            })
+        return response
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
 
@@ -880,6 +904,8 @@ def clarify_requirements(
 
 @router.post("/query-plans/refine", response_model=PlanResponse)
 def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> PlanResponse:
+    planning_started = perf_counter()
+    planning_timings: dict[str, float] = {}
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
@@ -889,11 +915,16 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     requirements, observations, knowledge_note = planning_context_and_knowledge(
         db, combined, payload.requirements, audience
     )
+    planning_timings["context_and_knowledge"] = round(
+        (perf_counter() - planning_started) * 1000, 1
+    )
     payload = payload.model_copy(update={"requirements": requirements})
     try:
         llm = LLM()
+        intent_started = perf_counter()
+        intent_interpreter = FashionIntentInterpreter(llm)
         intent, fallback_used = interpret_fashion_intent_or_none(
-            FashionIntentInterpreter(llm),
+            intent_interpreter,
             enabled=settings.fashion_intent_interpreter_enabled,
             raw_user_text=original or payload.user_input,
             requirement_summary=(
@@ -907,8 +938,12 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             previous_intent=payload.fashion_intent,
             observations=observations,
         )
+        planning_timings["fashion_intent"] = round(
+            (perf_counter() - intent_started) * 1000, 1
+        )
         planner = QueryPlanner(llm)
-        return planner.plan(
+        query_planner_started = perf_counter()
+        response = planner.plan(
             original or payload.user_input,
             audience=audience,
             hard=preference,
@@ -919,10 +954,24 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             fashion_intent=intent,
             search_garment_zones=payload.search_garment_zones,
             intent_fallback_used=fallback_used,
+            intent_fallback_error=intent_interpreter.last_error,
             include_debug=payload.include_debug,
             observations=observations,
             knowledge_retrieval_note=knowledge_note,
         )
+        planning_timings["query_planner"] = round(
+            (perf_counter() - query_planner_started) * 1000, 1
+        )
+        planning_timings["total"] = round(
+            (perf_counter() - planning_started) * 1000, 1
+        )
+        if response.debug is not None:
+            response = response.model_copy(update={
+                "debug": response.debug.model_copy(update={
+                    "stage_timings_ms": planning_timings,
+                })
+            })
+        return response
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
 
@@ -1003,7 +1052,13 @@ def recommendations(
     audience = effective_audience(payload.user_input, payload.audience, hard)
     try:
         groups = search_catalog(
-            db, payload.queries, payload.top_k, audience=audience, hard=hard
+            db,
+            payload.queries,
+            payload.top_k,
+            audience=audience,
+            hard=hard,
+            user_input=payload.user_input,
+            requirements=payload.requirements,
         )
         timings["catalog_search"] = round((perf_counter() - started_at) * 1000, 1)
     except Exception as error:
@@ -1041,14 +1096,14 @@ def recommendations(
             debug=finalize_debug(debug),
         )
 
-    shoe_planning_started = perf_counter()
-    shoe_specs = {}
-    if settings.openai_api_key:
-        try:
-            shoe_specs = ShoePlanner(LLM()).plan(payload.user_input, shortlist)
-        except RuntimeError:
-            pass
-    timings["shoe_planner"] = round((perf_counter() - shoe_planning_started) * 1000, 1)
+    # Query Planner already produced one shoe brief per A-G styling direction.
+    # Map those seven briefs onto the ranked outfits without another LLM call.
+    shoe_specs = {
+        outfit.id: payload.shoe_specs[outfit.direction_id]
+        for outfit in shortlist
+        if outfit.direction_id is not None
+        and outfit.direction_id in payload.shoe_specs
+    }
 
     should_review = (
         payload.use_aesthetic_review
@@ -1128,12 +1183,15 @@ def recommendations(
         diagnostics = getattr(reviewer, "last_debug", {})
         if debug is not None:
             debug = debug.model_copy(update={"aesthetic_review_diagnostics": diagnostics})
-        final = [
+        eligible = [
             recommendation
             for recommendation in reviewed_pool
             if recommendation.aesthetic_review is not None
             and not recommendation.aesthetic_review.fatal_issues
-        ][:payload.final_count]
+        ]
+        # Preserve the reviewer's 100%-review-based ordering while avoiding a
+        # page full of the same shirt or trousers when distinct products exist.
+        final = select_diverse(eligible, payload.final_count)
         shoe_retrieval_started = perf_counter()
         shoe_result = attach_post_review_shoes(
             db,

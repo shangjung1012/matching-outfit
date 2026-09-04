@@ -29,11 +29,27 @@ const planningReasons = computed(() => {
   const zones = new Set(props.outfit.items.map((item) => item.garment_zone))
   return Array.from(new Set(
     (props.queries || [])
-      .filter((query) => query.selected && zones.has(query.garment_zone))
+      .filter((query) => (
+        query.selected
+        && zones.has(query.garment_zone)
+        && query.direction_id === props.outfit.direction_id
+      ))
       .map((query) => query.rationale.trim())
       .filter(Boolean),
-  )).slice(0, props.outfit.kind === 'separates' ? 4 : 2)
+  )).slice(0, props.outfit.kind === 'separates' ? 2 : 1)
 })
+
+const upperItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'upper_body'))
+const lowerItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'lower_body'))
+const onePieceItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'one_piece'))
+const shoeItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'accessory'))
+
+function visibleItemDescription(item: OutfitRecommendation['items'][number]): string {
+  const traits = [item.base_colour, item.article_type]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(' ')
+  return `「${item.product_display_name}」${traits ? `（${traits}）` : ''}`
+}
 
 function itemSelectionReason(item: OutfitRecommendation['items'][number]): string {
   const identity = [item.base_colour, item.article_type]
@@ -66,7 +82,13 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
         {{ outfit.kind === 'separates' ? '上下身搭配' : '單件套裝' }}
       </div>
       <h3>{{ outfit.items.map((item) => item.product_display_name).join(' + ') }}</h3>
-      <p v-if="outfit.aesthetic_review">{{ outfit.aesthetic_review.reason }}</p>
+      <div v-if="outfit.aesthetic_review" class="outfit-review-summary">
+        <p v-if="upperItem"><strong>上衣：</strong>{{ visibleItemDescription(upperItem) }}</p>
+        <p v-if="lowerItem"><strong>下身：</strong>{{ visibleItemDescription(lowerItem) }}</p>
+        <p v-if="onePieceItem"><strong>洋裝／連身：</strong>{{ visibleItemDescription(onePieceItem) }}</p>
+        <p v-if="shoeItem"><strong>鞋子：</strong>{{ visibleItemDescription(shoeItem) }}</p>
+        <p><strong>搭配與整體：</strong>{{ outfit.aesthetic_review.reason }}</p>
+      </div>
       <aside v-if="outfit.aesthetic_review?.inner_layer_suggestion" class="outfit-inner-layer">
         <strong>內搭建議</strong>
         <p>{{ outfit.aesthetic_review.inner_layer_suggestion }}</p>
@@ -110,7 +132,7 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
             <strong>最後怎麼確認</strong>
             <p>
               視覺審查再檢查場合、配色、輪廓和材質，給出的整體美感為
-              {{ outfit.aesthetic_review.overall_aesthetic }} 分。{{ outfit.aesthetic_review.reason }}
+              {{ outfit.aesthetic_review.overall_aesthetic }} 分。
             </p>
           </section>
           <section v-else>

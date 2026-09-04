@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from PIL import Image, ImageOps
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, Field
 
 from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink, StylingGuide
 from app.schemas.fashion_knowledge import OutfitObservation
@@ -17,7 +17,9 @@ AESTHETIC_REVIEW_PROMPT = (PROMPTS_DIR / "AestheticReviewer.txt").read_text(
 ).strip()
 
 
-class CandidateAestheticReview(AestheticReview):
+class CandidateAestheticReview(BaseModel):
+    """Compact model output; legacy display fields are derived locally."""
+
     candidate_id: str
     style_identity_match: int = Field(ge=0, le=100)
     silhouette_proportion: int = Field(ge=0, le=100)
@@ -25,32 +27,9 @@ class CandidateAestheticReview(AestheticReview):
     color_material_harmony: int = Field(ge=0, le=100)
     constraint_compliance: int = Field(ge=0, le=100)
     style_drift_detected: bool
-    style_drift_evidence: list[str]
-    _fallback_fields: list[str] = PrivateAttr(default_factory=list)
-
-    @model_validator(mode="wrap")
-    @classmethod
-    def legacy_local_fallback(cls, value, handler):
-        missing = []
-        if isinstance(value, dict):
-            value = dict(value)
-            defaults = {
-                "style_identity_match": value.get("overall_aesthetic", 0),
-                "silhouette_proportion": value.get("silhouette_balance", 0),
-                "pairing_coherence": value.get("overall_aesthetic", 0),
-                "color_material_harmony": (value.get("color_harmony", 0) + value.get("material_coherence", 0)) // 2,
-                "constraint_compliance": value.get("occasion_fit", 0),
-                "style_drift_detected": False,
-                "style_drift_evidence": [],
-            }
-            for key, default in defaults.items():
-                if value.get(key) is None:
-                    missing.append(key)
-                    value[key] = default
-        result = handler(value)
-        if missing:
-            result._fallback_fields = missing
-        return result
+    style_drift_evidence: list[str] = Field(default_factory=list, max_length=2)
+    fatal_issues: list[str] = Field(default_factory=list, max_length=3)
+    reason: str = Field(min_length=2, max_length=220)
 
 
 class AestheticReviewBatch(BaseModel):
@@ -211,9 +190,6 @@ class AestheticReviewer:
                 ),
             },
         )
-        valid_observation_ids = {
-            observation.observation_id for observation in observations
-        }
         submitted_ids = [candidate["candidate_id"] for candidate in metadata]
         self.last_debug["submitted_ids"] = submitted_ids
         header = json.loads(content[0]["text"])
@@ -255,29 +231,36 @@ class AestheticReviewer:
                         attempt["duplicate_ids"].append(identifier)
                         continue
                     seen.add(identifier)
-                    if review._fallback_fields:
-                        attempt.setdefault("local_fallbacks", []).append({
-                            "candidate_id": identifier,
-                            "fields": review._fallback_fields,
-                            "source": "deterministic_local_fallback",
-                        })
-                    accepted = AestheticReview.model_validate({
-                        **review.model_dump(exclude={"candidate_id"}),
-                        "local_fallback_fields": review._fallback_fields,
-                        "knowledge_observation_ids": list(dict.fromkeys(
-                            value for value in review.knowledge_observation_ids
-                            if value in valid_observation_ids
-                        )),
-                    })
+                    overall_aesthetic = round(
+                        0.30 * review.style_identity_match
+                        + 0.20 * review.silhouette_proportion
+                        + 0.20 * review.pairing_coherence
+                        + 0.20 * review.color_material_harmony
+                        + 0.10 * review.constraint_compliance
+                    )
+                    accepted = AestheticReview(
+                        style_identity_match=review.style_identity_match,
+                        silhouette_proportion=review.silhouette_proportion,
+                        pairing_coherence=review.pairing_coherence,
+                        color_material_harmony=review.color_material_harmony,
+                        constraint_compliance=review.constraint_compliance,
+                        style_drift_detected=review.style_drift_detected,
+                        style_drift_evidence=review.style_drift_evidence,
+                        occasion_fit=review.constraint_compliance,
+                        color_harmony=review.color_material_harmony,
+                        silhouette_balance=review.silhouette_proportion,
+                        material_coherence=review.color_material_harmony,
+                        overall_aesthetic=overall_aesthetic,
+                        fatal_issues=review.fatal_issues,
+                        reason=review.reason,
+                        knowledge_observation_ids=[],
+                    )
                     context = fashion_intent.activity_context if fashion_intent else None
                     if (
                         context is not None and context.activity_present
                         and context.requested_visual_identity.strip()
                         and accepted.style_drift_detected and accepted.style_drift_evidence
                         and accepted.style_identity_match < 50
-                        and not any(field in review._fallback_fields for field in (
-                            "style_identity_match", "style_drift_detected", "style_drift_evidence",
-                        ))
                     ):
                         accepted = accepted.model_copy(update={
                             "overall_aesthetic": min(49, accepted.overall_aesthetic),
@@ -318,14 +301,10 @@ def apply_aesthetic_reviews(
         if review is None:
             rescored.append(recommendation)
             continue
-        aesthetic_score = (
-            0.25 * review.occasion_fit
-            + 0.20 * review.color_harmony
-            + 0.15 * review.silhouette_balance
-            + 0.10 * review.material_coherence
-            + 0.30 * review.overall_aesthetic
-        ) / 100
-        final_score = 0.6 * recommendation.score + 0.4 * aesthetic_score
+        # The catalog ranker only creates the shortlist. Once a visual review
+        # exists, final ordering is based entirely on the reviewer's score.
+        aesthetic_score = review.overall_aesthetic / 100
+        final_score = aesthetic_score
         if review.fatal_issues:
             final_score -= 0.18
         context = fashion_intent.activity_context if fashion_intent else None
@@ -335,9 +314,6 @@ def apply_aesthetic_reviews(
             and review.style_drift_detected and review.style_drift_evidence
             and review.style_identity_match is not None and review.style_identity_match < 50
             and review.overall_aesthetic <= 49
-            and not any(field in review.local_fallback_fields for field in (
-                "style_identity_match", "style_drift_detected", "style_drift_evidence",
-            ))
         ):
             final_score = min(final_score, 0.49)
         breakdown = recommendation.score_breakdown

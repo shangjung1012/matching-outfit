@@ -816,7 +816,18 @@ Never force a citation.
 REVIEW REASON
 --------------------------------------------------
 
-Use concise Traditional Chinese.
+Use concise but specific Traditional Chinese.
+
+The reason must be exactly two sentences, normally 50-160 Traditional Chinese
+characters total. For a separates outfit, the first sentence must describe a visible
+feature of both the upper garment and lower garment and explain why they coordinate or
+conflict. For a one-piece outfit, describe the visible silhouette, color, and material
+impression of that garment. The second sentence must summarize the overall feeling and
+whether it suits the requested occasion or style. Do not restate product names, metadata,
+weather details, or every numeric dimension.
+
+Do not mention or evaluate shoes. Shoes are retrieved only after this visual review and
+are described separately by the application.
 
 Explain the actual visible reason.
 
@@ -840,7 +851,7 @@ Do not say only:
 
 Explain why.
 
-Example:
+Example for separates:
 
 "上衣的高飽和多色印花成為過強焦點，雖然黑色短褲有收斂效果，但整體仍偏雜亂，
 且使用者並未要求鮮豔或圖案風格，因此不適合作為主要推薦。"
@@ -848,6 +859,23 @@ Example:
 --------------------------------------------------
 FATAL ISSUES
 --------------------------------------------------
+
+INTERPRETING SKIRT AND SHOULDER REQUIREMENTS
+
+- For this application, a request using 洋裝 or 裙裝 accepts either a true one-piece
+  dress or a coordinated upper garment plus skirt. A top-and-skirt outfit is not a
+  fatal violation merely because it is made from two pieces. Trousers, jeans, and
+  shorts are violations of that skirt-based request.
+- "Cover the shoulders" means fabric visibly covers the shoulder joint/cap. A square,
+  scoop, or wide neckline may expose collarbones and upper chest while still covering
+  both shoulders.
+- A short sleeve, puff sleeve, cap sleeve, three-quarter sleeve, or long sleeve counts
+  as a sleeve when it visibly attaches across and covers the shoulder cap.
+- Mark exposed shoulders only for clearly strapless, spaghetti-strap, halter, one-
+  shoulder, cold-shoulder cutout, or genuinely off-shoulder construction. Do not infer
+  bare shoulders from an open neckline, cropped hem, or visible collarbone.
+- If shoulder coverage is visually ambiguous, lower constraint confidence modestly;
+  do not create a fatal issue without clear visible evidence.
 
 Use `fatal_issues` only for serious concrete failures such as:
 
@@ -887,11 +915,11 @@ Do not omit candidates.
 
 For each review:
 
-- output a score from 0 to 100,
-- give a concise Traditional Chinese reason,
+- output only the five required numeric scores from 0 to 100,
+- give exactly one short Traditional Chinese sentence as the reason,
 - include `fatal_issues` only when necessary,
-- include only materially relevant `knowledge_observation_ids`,
-- use an empty list when no observation mattered.
+- keep `style_drift_evidence` to at most two short items,
+- do not output duplicate legacy scores; the server derives them locally.
 
 
 Follow the supplied review schema exactly.

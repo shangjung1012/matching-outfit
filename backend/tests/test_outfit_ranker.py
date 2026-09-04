@@ -99,6 +99,22 @@ def test_ranker_applies_budget_after_combining_items() -> None:
     assert [[item.id for item in outfit.items] for outfit in recommendations] == [[503]]
 
 
+def test_ranker_preserves_best_one_piece_direction() -> None:
+    dress = cloth(504, "one_piece", "Pink", 0.91).model_copy(
+        update={"article_type": "Dresses"}
+    )
+
+    recommendations = rank_outfits(
+        [
+            group("one_piece", [dress.model_copy(update={"similarity": 0.72})], direction_id="A"),
+            group("one_piece", [dress], direction_id="C"),
+        ],
+        limit=1,
+    )
+
+    assert recommendations[0].direction_id == "C"
+
+
 def test_ranker_preserves_candidates_from_each_styling_direction() -> None:
     recommendations = rank_outfits(
         [

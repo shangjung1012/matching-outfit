@@ -14,6 +14,7 @@ from app.schemas.fashion_knowledge import StrictModel, OutfitObservation
 from app.schemas.workflow import (
     ChatTurn,
     ClarificationResponse,
+    DirectionShoePlan,
     FashionIntent,
     PlanResponse,
     QueryDraft,
@@ -39,6 +40,32 @@ FASHION_INTENT_INTERPRETER_PROMPT = (
 logger = logging.getLogger(__name__)
 DEFAULT_QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
 SEARCH_ZONE_QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
+
+
+def is_skirt_outfit_request(
+    user_input: str,
+    requirements: RequirementSummary | None = None,
+) -> bool:
+    """Treat 洋裝/裙裝 as skirt-based looks, while respecting explicit rejection."""
+    requirement_text = " ".join(
+        value
+        for value in (
+            requirements.search_brief if requirements else None,
+            requirements.additional_notes if requirements else None,
+        )
+        if value
+    )
+    text = f"{user_input} {requirement_text}".strip().lower()
+    skirt_outfit = re.search(
+        r"(?:洋裝|裙裝|裙子|連身(?:裙|洋裝)|\bdress(?:es)?\b|\bskirts?\b)",
+        text,
+    )
+    rejected_skirt = re.search(
+        r"(?:不要|不穿|避免|排除|不想要|no|without)\s*(?:任何)?\s*"
+        r"(?:洋裝|裙裝|裙子|連身(?:裙|洋裝)|dress(?:es)?|skirts?)",
+        text,
+    )
+    return bool(skirt_outfit and not rejected_skirt)
 
 
 def query_counts_for(search_garment_zones: list[str] | None) -> dict[str, int]:
@@ -79,6 +106,11 @@ FALLBACK_QUERIES = {
     "one_piece": (
         "visually coherent versatile relaxed one-piece dress or jumpsuit",
         "visually coherent versatile structured one-piece dress or jumpsuit",
+        "visually coherent lightweight short-sleeve one-piece dress",
+        "visually coherent clean minimal midi one-piece dress",
+        "visually coherent softly tailored one-piece dress",
+        "visually coherent refined flowing one-piece dress",
+        "visually coherent polished casual one-piece dress",
     ),
 }
 
@@ -138,6 +170,7 @@ class KnowledgeQueryDraft(StrictModel):
     aesthetic_direction: list[str] = Field(default_factory=list)
     styling_guide: StylingGuide | None = None
     queries: list[PlannedCatalogQuery] = Field(min_length=1, max_length=12)
+    shoe_plans: list[DirectionShoePlan] = Field(default_factory=list, max_length=7)
     planning_note: str = ""
 
 
@@ -337,6 +370,7 @@ class FashionIntentInterpreter:
 
     def __init__(self, llm: LLM):
         self.llm = llm
+        self.last_error = ""
 
     @staticmethod
     def _strategy_text(intent: FashionIntent) -> str:
@@ -474,6 +508,7 @@ def interpret_fashion_intent_or_none(
             False,
         )
     except (RuntimeError, ValueError) as error:
+        interpreter.last_error = str(error)
         logger.warning("Fashion intent fallback used: %s", error)
         return None, True
 
@@ -908,6 +943,7 @@ class QueryPlanner:
         fashion_intent: FashionIntent | None = None,
         search_garment_zones: list[str] | None = None,
         intent_fallback_used: bool = False,
+        intent_fallback_error: str = "",
         include_debug: bool = False,
         observations: list[OutfitObservation] | None = None,
         knowledge_retrieval_note: str = "",
@@ -939,6 +975,14 @@ class QueryPlanner:
         requested_distribution = ", ".join(
             f"{zone}={count}" for zone, count in query_counts.items()
         )
+        skirt_outfit_override = (
+            " SKIRT-OUTFIT OVERRIDE: The user is asking for a dress/skirt-based look. "
+            "For A-E, every lower_body query must retrieve a skirt, never trousers, pants, "
+            "jeans, or shorts. For F-G, retrieve dresses, not jumpsuits or rompers. Preserve "
+            "all explicit sleeve and shoulder-coverage requirements."
+            if is_skirt_outfit_request(user_input, requirements)
+            else ""
+        )
         result = self.llm.parse(
             stage="query_planning",
             instructions=(
@@ -947,7 +991,14 @@ class QueryPlanner:
                 f"zones, with exactly {requested_distribution}. Do not return any other zone. "
                 "OUTPUT MINIMIZATION: for each query include one concise Traditional Chinese "
                 "rationale describing the styling direction. Do not generate styling_guide, "
-                "planning_note, knowledge commentary, pairing directions, or reviewer checklist."
+                "planning_note, knowledge commentary, pairing directions, or reviewer checklist. "
+                "Also return exactly one shoe_plans entry for every distinct direction_id in the "
+                "requested queries (A-G for a full plan). Each entry must contain one short English "
+                "shoe retrieval brief. Use a conservative shoe type and color appropriate for that "
+                "direction; prefer black, white, off-white, grey, beige, dark brown, or navy. "
+                "Do not score outfits. A product labelled beige may actually look yellow, orange, "
+                "or camel, so do not assume every beige shoe is a visually neutral match."
+                f"{skirt_outfit_override}"
             ),
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=KnowledgeQueryDraft,
@@ -970,6 +1021,24 @@ class QueryPlanner:
             query_counts,
         )
         direction_ids = self.normalizer.normalized_direction_ids(by_zone, query_counts)
+
+        expected_direction_ids = {
+            direction_id
+            for ids in direction_ids.values()
+            for direction_id in ids
+        }
+        shoe_plan_by_direction = {
+            plan.direction_id: plan
+            for plan in result.shoe_plans
+            if plan.direction_id in expected_direction_ids
+            and plan.shoe_spec.shoe_type.strip()
+            and plan.shoe_spec.shoe_query.strip()
+        }
+        shoe_plans = [
+            shoe_plan_by_direction[direction_id]
+            for direction_id in sorted(expected_direction_ids)
+            if direction_id in shoe_plan_by_direction
+        ]
 
         queries = [
             QueryDraft(
@@ -1050,9 +1119,13 @@ class QueryPlanner:
             "generated_queries_after_normalization": [
                 query.model_dump(mode="json") for query in queries
             ],
+            "shoe_plans": [
+                plan.model_dump(mode="json") for plan in shoe_plans
+            ],
             "normalizer_changes": normalizer_changes,
             "query_warnings": self._query_warnings(queries),
             "intent_fallback_used": intent_fallback_used,
+            "intent_fallback_error": intent_fallback_error,
             "model": settings.query_planner_model,
             "prompt_version": "intent-v1" if fashion_intent else "legacy-v2",
         }
@@ -1064,6 +1137,7 @@ class QueryPlanner:
         return PlanResponse(
             original_input=user_input,
             queries=queries,
+            shoe_plans=shoe_plans,
             planner=self.name,
             audience=audience,
             knowledge_observation_ids=used_ids,

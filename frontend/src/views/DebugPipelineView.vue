@@ -36,6 +36,16 @@ const requirementRows = computed(() => {
   return Object.entries(requirements).filter(([key]) => key !== 'tag_translations')
 })
 
+const planningTotalMs = computed(() => props.trace?.plan_debug?.stage_timings_ms?.total ?? 0)
+const recommendationTotalMs = computed(
+  () => props.trace?.recommendation_debug?.stage_timings_ms?.total ?? 0,
+)
+const fullPipelineMs = computed(() => planningTotalMs.value + recommendationTotalMs.value)
+
+function seconds(milliseconds: number): string {
+  return `${(milliseconds / 1000).toFixed(1)} 秒`
+}
+
 function zoneLabel(zone: GarmentZone) {
   return {
     upper_body: '上身',
@@ -134,8 +144,11 @@ function downloadTrace() {
           <strong>{{ trace.queries.length }} 條</strong>
         </article>
         <article>
-          <span>Ranker 候選</span>
-          <strong>{{ trace.recommendation_debug?.ranked_candidate_count ?? 0 }} 套</strong>
+          <span>全流程耗時</span>
+          <strong>{{ fullPipelineMs ? seconds(fullPipelineMs) : '尚無紀錄' }}</strong>
+          <small v-if="fullPipelineMs">
+            規劃 {{ seconds(planningTotalMs) }}（含 Query Planner）＋推薦 {{ seconds(recommendationTotalMs) }}
+          </small>
         </article>
       </div>
 
@@ -216,6 +229,9 @@ function downloadTrace() {
           </div>
           <p v-if="trace.plan_debug?.intent_fallback_used" class="debug-warning">
             <AlertTriangle :size="15" />Interpreter 失敗，本次已回退舊 Planner。
+            <span v-if="trace.plan_debug.intent_fallback_error">
+              原因：{{ trace.plan_debug.intent_fallback_error }}
+            </span>
           </p>
         </div>
         <div v-else class="debug-panel debug-muted">尚未產生 Intent，或本次使用了 fallback。</div>
@@ -228,6 +244,12 @@ function downloadTrace() {
             <span>模型：{{ trace.plan_debug.model }}</span>
             <span>Prompt：{{ trace.plan_debug.prompt_version }}</span>
             <span>修改 {{ trace.plan_debug.normalizer_changes.length }} 條</span>
+          </div>
+          <div v-if="Object.keys(trace.plan_debug.stage_timings_ms || {}).length" class="debug-meta-line">
+            <span
+              v-for="(milliseconds, timingStage) in trace.plan_debug.stage_timings_ms"
+              :key="timingStage"
+            >{{ timingStage }} {{ milliseconds.toFixed(0) }}ms</span>
           </div>
           <div v-if="trace.plan_debug.query_warnings.length" class="debug-warning-list">
             <strong><AlertTriangle :size="15" />Query warnings</strong>
@@ -248,6 +270,18 @@ function downloadTrace() {
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div v-if="trace.plan_debug.shoe_plans.length" class="debug-details-stack">
+            <details
+              v-for="plan in trace.plan_debug.shoe_plans"
+              :key="`shoe-plan-${plan.direction_id}`"
+            >
+              <summary>
+                <span>{{ plan.direction_id }} · 鞋子 query</span>
+                <strong>{{ plan.shoe_spec.shoe_query }}</strong>
+                <small>{{ plan.shoe_spec.shoe_color }} · {{ plan.shoe_spec.shoe_type }}</small>
+              </summary>
+            </details>
           </div>
         </div>
         <div v-else class="debug-panel debug-muted">確認需求並產生 query 後，這裡會顯示 Planner trace。</div>

@@ -95,8 +95,9 @@ def test_body_contract_survives_interpret_plan_review(monkeypatch, case, user_te
             assert "Do not infer the user's body from the catalog model." in instructions
             return AestheticReviewBatch(reviews=[CandidateAestheticReview(
                 candidate_id=payload["candidates"][0]["candidate_id"],
-                occasion_fit=75, color_harmony=75, silhouette_balance=75,
-                material_coherence=75, overall_aesthetic=75,
+                style_identity_match=75, silhouette_proportion=75,
+                pairing_coherence=75, color_material_harmony=75,
+                constraint_compliance=75, style_drift_detected=False,
                 reason="比例協調；操作力道無法由圖片確認。",
             )])
 

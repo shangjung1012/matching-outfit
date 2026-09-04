@@ -122,8 +122,10 @@ def attach_post_review_shoes(
     if not indexed:
         return (outfits, []) if include_debug else outfits
 
+    # Query Planner has already produced the retrieval-ready sentence for each
+    # A-G direction. Search it verbatim after the reviewer selects the winners.
     original_specs = [spec for _, _, spec in indexed]
-    prepared = [_prepared_spec(outfit, spec, requirements, user_input) for _, outfit, spec in indexed]
+    prepared = original_specs
     try:
         candidate_groups = search_shoe_candidates(
             db, prepared, audience=audience, hard=hard, top_k=5

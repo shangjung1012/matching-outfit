@@ -24,6 +24,7 @@ import type {
   FashionKnowledgeSource,
   StylingGuide,
   FashionIntent,
+  ShoeSpec,
   FavoriteCollection,
   FavoriteItemsMutationResponse,
 } from './types'
@@ -121,6 +122,7 @@ export function getRecommendations(
   userInput: string,
   requirements: RequirementSummary | null,
   stylingGuide: StylingGuide | null,
+  shoeSpecs: Record<string, ShoeSpec>,
   audience?: Audience,
   signal?: AbortSignal,
   fashionIntent?: FashionIntent | null,
@@ -135,6 +137,7 @@ export function getRecommendations(
     audience: audience || null,
     requirements,
     styling_guide: stylingGuide,
+    shoe_specs: shoeSpecs,
     shortlist_count: 30,
     fashion_intent: fashionIntent || null,
     final_count: 10,

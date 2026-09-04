@@ -3,8 +3,11 @@ from sqlalchemy.orm import Session
 
 from app.models.cloth import Cloth
 from app.models.user_preference import UserHardRule
-from app.schemas import ClothResult, QueryDraft, QuerySearchResult, ReferenceLink, ShoeSpec
+from app.schemas import (
+    ClothResult, QueryDraft, QuerySearchResult, ReferenceLink, RequirementSummary, ShoeSpec,
+)
 from app.services.integration_tools.fashion_clip import fashion_clip
+from app.services.query_planner import is_skirt_outfit_request
 
 
 def _price_filters(hard: UserHardRule) -> list:
@@ -68,6 +71,8 @@ def search_catalog(
     top_k: int,
     audience: str | None = None,
     hard: UserHardRule | None = None,
+    user_input: str = "",
+    requirements: RequirementSummary | None = None,
 ) -> list[QuerySearchResult]:
     # only search queries that are selected
     selected = [query for query in queries if query.selected]
@@ -83,11 +88,16 @@ def search_catalog(
     # encode the queries(default = 6) into FashionCLIP vectors
     vectors = fashion_clip.encode_texts([query.text for query in selected])
     output: list[QuerySearchResult] = []
+    skirt_outfit_only = is_skirt_outfit_request(user_input, requirements)
 
     # search the catalog for each query
     for query, vector in zip(selected, vectors, strict=True):
         distance = Cloth.embedding.cosine_distance(vector).label("distance")
         base = [Cloth.embedding.is_not(None), Cloth.garment_zone == query.garment_zone]
+        if skirt_outfit_only and query.garment_zone == "lower_body":
+            base.append(func.lower(Cloth.article_type).in_(["skirt", "skirts"]))
+        elif skirt_outfit_only and query.garment_zone == "one_piece":
+            base.append(func.lower(Cloth.article_type).in_(["dress", "dresses"]))
         if audience == "men":
             base.append(Cloth.gender.in_(["Men", "Unisex"]))
         elif audience == "women":
