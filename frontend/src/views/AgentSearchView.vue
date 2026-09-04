@@ -2,16 +2,16 @@
 import { computed, ref } from 'vue'
 import { ArrowLeft, Check, Heart, MessageSquare, Send, Sparkles } from 'lucide-vue-next'
 import {
-  confirmPreferenceProposal,
+  confirmSoftPreferences,
   createQueryPlan,
-  getPreferenceProposal,
   getRecommendations,
+  proposeSoftFromOutfit,
   refineQueryPlan,
 } from '../api'
 import OutfitCard from '../components/OutfitCard.vue'
 import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
-import type { Audience, OutfitRecommendation, PreferenceProposal, QueryDraft } from '../types'
+import type { Audience, OutfitRecommendation, QueryDraft, StylePreferenceProposal } from '../types'
 
 const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{ preferenceUpdated: [] }>()
@@ -29,7 +29,7 @@ const draft = ref('')
 const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
 const likedIds = ref(new Set<number>())
-const proposal = ref<PreferenceProposal | null>(null)
+const proposal = ref<StylePreferenceProposal | null>(null)
 const proposalDismissed = ref(false)
 const preferenceUpdated = ref(false)
 const loading = ref(false)
@@ -145,7 +145,13 @@ function toggleLike(id: number) {
 
 async function buildProposal() {
   await run(async () => {
-    proposal.value = await getPreferenceProposal(props.userKey, [...likedIds.value])
+    const likedItems = new Set<number>()
+    for (const outfit of recommendations.value) {
+      for (const item of outfit.items) {
+        if (likedIds.value.has(item.id)) likedItems.add(item.id)
+      }
+    }
+    proposal.value = await proposeSoftFromOutfit(props.userKey, Array.from(likedItems))
     addMessage('agent', '我整理了這次按愛心反映出的偏好，你可以先確認再更新。')
   })
 }
@@ -153,7 +159,7 @@ async function buildProposal() {
 async function confirmProposal() {
   if (!proposal.value) return
   await run(async () => {
-    await confirmPreferenceProposal(props.userKey, proposal.value!)
+    await confirmSoftPreferences(props.userKey, proposal.value!.proposals)
     proposal.value = null
     preferenceUpdated.value = true
     emit('preferenceUpdated')

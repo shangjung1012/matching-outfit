@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 
-from app.services.fashion_clip import fashion_clip
+from app.services.integration_tools.fashion_clip import fashion_clip
 from app.services.garment_classifier import classify_garment_zone
 
 

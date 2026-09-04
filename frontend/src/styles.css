@@ -267,6 +267,30 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tag-list button { width: 15px; height: 15px; display: grid; place-items: center; border: 0; padding: 0; color: #667269; background: transparent; }
 .tag-entry { display: flex; gap: 7px; }
 .notes-field textarea { min-height: 100px; }
+.form-section-heading h4 { margin: 14px 0 6px; font-size: .76rem; color: #505850; }
+.inline-check { display: flex; align-items: center; gap: 7px; margin: 4px 0; color: #505850; font-size: .74rem; font-weight: 650; }
+.inline-check input { width: auto; height: auto; }
+
+/* Soft style preferences */
+.soft-pref-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 7px; }
+.soft-pref-list li { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid #e0e3dd; border-radius: 6px; font-size: .74rem; }
+.soft-pref-list li.inactive { opacity: .45; }
+.soft-pref-tag { padding: 2px 7px; border-radius: 4px; font-size: .66rem; font-weight: 700; }
+.soft-pref-tag.prefer { color: #24523e; background: #e6f3ec; }
+.soft-pref-tag.avoid { color: #7a3030; background: #f6e7e7; }
+.soft-pref-body { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.soft-pref-weight { color: #7b817b; font-size: .68rem; }
+.soft-pref-src { color: #6a6f9a; font-size: .64rem; background: #ecedf6; padding: 1px 6px; border-radius: 4px; }
+.soft-pref-actions { display: flex; align-items: center; gap: 6px; }
+.icon-button { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid #d9ddd7; border-radius: 5px; background: #fff; color: #7a5050; }
+.soft-pref-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 6px; border-top: 1px dashed #d9ddd7; }
+.soft-pref-add select, .soft-pref-add input { height: 34px; }
+.soft-pref-add > input { flex: 1; min-width: 160px; }
+.weight-input { display: flex; align-items: center; gap: 5px; font-size: .68rem; color: #7b817b; }
+.weight-input input { width: 62px; }
+.proposal-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
+.proposal-rows li { display: flex; align-items: center; gap: 7px; font-size: .73rem; }
+.empty-hint { color: #7b817b; font-size: .73rem; margin: 0 0 12px; }
 
 /* Virtual try-on */
 .tryon-service-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; padding: 13px 15px; border: 1px solid; border-radius: 6px; }

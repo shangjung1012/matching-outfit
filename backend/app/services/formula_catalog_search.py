@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.models.user_preference import UserPreference
+from app.models.user_preference import UserHardRule, UserStylePreference
 from app.schemas import QueryDraft
 from app.schemas.styling import FormulaCatalogMatch, OutfitFormula
 from app.services.catalog_search import search_catalog
@@ -43,18 +43,19 @@ def search_formula_catalog(
     *,
     candidates_per_zone: int,
     outfits_per_formula: int,
-    preference: UserPreference | None,
+    hard: UserHardRule | None,
+    style_preferences: list[UserStylePreference] | None = None,
     audience: str | None = None,
 ) -> FormulaCatalogMatch:
     groups = search_catalog(
-        db, formula_queries(formula), candidates_per_zone, audience=audience
+        db, formula_queries(formula), candidates_per_zone, audience=audience, hard=hard
     )
     return FormulaCatalogMatch(
         formula=formula,
         recommendations=rank_outfits(
             groups,
             outfits_per_formula,
-            preference,
+            style_preferences,
             user_context=f"{formula.context_fit} {formula.why_it_works}",
         ),
     )

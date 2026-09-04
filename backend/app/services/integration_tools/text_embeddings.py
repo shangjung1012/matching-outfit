@@ -1,3 +1,5 @@
+"""OpenAI text-embedding adapter for fashion knowledge retrieval."""
+
 from openai import OpenAI, OpenAIError
 
 

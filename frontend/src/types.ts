@@ -21,7 +21,6 @@ export interface TryOnJob {
   expires_at: string | null
 }
 export type Audience = 'men' | 'women' | 'unisex'
-export type AppView = 'agent' | 'catalog' | 'preferences'
 
 export interface QueryDraft {
   id: string
@@ -114,22 +113,54 @@ export interface RecommendationResponse {
   knowledge_note: string
 }
 
-export interface PreferenceProposal {
-  favorite_colors_to_add: string[]
-  favorite_article_types_to_add: string[]
-  explanation: string
+// ---- User preferences: hard gates + soft weighted taste ----
+
+export type PreferenceAxis =
+  | 'style' | 'color' | 'silhouette' | 'material'
+  | 'article_type' | 'pattern' | 'length' | 'fit' | 'brand'
+export type PreferencePolarity = 'prefer' | 'avoid'
+export type PreferenceZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'any'
+export type PreferenceSource = 'explicit' | 'implicit'
+
+export interface HardRules {
+  user_key?: string
+  price_min: number | null
+  price_max: number | null
+  avoid_colours: string[]
+  avoid_article_types: string[]
+  avoid_master_categories: string[]
+  notes: string | null
 }
 
-export interface UserPreference {
+export interface StylePreferenceCreate {
+  axis: PreferenceAxis
+  value: string
+  zone: PreferenceZone
+  polarity: PreferencePolarity
+  weight: number
+  source: PreferenceSource
+  origin: string | null
+  origin_item_ids: string[]
+  context_occasions: string[]
+  context_seasons: string[]
+  context_climates: string[]
+}
+
+export interface StylePreference extends StylePreferenceCreate {
+  id: number
   user_key: string
-  favorite_colors: string[]
-  disliked_colors: string[]
-  preferred_price_min: number | null
-  preferred_price_max: number | null
-  preferred_styles: string[]
-  preferred_categories: string[]
-  preferred_usages: string[]
-  favorite_article_types: string[]
-  disliked_article_types: string[]
-  notes: string | null
+  is_active: boolean
+  confirmed_at: string | null
+  last_applied_at: string | null
+  created_at: string | null
+}
+
+export interface PreferenceBundle {
+  hard: HardRules
+  soft: StylePreference[]
+}
+
+export interface StylePreferenceProposal {
+  proposals: StylePreferenceCreate[]
+  explanation: string
 }

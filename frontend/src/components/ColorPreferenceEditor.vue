@@ -1,6 +1,10 @@
 <script setup lang="ts">
-const props = defineProps<{ modelValue: string[] }>()
+import { computed } from 'vue'
+
+const props = defineProps<{ modelValue: string[] | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
+
+const selected = computed(() => props.modelValue ?? [])
 
 const colors = [
   { name: 'Black', value: '#202020' },
@@ -16,10 +20,10 @@ const colors = [
 ]
 
 function toggle(name: string) {
-  const selected = props.modelValue.includes(name)
-  emit('update:modelValue', selected
-    ? props.modelValue.filter((color) => color !== name)
-    : [...props.modelValue, name])
+  const current = selected.value
+  emit('update:modelValue', current.includes(name)
+    ? current.filter((color) => color !== name)
+    : [...current, name])
 }
 </script>
 
@@ -29,7 +33,7 @@ function toggle(name: string) {
       v-for="color in colors"
       :key="color.name"
       type="button"
-      :class="{ selected: modelValue.includes(color.name) }"
+      :class="{ selected: selected.includes(color.name) }"
       @click="toggle(color.name)"
     >
       <i :style="{ backgroundColor: color.value }" />

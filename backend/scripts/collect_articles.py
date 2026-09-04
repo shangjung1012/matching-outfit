@@ -2,9 +2,10 @@ import argparse
 from pathlib import Path
 
 from app.core.config import settings
-from app.services.article_collector import ArticleCollector
-from app.services.fashion_knowledge import ArticleKnowledgeExtractor, FashionKnowledgeStore
-from app.services.structured_llm import StructuredLLM
+from app.knowledge.ingestion.article_collector import ArticleCollector
+from app.knowledge.ingestion.article_extractor import ArticleKnowledgeExtractor
+from app.knowledge.store import FashionKnowledgeStore
+from app.services.integration_tools.llm import LLM
 
 
 def load_urls(path: Path) -> list[str]:
@@ -33,9 +34,7 @@ def main() -> None:
     )
     extractor = None
     if not args.collect_only:
-        extractor = ArticleKnowledgeExtractor(
-            StructuredLLM(settings.openai_api_key), settings.article_extraction_model
-        )
+        extractor = ArticleKnowledgeExtractor(LLM())
 
     urls = load_urls(args.url_file)
     if not urls:

@@ -1,33 +1,61 @@
+"""OpenAI Responses API adapter for structured LLM workflow stages."""
+
 import base64
 import io
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from openai import OpenAI, OpenAIError
 from PIL import Image
 from pydantic import BaseModel
 
+from app.core.config import settings
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+LLMStage = Literal[
+    "article_extraction",
+    "query_planning",
+    "query_repair",
+    "styling_planning",
+    "styling_critique",
+    "styling_revision",
+    "aesthetic_review",
+]
+
+_STAGE_MODEL_SETTING = {
+    "article_extraction": "article_extraction_model",
+    "query_planning": "styling_planner_model",
+    "query_repair": "styling_planner_model",
+    "styling_planning": "styling_planner_model",
+    "styling_critique": "styling_planner_model",
+    "styling_revision": "styling_planner_model",
+    "aesthetic_review": "aesthetic_review_model",
+}
 
 
-class StructuredLLM:
-    def __init__(self, api_key: str | None):
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for article extraction and styling")
-        self.client = OpenAI(api_key=api_key)
+class LLM:
+    """Application LLM gateway with centrally configured models per workflow stage."""
+
+    def __init__(self) -> None:
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for LLM-backed workflows")
+        self.client = OpenAI(api_key=settings.openai_api_key)
+
+    @staticmethod
+    def model_for(stage: LLMStage) -> str:
+        return getattr(settings, _STAGE_MODEL_SETTING[stage])
 
     def parse(
         self,
         *,
-        model: str,
+        stage: LLMStage,
         instructions: str,
         content: list[dict],
         schema: type[SchemaT],
     ) -> SchemaT:
         try:
             response = self.client.responses.parse(
-                model=model,
+                model=self.model_for(stage),
                 instructions=instructions,
                 input=[{"role": "user", "content": content}],
                 text_format=schema,

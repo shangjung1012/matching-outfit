@@ -1,3 +1,5 @@
+"""Offline HTML article collection for fashion-knowledge ingestion."""
+
 import hashlib
 import json
 import mimetypes

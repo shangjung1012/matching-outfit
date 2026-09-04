@@ -86,16 +86,22 @@ def nested_type_name(data: dict[str, Any], key: str) -> str | None:
     return str(name) if name else None
 
 
-def price_fields(style_data: dict[str, Any] | None, default_price: int) -> dict[str, int | None]:
+def price_fields(
+    style_data: dict[str, Any] | None,
+    default_price: int,
+    csv_price: int | None = None,
+) -> dict[str, int | None]:
     if style_data is None:
         return {
-            "price": default_price,
+            "price": csv_price if csv_price is not None else default_price,
             "original_price": None,
             "discounted_price": None,
         }
     original_price = positive_int(style_data.get("price"))
     discounted_price = positive_int(style_data.get("discountedPrice"))
     effective_price = discounted_price if discounted_price is not None else original_price
+    if effective_price is None:
+        effective_price = csv_price
     return {
         "price": effective_price if effective_price is not None else default_price,
         "original_price": original_price,
@@ -282,7 +288,11 @@ def main() -> None:
                 or row.get("productDisplayName")
                 or f"Item {source_id}",
                 "garment_zone": classify_garment_zone(article_type, sub_category),
-                **price_fields(style_data, args.default_price),
+                **price_fields(
+                    style_data,
+                    args.default_price,
+                    positive_int(row.get("prices") or row.get("price")),
+                ),
                 "currency": args.currency.upper(),
                 "brand_name": (style_data or {}).get("brandName"),
                 "age_group": (style_data or {}).get("ageGroup"),

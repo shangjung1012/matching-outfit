@@ -1,25 +1,43 @@
 import type {
   Audience,
   CatalogItem,
-  PreferenceProposal,
+  HardRules,
+  PreferenceBundle,
   QueryDraft,
+  StylePreference,
+  StylePreferenceCreate,
+  StylePreferenceProposal,
   TryOnCapabilities,
   TryOnClothType,
   TryOnJob,
   QueryPlanResponse,
   RecommendationResponse,
-  UserPreference,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
-  const payload = await response.json()
-  if (!response.ok) throw new Error(payload.detail ?? `Request failed: ${response.status}`)
+  const text = await response.text()
+  let payload: unknown = null
+  if (text) {
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      // non-JSON body (proxy error page, empty 404, etc.)
+    }
+  }
+  if (!response.ok) {
+    const detail = (payload as { detail?: string } | null)?.detail
+    throw new Error(detail ?? `Request failed: ${response.status} ${response.statusText}`.trim())
+  }
   return payload as T
 }
 
-function json(method: 'POST' | 'PUT', body: unknown): RequestInit {
-  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }
 }
 
 export function createQueryPlan(userInput: string, userKey: string, audience?: Audience) {
@@ -64,18 +82,29 @@ export function getRecommendations(
   }))
 }
 
-export function getPreferenceProposal(userKey: string, likedItemIds: number[]) {
-  return request<PreferenceProposal>('/api/preferences/proposals', json('POST', {
+const prefBase = (userKey: string) => `/api/preferences/${encodeURIComponent(userKey)}`
+
+// ---- Learn soft preferences from a liked outfit ----
+
+export function proposeSoftFromOutfit(
+  userKey: string,
+  itemIds: number[],
+  context: { occasions?: string[]; seasons?: string[]; climates?: string[] } = {},
+) {
+  return request<StylePreferenceProposal>(`${prefBase(userKey)}/soft/from-outfit`, json('POST', {
     user_key: userKey,
-    liked_item_ids: likedItemIds,
+    item_ids: itemIds,
+    context_occasions: context.occasions ?? [],
+    context_seasons: context.seasons ?? [],
+    context_climates: context.climates ?? [],
   }))
 }
 
-export function confirmPreferenceProposal(userKey: string, proposal: PreferenceProposal) {
-  return request<{ status: string }>('/api/preferences/confirm', json('POST', {
-    user_key: userKey,
-    ...proposal,
-  }))
+export function confirmSoftPreferences(userKey: string, rows: StylePreferenceCreate[]) {
+  return request<{ status: string; created: number; updated: number }>(
+    `${prefBase(userKey)}/soft/confirm`,
+    json('POST', { user_key: userKey, rows }),
+  )
 }
 
 export function getCatalog(zone = '', search = '') {
@@ -85,15 +114,33 @@ export function getCatalog(zone = '', search = '') {
   return request<{ items: CatalogItem[]; total: number }>(`/api/catalog?${params}`)
 }
 
-export function getUserPreference(userKey: string) {
-  return request<UserPreference>(`/api/preferences/${encodeURIComponent(userKey)}`)
+// ---- Preference settings page ----
+
+export function getPreferenceBundle(userKey: string) {
+  return request<PreferenceBundle>(prefBase(userKey))
 }
 
-export function saveUserPreference(userKey: string, preference: UserPreference) {
-  return request<UserPreference>(
-    `/api/preferences/${encodeURIComponent(userKey)}`,
-    json('PUT', preference),
+export function saveHardRules(userKey: string, hard: HardRules) {
+  return request<HardRules>(
+    `${prefBase(userKey)}/hard`,
+    json('PUT', { ...hard, user_key: userKey }),
   )
+}
+
+export function addStylePreference(userKey: string, row: StylePreferenceCreate) {
+  return request<StylePreference>(`${prefBase(userKey)}/soft`, json('POST', row))
+}
+
+export function patchStylePreference(
+  userKey: string,
+  id: number,
+  patch: { is_active?: boolean; weight?: number },
+) {
+  return request<StylePreference>(`${prefBase(userKey)}/soft/${id}`, json('PATCH', patch))
+}
+
+export function deleteStylePreference(userKey: string, id: number) {
+  return request<void>(`${prefBase(userKey)}/soft/${id}`, json('DELETE'))
 }
 
 export function getTryOnCapabilities() {

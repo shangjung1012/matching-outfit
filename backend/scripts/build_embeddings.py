@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.cloth import Cloth
-from app.services.fashion_clip import fashion_clip
+from app.services.integration_tools.fashion_clip import fashion_clip
 
 
 def main() -> None:

@@ -2,9 +2,9 @@ import argparse
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.services.fashion_knowledge import FashionKnowledgeStore
-from app.services.fashion_knowledge_repository import import_knowledge_records
-from app.services.text_embeddings import TextEmbeddingService
+from app.knowledge.ingestion.db_importer import import_knowledge_records
+from app.knowledge.store import FashionKnowledgeStore
+from app.services.integration_tools.text_embeddings import TextEmbeddingService
 
 
 def main() -> None:

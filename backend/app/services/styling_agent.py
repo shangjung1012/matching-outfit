@@ -6,7 +6,7 @@ from app.schemas.styling import (
     StylingDemoResponse,
     StylingDraft,
 )
-from app.services.structured_llm import StructuredLLM
+from app.services.integration_tools.llm import LLM
 
 
 PLANNER_SYSTEM_PROMPT = """
@@ -57,9 +57,8 @@ revised outfit. Answer in concise Traditional Chinese.
 
 
 class StylingAgent:
-    def __init__(self, llm: StructuredLLM, model: str):
+    def __init__(self, llm: LLM):
         self.llm = llm
-        self.model = model
 
     @staticmethod
     def _observation_payload(observations: list[OutfitObservation]) -> list[dict]:
@@ -77,7 +76,7 @@ class StylingAgent:
             "retrieved_observations": self._observation_payload(observations),
         }
         return self.llm.parse(
-            model=self.model,
+            stage="styling_planning",
             instructions=PLANNER_SYSTEM_PROMPT,
             content=[
                 {
@@ -102,7 +101,7 @@ class StylingAgent:
             "retrieved_observations": self._observation_payload(observations),
         }
         return self.llm.parse(
-            model=self.model,
+            stage="styling_critique",
             instructions=CRITIC_SYSTEM_PROMPT,
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=StylingCritique,
@@ -124,7 +123,7 @@ class StylingAgent:
             "retrieved_observations": self._observation_payload(observations),
         }
         return self.llm.parse(
-            model=self.model,
+            stage="styling_revision",
             instructions=REVISION_SYSTEM_PROMPT,
             content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
             schema=StylingDraft,

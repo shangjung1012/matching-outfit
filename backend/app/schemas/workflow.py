@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
 Audience = Literal["men", "women", "unisex"]
@@ -68,6 +69,7 @@ class ClothResult(BaseModel):
 class QuerySearchResult(BaseModel):
     query: QueryDraft
     clothes: list[ClothResult]
+    relaxed: bool = False  # the user's "avoid" hard rules emptied this zone, so they were dropped here
 
 
 class SearchResponse(BaseModel):
@@ -112,26 +114,116 @@ class RecommendationResponse(BaseModel):
     knowledge_note: str = ""
 
 
-class PreferenceProposalRequest(BaseModel):
+# ---------------------------------------------------------------------------
+# User preferences
+#
+# Hard rules live on the ``user_hard_rules`` row and act as gates - they are
+# translated into SQL filters on ``clothes``. Soft style preferences live on
+# ``user_style_preferences`` as weighted, context-scoped taste: "explicit" from
+# the settings UI, "implicit" promoted from liked outfits. Soft rows share
+# FashionObservation's vocabulary so the planner/ranker can fold them together
+# with retrieved fashion knowledge.
+# ---------------------------------------------------------------------------
+
+PreferenceAxis = Literal[
+    "style", "color", "silhouette", "material", "article_type", "pattern", "length", "fit", "brand"
+]
+PreferencePolarity = Literal["prefer", "avoid"]
+PreferenceZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "any"]
+PreferenceSource = Literal["explicit", "implicit"]
+
+
+class HardRules(BaseModel):
+    price_min: int | None = Field(default=None, ge=0)
+    price_max: int | None = Field(default=None, ge=0)
+    avoid_colours: list[str] = Field(default_factory=list)
+    avoid_article_types: list[str] = Field(default_factory=list)
+    avoid_master_categories: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _price_order(self) -> "HardRules":
+        if (
+            self.price_min is not None
+            and self.price_max is not None
+            and self.price_min > self.price_max
+        ):
+            raise ValueError("price_min must not exceed price_max")
+        return self
+
+
+class HardRulesView(HardRules):
+    user_key: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HardRulesUpdate(HardRules):
+    user_key: str = Field(min_length=1, max_length=120)
+
+
+class StylePreferenceBase(BaseModel):
+    axis: PreferenceAxis
+    value: str = Field(min_length=1, max_length=80)
+    zone: PreferenceZone = "any"
+    polarity: PreferencePolarity = "prefer"
+    weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    context_occasions: list[str] = Field(default_factory=list)
+    context_seasons: list[str] = Field(default_factory=list)
+    context_climates: list[str] = Field(default_factory=list)
+
+
+class StylePreferenceCreate(StylePreferenceBase):
+    source: PreferenceSource = "explicit"
+    origin: str | None = Field(default=None, max_length=255)
+    origin_item_ids: list[str] = Field(default_factory=list)
+
+
+class StylePreferencePatch(BaseModel):
+    is_active: bool | None = None
+    weight: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class StylePreferenceView(StylePreferenceCreate):
+    id: int
+    user_key: str
+    is_active: bool = True
+    confirmed_at: datetime | None = None
+    last_applied_at: datetime | None = None
+    created_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PreferenceBundle(BaseModel):
+    hard: HardRulesView
+    soft: list[StylePreferenceView] = Field(default_factory=list)
+
+
+class StylePreferenceProposalRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
-    liked_item_ids: list[int] = Field(min_length=1)
+    item_ids: list[int] = Field(min_length=1)
+    context_occasions: list[str] = Field(default_factory=list)
+    context_seasons: list[str] = Field(default_factory=list)
+    context_climates: list[str] = Field(default_factory=list)
 
 
-class PreferenceProposal(BaseModel):
-    favorite_colors_to_add: list[str]
-    favorite_article_types_to_add: list[str]
-    explanation: str
+class StylePreferenceProposal(BaseModel):
+    proposals: list[StylePreferenceCreate] = Field(default_factory=list)
+    explanation: str = "Only a proposal - persist it after the user confirms."
 
 
-class PreferenceConfirmation(BaseModel):
+class StylePreferenceConfirmRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
-    favorite_colors_to_add: list[str] = Field(default_factory=list)
-    favorite_article_types_to_add: list[str] = Field(default_factory=list)
+    rows: list[StylePreferenceCreate] = Field(min_length=1)
 
 
-class PreferenceConfirmationResponse(BaseModel):
+class StylePreferenceMutationResponse(BaseModel):
     status: str
     user_key: str
+    created: int = 0
+    updated: int = 0
+    removed: int = 0
 
 
 class CatalogItem(BaseModel):
@@ -161,20 +253,3 @@ class CatalogResponse(BaseModel):
     items: list[CatalogItem]
     total: int
 
-
-class UserPreferenceView(BaseModel):
-    user_key: str
-    favorite_colors: list[str] = Field(default_factory=list)
-    disliked_colors: list[str] = Field(default_factory=list)
-    preferred_price_min: int | None = None
-    preferred_price_max: int | None = None
-    preferred_styles: list[str] = Field(default_factory=list)
-    preferred_categories: list[str] = Field(default_factory=list)
-    preferred_usages: list[str] = Field(default_factory=list)
-    favorite_article_types: list[str] = Field(default_factory=list)
-    disliked_article_types: list[str] = Field(default_factory=list)
-    notes: str | None = None
-
-
-class UserPreferenceUpdate(UserPreferenceView):
-    pass

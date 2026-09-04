@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
@@ -8,22 +9,26 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
-from app.models.user_preference import UserPreference
+from app.models.user_preference import UserHardRule, UserStylePreference
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
+    HardRulesUpdate,
+    HardRulesView,
     PlanRequest,
     PlanResponse,
-    PreferenceConfirmation,
-    PreferenceConfirmationResponse,
-    PreferenceProposal,
-    PreferenceProposalRequest,
+    PreferenceBundle,
     RecommendationResponse,
     RefineRequest,
     SearchRequest,
     SearchResponse,
-    UserPreferenceUpdate,
-    UserPreferenceView,
+    StylePreferenceConfirmRequest,
+    StylePreferenceCreate,
+    StylePreferenceMutationResponse,
+    StylePreferencePatch,
+    StylePreferenceProposal,
+    StylePreferenceProposalRequest,
+    StylePreferenceView,
     FashionKnowledgeStatus,
     StylingDemoRequest,
     StylingDemoResponse,
@@ -32,12 +37,12 @@ from app.schemas import (
 )
 from app.services.catalog_search import search_catalog
 from app.services.outfit_ranker import rank_outfits
-from app.services.query_planner import query_planner
-from app.services.fashion_knowledge import FashionKnowledgeStore, retrieve_observations
-from app.services.fashion_knowledge_repository import infer_audience, retrieve_observations_from_db
-from app.services.knowledge_query_planner import KnowledgeQueryPlanner
-from app.services.structured_llm import StructuredLLM
-from app.services.text_embeddings import TextEmbeddingService
+from app.knowledge.retrieval import retrieve_observations
+from app.knowledge.store import FashionKnowledgeStore
+from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
+from app.services.query_planner import QueryPlanner
+from app.services.integration_tools.llm import LLM
+from app.services.integration_tools.text_embeddings import TextEmbeddingService
 from app.services.styling_agent import StylingAgent
 from app.services.formula_catalog_search import search_formula_catalog
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
@@ -97,29 +102,57 @@ def styling_demo(
             observations = retrieve_observations(
                 payload.user_input, store.observations(), payload.top_k_observations
             )
-        agent = StylingAgent(
-            StructuredLLM(settings.openai_api_key), settings.styling_planner_model
-        )
+        agent = StylingAgent(LLM())
         return agent.run(payload.user_input, observations, revise_once=payload.revise_once)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-def preference_context(preference: UserPreference | None) -> dict:
+HARD_RULE_SCALAR_FIELDS = ("price_min", "price_max", "notes")
+HARD_RULE_LIST_FIELDS = (
+    "avoid_colours",
+    "avoid_article_types",
+    "avoid_master_categories",
+)
+HARD_RULE_FIELDS = (*HARD_RULE_SCALAR_FIELDS, *HARD_RULE_LIST_FIELDS)
+
+
+def hard_rules_payload(preference: UserHardRule | None) -> dict:
     if preference is None:
-        return {}
-    return {
-        "favorite_colors": preference.favorite_colors or [],
-        "disliked_colors": preference.disliked_colors or [],
-        "preferred_price_min": preference.preferred_price_min,
-        "preferred_price_max": preference.preferred_price_max,
-        "preferred_styles": preference.preferred_styles or [],
-        "preferred_categories": preference.preferred_categories or [],
-        "preferred_usages": preference.preferred_usages or [],
-        "favorite_article_types": preference.favorite_article_types or [],
-        "disliked_article_types": preference.disliked_article_types or [],
-        "notes": preference.notes,
-    }
+        return {
+            **{field: None for field in HARD_RULE_SCALAR_FIELDS},
+            **{field: [] for field in HARD_RULE_LIST_FIELDS},
+        }
+    return {field: getattr(preference, field) for field in HARD_RULE_FIELDS}
+
+
+def soft_preferences_payload(style_preferences: list[UserStylePreference]) -> list[dict]:
+    return [
+        {
+            "axis": row.axis,
+            "value": row.value,
+            "zone": row.zone,
+            "polarity": row.polarity,
+            "weight": row.weight,
+            "source": row.source,
+            "context_occasions": row.context_occasions or [],
+            "context_seasons": row.context_seasons or [],
+            "context_climates": row.context_climates or [],
+        }
+        for row in style_preferences
+    ]
+
+
+def preference_context(
+    preference: UserHardRule | None,
+    style_preferences: list[UserStylePreference] | None = None,
+) -> dict:
+    context: dict = {}
+    if preference is not None:
+        context["hard_rules"] = hard_rules_payload(preference)
+    if style_preferences:
+        context["soft_preferences"] = soft_preferences_payload(style_preferences)
+    return context
 
 
 def semantic_fashion_knowledge(
@@ -151,7 +184,8 @@ def styling_catalog_recommendations(
             status_code=409,
             detail="No catalog embeddings are available. Import clothes and build embeddings first.",
         )
-    preference = preference_for(db, payload.user_key)
+    preference = hard_rules_for(db, payload.user_key)
+    style_preferences = style_preferences_for(db, payload.user_key)
     store = fashion_knowledge_store()
     try:
         embedder = TextEmbeddingService(
@@ -170,14 +204,12 @@ def styling_catalog_recommendations(
             observations = retrieve_observations(
                 payload.user_input, store.observations(), payload.top_k_observations
             )
-        agent = StylingAgent(
-            StructuredLLM(settings.openai_api_key), settings.styling_planner_model
-        )
+        agent = StylingAgent(LLM())
         styling = agent.run(
             payload.user_input,
             observations,
             revise_once=payload.revise_once,
-            preference_context=preference_context(preference),
+            preference_context=preference_context(preference, style_preferences),
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -188,7 +220,8 @@ def styling_catalog_recommendations(
                 formula,
                 candidates_per_zone=payload.candidates_per_zone,
                 outfits_per_formula=payload.outfits_per_formula,
-                preference=preference,
+                hard=preference,
+                style_preferences=style_preferences,
                 audience=infer_audience(payload.user_input, payload.audience),
             )
             for formula in styling.final_draft.outfits
@@ -256,32 +289,151 @@ def list_catalog(
     )
 
 
-def preference_for(db: Session, user_key: str) -> UserPreference | None:
-    return db.scalar(select(UserPreference).where(UserPreference.user_key == user_key))
+def hard_rules_for(db: Session, user_key: str) -> UserHardRule | None:
+    return db.scalar(select(UserHardRule).where(UserHardRule.user_key == user_key))
+
+
+def style_preferences_for(
+    db: Session, user_key: str, *, only_active: bool = True
+) -> list[UserStylePreference]:
+    statement = select(UserStylePreference).where(UserStylePreference.user_key == user_key)
+    if only_active:
+        statement = statement.where(UserStylePreference.is_active.is_(True))
+    return list(db.scalars(statement.order_by(UserStylePreference.id)))
+
+
+def _pref_zone(garment_zone: str | None) -> str:
+    return garment_zone if garment_zone in {
+        "upper_body",
+        "lower_body",
+        "one_piece",
+        "accessory",
+    } else "any"
+
+
+def upsert_style_preference(
+    db: Session,
+    user_key: str,
+    row: StylePreferenceCreate,
+    *,
+    confirmed: bool = False,
+) -> tuple[UserStylePreference, bool]:
+    """Insert a soft preference, or merge into the existing slot.
+
+    The slot key mirrors the ``uq_user_style_preference_slot`` constraint
+    (user_key, axis, value, zone, polarity). A repeated confirmation reactivates
+    the row, nudges its weight up, and unions the context lists.
+    """
+    existing = db.scalar(
+        select(UserStylePreference).where(
+            UserStylePreference.user_key == user_key,
+            UserStylePreference.axis == row.axis,
+            UserStylePreference.value == row.value,
+            UserStylePreference.zone == row.zone,
+            UserStylePreference.polarity == row.polarity,
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if existing is None:
+        created = UserStylePreference(
+            user_key=user_key,
+            axis=row.axis,
+            value=row.value,
+            zone=row.zone,
+            polarity=row.polarity,
+            weight=row.weight,
+            source=row.source,
+            origin=row.origin,
+            origin_item_ids=row.origin_item_ids,
+            context_occasions=row.context_occasions,
+            context_seasons=row.context_seasons,
+            context_climates=row.context_climates,
+            is_active=True,
+            confirmed_at=now if confirmed else None,
+        )
+        db.add(created)
+        return created, True
+
+    existing.is_active = True
+    existing.weight = min(1.0, max(existing.weight, row.weight) + (0.05 if confirmed else 0.0))
+    existing.context_occasions = sorted({*existing.context_occasions, *row.context_occasions})
+    existing.context_seasons = sorted({*existing.context_seasons, *row.context_seasons})
+    existing.context_climates = sorted({*existing.context_climates, *row.context_climates})
+    existing.origin_item_ids = sorted({*existing.origin_item_ids, *row.origin_item_ids})
+    if confirmed:
+        existing.confirmed_at = now
+    return existing, False
+
+
+def style_proposals_from_clothes(
+    clothes: list[Cloth], payload: StylePreferenceProposalRequest
+) -> list[StylePreferenceCreate]:
+    context = {
+        "context_occasions": payload.context_occasions,
+        "context_seasons": payload.context_seasons,
+        "context_climates": payload.context_climates,
+    }
+    origin_item_ids = [str(cloth.id) for cloth in clothes]
+    colours: Counter[tuple[str, str]] = Counter()
+    article_types: Counter[tuple[str, str]] = Counter()
+    for cloth in clothes:
+        zone = _pref_zone(cloth.garment_zone)
+        if cloth.base_colour:
+            colours[(zone, cloth.base_colour.strip().lower())] += 1
+        if cloth.article_type:
+            article_types[(zone, cloth.article_type.strip().lower())] += 1
+
+    proposals: list[StylePreferenceCreate] = []
+    for (zone, value), _ in colours.most_common(4):
+        proposals.append(
+            StylePreferenceCreate(
+                axis="color",
+                value=value,
+                zone=zone,
+                polarity="prefer",
+                weight=0.2,
+                source="implicit",
+                origin="liked-outfit",
+                origin_item_ids=origin_item_ids,
+                **context,
+            )
+        )
+    for (zone, value), _ in article_types.most_common(4):
+        proposals.append(
+            StylePreferenceCreate(
+                axis="article_type",
+                value=value,
+                zone=zone,
+                polarity="prefer",
+                weight=0.2,
+                source="implicit",
+                origin="liked-outfit",
+                origin_item_ids=origin_item_ids,
+                **context,
+            )
+        )
+    return proposals
 
 
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
-    preference = preference_for(db, payload.user_key)
+    preference = hard_rules_for(db, payload.user_key)
+    style_preferences = style_preferences_for(db, payload.user_key)
     audience = infer_audience(payload.user_input, payload.audience)
     try:
         observations = semantic_fashion_knowledge(
             db, payload.user_input, audience=audience, top_k=8
         )
-        planner = KnowledgeQueryPlanner(
-            StructuredLLM(settings.openai_api_key), settings.styling_planner_model
-        )
+        planner = QueryPlanner(LLM())
         return planner.plan(
             payload.user_input,
             observations,
             audience=audience,
-            preference=preference,
+            hard=preference,
+            style_preferences=style_preferences,
         )
     except RuntimeError as error:
-        fallback = query_planner.plan(payload.user_input, preference)
-        fallback.audience = audience
-        fallback.planning_note = f"Knowledge agent unavailable; rule-based fallback used: {error}"
-        return fallback
+        raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
 
 
 @router.post("/query-plans/refine", response_model=PlanResponse)
@@ -289,40 +441,39 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
-    preference = preference_for(db, payload.user_key)
+    preference = hard_rules_for(db, payload.user_key)
+    style_preferences = style_preferences_for(db, payload.user_key)
     audience = infer_audience(combined, payload.audience)
     try:
+        # 先嘗試把 user input + original 去找 fashion knowledge
         observations = semantic_fashion_knowledge(
             db, combined, audience=audience, top_k=8
         )
-        planner = KnowledgeQueryPlanner(
-            StructuredLLM(settings.openai_api_key), settings.styling_planner_model
-        )
+        planner = QueryPlanner(LLM())
         return planner.plan(
             original or payload.user_input,
             observations,
             audience=audience,
-            preference=preference,
+            hard=preference,
+            style_preferences=style_preferences,
             existing_queries=selected,
             refinement=payload.user_input,
         )
     except RuntimeError as error:
-        fallback = query_planner.plan(
-            original or payload.user_input,
-            preference,
-            payload.user_input,
-            zones=[query.garment_zone for query in selected] or None,
-        )
-        fallback.audience = audience
-        fallback.planning_note = f"Knowledge agent unavailable; rule-based fallback used: {error}"
-        return fallback
+        raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
 
 
 @router.post("/catalog/search", response_model=SearchResponse)
 def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchResponse:
     try:
         audience = infer_audience(payload.user_input, payload.audience)
-        results = search_catalog(db, payload.queries, payload.top_k, audience=audience)
+        results = search_catalog(
+            db,
+            payload.queries,
+            payload.top_k,
+            audience=audience,
+            hard=hard_rules_for(db, payload.user_key),
+        )
     except Exception as error:
         raise HTTPException(status_code=503, detail=f"Embedding search unavailable: {error}") from error
     return SearchResponse(results=results, model=settings.fashion_clip_model)
@@ -359,16 +510,18 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         ]
     )
     ranking_context = f"{payload.user_input} {observation_context}".strip()
+    hard = hard_rules_for(db, payload.user_key)
+    style_preferences = style_preferences_for(db, payload.user_key)
     try:
         groups = search_catalog(
-            db, payload.queries, payload.top_k, audience=audience
+            db, payload.queries, payload.top_k, audience=audience, hard=hard
         )
     except Exception as error:
         raise HTTPException(status_code=503, detail=f"Embedding search unavailable: {error}") from error
     ranked_pool = rank_outfits(
         groups,
         limit=min(750, max(200, payload.shortlist_count * 20)),
-        preference=preference_for(db, payload.user_key),
+        style_preferences=style_preferences,
         user_context=payload.user_input,
     )
     shortlist = select_diverse(ranked_pool, payload.shortlist_count)
@@ -398,9 +551,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         )
 
     try:
-        reviewer = AestheticReviewer(
-            StructuredLLM(settings.openai_api_key), settings.aesthetic_review_model
-        )
+        reviewer = AestheticReviewer(LLM())
         reviews = reviewer.review(ranking_context, shortlist)
         final = apply_aesthetic_reviews(shortlist, reviews, final_count=payload.final_count)
         return RecommendationResponse(
@@ -418,85 +569,129 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         )
 
 
-@router.post("/preferences/proposals", response_model=PreferenceProposal)
-def propose_preference_update(
-    payload: PreferenceProposalRequest, db: Session = Depends(get_db)
-) -> PreferenceProposal:
-    clothes = db.scalars(select(Cloth).where(Cloth.id.in_(payload.liked_item_ids))).all()
-    if not clothes:
-        raise HTTPException(status_code=404, detail="No matching clothes found")
-    colors = [cloth.base_colour for cloth in clothes if cloth.base_colour]
-    article_types = [cloth.article_type for cloth in clothes if cloth.article_type]
-    return PreferenceProposal(
-        favorite_colors_to_add=[value for value, _ in Counter(colors).most_common(3)],
-        favorite_article_types_to_add=[value for value, _ in Counter(article_types).most_common(3)],
-        explanation="This is only a proposal. Persist it after the user explicitly confirms.",
+def _hard_rules_view(user_key: str, preference: UserHardRule | None) -> HardRulesView:
+    return HardRulesView(user_key=user_key, **hard_rules_payload(preference))
+
+
+@router.get("/preferences/{user_key}", response_model=PreferenceBundle)
+def get_preferences(user_key: str, db: Session = Depends(get_db)) -> PreferenceBundle:
+    """Everything the settings page needs in one call: hard gates + every soft row."""
+    return PreferenceBundle(
+        hard=_hard_rules_view(user_key, hard_rules_for(db, user_key)),
+        soft=[
+            StylePreferenceView.model_validate(row)
+            for row in style_preferences_for(db, user_key, only_active=False)
+        ],
     )
 
 
-@router.post("/preferences/confirm", response_model=PreferenceConfirmationResponse)
-def confirm_preference_update(
-    payload: PreferenceConfirmation, db: Session = Depends(get_db)
-) -> PreferenceConfirmationResponse:
-    preference = preference_for(db, payload.user_key)
-    if preference is None:
-        preference = UserPreference(user_key=payload.user_key)
-        db.add(preference)
-    preference.favorite_colors = list(
-        dict.fromkeys([*(preference.favorite_colors or []), *payload.favorite_colors_to_add])
-    )
-    preference.favorite_article_types = list(
-        dict.fromkeys(
-            [*(preference.favorite_article_types or []), *payload.favorite_article_types_to_add]
-        )
-    )
-    db.commit()
-    return PreferenceConfirmationResponse(status="updated", user_key=payload.user_key)
-
-
-@router.get("/preferences/{user_key}", response_model=UserPreferenceView)
-def get_user_preference(user_key: str, db: Session = Depends(get_db)) -> UserPreferenceView:
-    preference = preference_for(db, user_key)
-    if preference is None:
-        return UserPreferenceView(user_key=user_key)
-    return UserPreferenceView(
-        user_key=preference.user_key,
-        favorite_colors=preference.favorite_colors or [],
-        disliked_colors=preference.disliked_colors or [],
-        preferred_price_min=preference.preferred_price_min,
-        preferred_price_max=preference.preferred_price_max,
-        preferred_styles=preference.preferred_styles or [],
-        preferred_categories=preference.preferred_categories or [],
-        preferred_usages=preference.preferred_usages or [],
-        favorite_article_types=preference.favorite_article_types or [],
-        disliked_article_types=preference.disliked_article_types or [],
-        notes=preference.notes,
-    )
-
-
-@router.put("/preferences/{user_key}", response_model=UserPreferenceView)
-def update_user_preference(
-    user_key: str, payload: UserPreferenceUpdate, db: Session = Depends(get_db)
-) -> UserPreferenceView:
+@router.put("/preferences/{user_key}/hard", response_model=HardRulesView)
+def replace_hard_rules(
+    user_key: str, payload: HardRulesUpdate, db: Session = Depends(get_db)
+) -> HardRulesView:
+    """Full-replace the hard constraint gates (price / avoid lists / gender / size)."""
     if payload.user_key != user_key:
         raise HTTPException(status_code=400, detail="user_key in path and body must match")
-    preference = preference_for(db, user_key)
+    preference = hard_rules_for(db, user_key)
     if preference is None:
-        preference = UserPreference(user_key=user_key)
+        preference = UserHardRule(user_key=user_key)
         db.add(preference)
-    for field in (
-        "favorite_colors",
-        "disliked_colors",
-        "preferred_price_min",
-        "preferred_price_max",
-        "preferred_styles",
-        "preferred_categories",
-        "preferred_usages",
-        "favorite_article_types",
-        "disliked_article_types",
-        "notes",
-    ):
+    for field in HARD_RULE_FIELDS:
         setattr(preference, field, getattr(payload, field))
     db.commit()
     db.refresh(preference)
-    return get_user_preference(user_key, db)
+    return _hard_rules_view(user_key, preference)
+
+
+@router.get("/preferences/{user_key}/soft", response_model=list[StylePreferenceView])
+def list_style_preferences(
+    user_key: str,
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> list[StylePreferenceView]:
+    return [
+        StylePreferenceView.model_validate(row)
+        for row in style_preferences_for(db, user_key, only_active=not include_inactive)
+    ]
+
+
+@router.post("/preferences/{user_key}/soft", response_model=StylePreferenceView, status_code=201)
+def add_style_preference(
+    user_key: str, payload: StylePreferenceCreate, db: Session = Depends(get_db)
+) -> StylePreferenceView:
+    """Add one user-authored (explicit) soft preference, or merge into its slot."""
+    row, _ = upsert_style_preference(db, user_key, payload)
+    db.commit()
+    db.refresh(row)
+    return StylePreferenceView.model_validate(row)
+
+
+@router.patch(
+    "/preferences/{user_key}/soft/{preference_id}", response_model=StylePreferenceView
+)
+def patch_style_preference(
+    user_key: str,
+    preference_id: int,
+    payload: StylePreferencePatch,
+    db: Session = Depends(get_db),
+) -> StylePreferenceView:
+    row = db.get(UserStylePreference, preference_id)
+    if row is None or row.user_key != user_key:
+        raise HTTPException(status_code=404, detail="Style preference not found")
+    if payload.is_active is not None:
+        row.is_active = payload.is_active
+    if payload.weight is not None:
+        row.weight = payload.weight
+    db.commit()
+    db.refresh(row)
+    return StylePreferenceView.model_validate(row)
+
+
+@router.delete("/preferences/{user_key}/soft/{preference_id}", status_code=204)
+def delete_style_preference(
+    user_key: str, preference_id: int, db: Session = Depends(get_db)
+) -> None:
+    row = db.get(UserStylePreference, preference_id)
+    if row is None or row.user_key != user_key:
+        raise HTTPException(status_code=404, detail="Style preference not found")
+    db.delete(row)
+    db.commit()
+
+
+@router.post(
+    "/preferences/{user_key}/soft/from-outfit", response_model=StylePreferenceProposal
+)
+def propose_style_preferences(
+    user_key: str,
+    payload: StylePreferenceProposalRequest,
+    db: Session = Depends(get_db),
+) -> StylePreferenceProposal:
+    """Decompose a liked outfit into candidate soft rows. Nothing is persisted."""
+    if payload.user_key != user_key:
+        raise HTTPException(status_code=400, detail="user_key in path and body must match")
+    clothes = db.scalars(select(Cloth).where(Cloth.id.in_(payload.item_ids))).all()
+    if not clothes:
+        raise HTTPException(status_code=404, detail="No matching clothes found")
+    return StylePreferenceProposal(proposals=style_proposals_from_clothes(list(clothes), payload))
+
+
+@router.post(
+    "/preferences/{user_key}/soft/confirm", response_model=StylePreferenceMutationResponse
+)
+def confirm_style_preferences(
+    user_key: str,
+    payload: StylePreferenceConfirmRequest,
+    db: Session = Depends(get_db),
+) -> StylePreferenceMutationResponse:
+    """Persist confirmed rows as ``implicit`` soft preferences (upsert per slot)."""
+    if payload.user_key != user_key:
+        raise HTTPException(status_code=400, detail="user_key in path and body must match")
+    created = updated = 0
+    for row in payload.rows:
+        _, was_created = upsert_style_preference(db, user_key, row, confirmed=True)
+        created += int(was_created)
+        updated += int(not was_created)
+    db.commit()
+    return StylePreferenceMutationResponse(
+        status="ok", user_key=user_key, created=created, updated=updated
+    )

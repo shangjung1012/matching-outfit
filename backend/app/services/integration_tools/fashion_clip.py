@@ -1,3 +1,5 @@
+"""FashionCLIP adapter used to encode catalog search text and images."""
+
 from pathlib import Path
 
 from app.core.config import settings

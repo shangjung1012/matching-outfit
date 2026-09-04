@@ -1,27 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Plus, X } from 'lucide-vue-next'
 
-const props = defineProps<{ modelValue: string[]; placeholder?: string }>()
+const props = defineProps<{ modelValue: string[] | null; placeholder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
 const draft = ref('')
 
+const tags = computed(() => props.modelValue ?? [])
+
 function add() {
   const value = draft.value.trim()
-  if (!value || props.modelValue.some((item) => item.toLowerCase() === value.toLowerCase())) return
-  emit('update:modelValue', [...props.modelValue, value])
+  if (!value || tags.value.some((item) => item.toLowerCase() === value.toLowerCase())) return
+  emit('update:modelValue', [...tags.value, value])
   draft.value = ''
 }
 
 function remove(value: string) {
-  emit('update:modelValue', props.modelValue.filter((item) => item !== value))
+  emit('update:modelValue', tags.value.filter((item) => item !== value))
 }
 </script>
 
 <template>
   <div class="tag-editor">
-    <div v-if="modelValue.length" class="tag-list">
-      <span v-for="item in modelValue" :key="item">
+    <div v-if="tags.length" class="tag-list">
+      <span v-for="item in tags" :key="item">
         {{ item }}
         <button :title="`移除 ${item}`" @click="remove(item)"><X :size="13" /></button>
       </span>

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas import AestheticReview, OutfitRecommendation
 from app.services.outfit_ranker import select_diverse
-from app.services.structured_llm import StructuredLLM
+from app.services.integration_tools.llm import LLM
 
 AESTHETIC_REVIEW_PROMPT = """
 You are the final visual outfit critic for a practical recommendation system.
@@ -68,9 +68,8 @@ def outfit_contact_sheet_data_url(
 
 
 class AestheticReviewer:
-    def __init__(self, llm: StructuredLLM, model: str):
+    def __init__(self, llm: LLM):
         self.llm = llm
-        self.model = model
 
     def review(
         self,
@@ -121,7 +120,7 @@ class AestheticReviewer:
             },
         )
         result = self.llm.parse(
-            model=self.model,
+            stage="aesthetic_review",
             instructions=AESTHETIC_REVIEW_PROMPT,
             content=content,
             schema=AestheticReviewBatch,
