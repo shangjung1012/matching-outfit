@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.schemas.fashion_knowledge import (
     ArticleSource,
@@ -10,23 +11,10 @@ from app.schemas.fashion_knowledge import (
 )
 from app.services.integration_tools.llm import LLM, local_image_data_url
 
-
-EXTRACTION_SYSTEM_PROMPT = """
-You are a fashion knowledge editor. Convert one magazine article and its images into
-small, reusable outfit observations for a retrieval system.
-
-Ground every observation in supplied text or a visible image. Never invent a garment,
-color, material, occasion, or rule. Treat one editorial look as an example, not a
-universal truth. Separate durable coordination principles from current trends and from
-one-off editorial examples using signal_type. Prefer concrete relationships such as
-color balance, proportions, layering, formality, texture, and styling actions. Do not
-extract shopping copy, prices, brand promotion, celebrity biography, or duplicated
-observations. Keep the evidence short and paraphrased. Use concise Traditional Chinese
-for summaries and evidence; tags should be short normalized Chinese or English terms.
-Set audiences to men, women, or unisex only when supported by the article context or
-visible garments. Use unisex for genuinely gender-independent coordination principles.
-Return at most 12 observations. It is valid to return fewer when evidence is weak.
-""".strip()
+PROMPTS_DIR = Path(__file__).parents[2] / "services" / "prompts"
+EXTRACTION_SYSTEM_PROMPT = (PROMPTS_DIR / "ArticleExtractor.txt").read_text(
+    encoding="utf-8"
+).strip()
 
 
 class ArticleKnowledgeExtractor:

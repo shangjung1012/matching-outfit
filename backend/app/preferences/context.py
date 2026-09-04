@@ -32,6 +32,12 @@ def build_planner_preference_context(
     """Serialize persisted preferences into the query planner's LLM context."""
     payload: dict = {}
     if hard is not None:
+        payload["user_profile"] = {
+            "gender": hard.gender,
+            "age": hard.age,
+            "height_cm": hard.height_cm,
+            "weight_kg": hard.weight_kg,
+        }
         payload["hard_rules"] = {
             "avoid_colours": hard.avoid_colours or [],
             "avoid_article_types": hard.avoid_article_types or [],

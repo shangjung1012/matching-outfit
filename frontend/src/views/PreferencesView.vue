@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { Brain, Check, Pencil, Plus, Save, ShieldCheck, Trash2, X } from 'lucide-vue-next'
+import { Brain, Check, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-vue-next'
 import {
   addStylePreference,
   deleteStylePreference,
@@ -16,6 +16,10 @@ const props = defineProps<{ userKey: string }>()
 
 function emptyHard(): HardRules {
   return {
+    gender: null,
+    age: null,
+    height_cm: null,
+    weight_kg: null,
     price_min: null,
     price_max: null,
     avoid_colours: [],
@@ -61,9 +65,16 @@ async function saveHard() {
   message.value = ''
   error.value = ''
   try {
-    const saved = await saveHardRules(props.userKey, { ...hard })
+    const saved = await saveHardRules(props.userKey, {
+      ...hard,
+      age: hard.age || null,
+      height_cm: hard.height_cm || null,
+      weight_kg: hard.weight_kg || null,
+      price_min: hard.price_min || null,
+      price_max: hard.price_max || null,
+    })
     applyHard(saved)
-    message.value = '購物條件已儲存'
+    message.value = '個人資料與購物條件已儲存'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '儲存失敗'
   } finally {
@@ -140,6 +151,44 @@ onMounted(load)
 
     <div v-if="loading" class="loading-state">正在載入</div>
     <div v-else class="preference-form">
+      <section class="settings-section">
+        <header class="settings-section-heading">
+          <UserRound :size="20" />
+          <h3>個人資料</h3>
+        </header>
+
+        <div class="settings-list profile-settings-list">
+          <label class="profile-field">
+            <span>性別</span>
+            <select v-model="hard.gender">
+              <option :value="null">未設定</option>
+              <option value="female">女性</option>
+              <option value="male">男性</option>
+              <option value="non_binary">非二元</option>
+              <option value="prefer_not_to_say">不透露</option>
+            </select>
+          </label>
+          <label class="profile-field">
+            <span>年齡</span>
+            <input v-model.number="hard.age" type="number" min="1" max="120" />
+          </label>
+          <label class="profile-field">
+            <span>身高</span>
+            <div class="unit-input">
+              <input v-model.number="hard.height_cm" type="number" min="50" max="250" />
+              <span>cm</span>
+            </div>
+          </label>
+          <label class="profile-field">
+            <span>體重</span>
+            <div class="unit-input">
+              <input v-model.number="hard.weight_kg" type="number" min="10" max="400" />
+              <span>kg</span>
+            </div>
+          </label>
+        </div>
+      </section>
+
       <section class="settings-section">
         <header class="settings-section-heading">
           <ShieldCheck :size="20" />

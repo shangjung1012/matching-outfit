@@ -1,5 +1,6 @@
 from sqlalchemy import (
     CheckConstraint,
+    Float,
     Index,
     Integer,
     JSON,
@@ -26,10 +27,31 @@ class UserHardRule(Base):
             "price_max IS NULL OR price_max >= 0",
             name="ck_user_hard_rules_price_max_non_negative",
         ),
+        CheckConstraint(
+            "gender IS NULL OR gender IN ('female', 'male', 'non_binary', 'prefer_not_to_say')",
+            name="ck_user_hard_rules_gender",
+        ),
+        CheckConstraint(
+            "age IS NULL OR (age >= 1 AND age <= 120)",
+            name="ck_user_hard_rules_age",
+        ),
+        CheckConstraint(
+            "height_cm IS NULL OR (height_cm >= 50 AND height_cm <= 250)",
+            name="ck_user_hard_rules_height_cm",
+        ),
+        CheckConstraint(
+            "weight_kg IS NULL OR (weight_kg >= 10 AND weight_kg <= 400)",
+            name="ck_user_hard_rules_weight_kg",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+
+    gender: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Price gate -> clothes.price BETWEEN price_min AND price_max
     price_min: Mapped[int | None] = mapped_column(Integer, nullable=True)

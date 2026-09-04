@@ -16,6 +16,7 @@ The project has four main input sources:
    - Sent through the frontend or API to produce search plans and outfit recommendations.
 
 3. **User preferences**
+   - Personal profile: gender, age, height, and weight.
    - Hard rules: price limits and attributes to avoid.
    - Outfit memories: user-authored or confirmed preference sentences scoped by occasion, time, and situation.
 
@@ -73,7 +74,7 @@ PostgreSQL stores catalog rows, user preferences, article-derived knowledge, and
 Main tables:
 
 - `clothes`: imported catalog items, image paths, garment zones, price metadata, and FashionCLIP image embeddings.
-- `user_hard_rules`: one row per user for hard filters such as price range and avoided colors or categories.
+- `user_hard_rules`: one row per user for personal profile data and hard filters such as price range and avoided colors or categories.
 - `user_style_preferences`: context-scoped preference sentences, including user-authored entries and memories confirmed from liked outfits.
 - `fashion_articles`: article metadata and extracted summary.
 - `fashion_observations`: reusable outfit observations extracted from articles, with tags and text embeddings.
@@ -84,9 +85,10 @@ Main tables:
 ## Recommendation Flow
 
 ```text
-user input + user preferences
+user input + personal profile + user preferences
   -> retrieve relevant fashion observations from DB
-  -> LLM query planner creates catalog search queries by garment zone
+  -> LLM query planner considers fit, proportion, comfort, and audience context
+  -> planner creates catalog search queries by garment zone without inserting body measurements into FashionCLIP queries
   -> FashionCLIP searches catalog images/text
   -> outfit ranker combines upper/lower/one-piece candidates
   -> hard rules filter invalid items

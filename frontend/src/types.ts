@@ -143,6 +143,10 @@ export type PreferenceSource = 'explicit' | 'implicit'
 
 export interface HardRules {
   user_key?: string
+  gender: 'female' | 'male' | 'non_binary' | 'prefer_not_to_say' | null
+  age: number | null
+  height_cm: number | null
+  weight_kg: number | null
   price_min: number | null
   price_max: number | null
   avoid_colours: string[]

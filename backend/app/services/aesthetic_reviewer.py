@@ -10,17 +10,10 @@ from app.schemas import AestheticReview, OutfitRecommendation
 from app.services.outfit_ranker import select_diverse
 from app.services.integration_tools.llm import LLM
 
-AESTHETIC_REVIEW_PROMPT = """
-You are the final visual outfit critic for a practical recommendation system.
-Judge the actual catalog garment images as one outfit, in light of the original user
-request. Assess occasion fit, color harmony, silhouette balance, material coherence,
-and overall contemporary aesthetic quality. Treat strict dress codes as gates, but do
-not over-constrain ordinary leisure contexts. Product images are isolated cutouts, so
-do not invent body fit, exact fabric composition, or styling details that are not
-visible. Use the full 0-100 scale. Add fatal_issues only for concrete problems severe
-enough that the outfit should not be recommended. Return one review for every supplied
-candidate_id and concise Traditional Chinese reasons.
-""".strip()
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+AESTHETIC_REVIEW_PROMPT = (PROMPTS_DIR / "AestheticReviewer.txt").read_text(
+    encoding="utf-8"
+).strip()
 
 
 class CandidateAestheticReview(AestheticReview):

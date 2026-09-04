@@ -162,9 +162,14 @@ class RecommendationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 PreferenceSource = Literal["explicit", "implicit"]
+ProfileGender = Literal["female", "male", "non_binary", "prefer_not_to_say"]
 
 
 class HardRules(BaseModel):
+    gender: ProfileGender | None = None
+    age: int | None = Field(default=None, ge=1, le=120)
+    height_cm: float | None = Field(default=None, ge=50, le=250)
+    weight_kg: float | None = Field(default=None, ge=10, le=400)
     price_min: int | None = Field(default=None, ge=0)
     price_max: int | None = Field(default=None, ge=0)
     avoid_colours: list[str] = Field(default_factory=list)

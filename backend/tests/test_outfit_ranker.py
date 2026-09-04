@@ -1,4 +1,4 @@
-from app.models.user_preference import UserStylePreference
+from app.models.user_preference import UserHardRule, UserStylePreference
 from app.models.cloth import Cloth
 from app.preferences.context import relevant_style_preferences
 from app.schemas import (
@@ -8,7 +8,7 @@ from app.schemas import (
     ReferenceLink,
     StylePreferenceProposalRequest,
 )
-from app.api.routes import outfit_memory_proposals
+from app.api.routes import effective_audience, outfit_memory_proposals
 from app.services.outfit_ranker import rank_outfits, select_diverse
 
 
@@ -85,6 +85,14 @@ def test_outfit_memories_are_filtered_by_current_context() -> None:
     )
 
     assert selected == [wedding_memory]
+
+
+def test_explicit_request_overrides_profile_gender_audience() -> None:
+    profile = UserHardRule(user_key="demo", gender="female")
+
+    assert effective_audience("想找男裝西裝", None, profile) == "men"
+    assert effective_audience("想找正式西裝", None, profile) == "women"
+    assert effective_audience("想找正式西裝", "unisex", profile) == "unisex"
 
 
 def test_ranker_collects_and_deduplicates_query_reference_urls() -> None:

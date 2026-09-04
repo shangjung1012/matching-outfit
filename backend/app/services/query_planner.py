@@ -24,23 +24,10 @@ from app.preferences.context import build_planner_preference_context
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 QUERY_PLANNER_SYSTEM_PROMPT = (PROMPTS_DIR / "QueryPlanner.txt").read_text(encoding="utf-8").strip()
 QUERY_REPAIR_SYSTEM_PROMPT = (PROMPTS_DIR / "QueryPlannerSys.txt").read_text(encoding="utf-8").strip()
+REQUIREMENT_COLLECTOR_PROMPT = (PROMPTS_DIR / "RequirementCollector.txt").read_text(
+    encoding="utf-8"
+).strip()
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
-
-REQUIREMENT_COLLECTOR_PROMPT = """
-You are the requirement-collection stage of an outfit recommendation system.
-Do not generate catalog search queries or recommend garments yet. Read the full
-conversation and summarize what the user has explicitly provided about: occasion,
-time (season, date, or time of day), context (location, weather, activities, and
-formality), special requirements, and any additional notes.
-
-Decide which missing details would materially change the recommendation. Ask one
-concise Traditional Chinese follow-up that includes all important missing questions.
-Do not force the user to provide optional details and do not ask again for something
-they already answered or declined to provide. Set ready_to_plan when the information
-is sufficient. Always produce a self-contained Traditional Chinese search_brief from
-all known details. The reply must be concise Traditional Chinese and should confirm
-what was learned before asking the next question.
-""".strip()
 
 FALLBACK_QUERIES = {
     "upper_body": (

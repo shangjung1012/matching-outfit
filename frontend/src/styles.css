@@ -269,6 +269,12 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .settings-section-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: #315d49; }
 .settings-section-heading h3 { margin: 0; color: #252b27; font-size: .98rem; }
 .settings-list { overflow: hidden; border: 1px solid #d8dcd6; border-radius: 7px; background: #fff; }
+.profile-settings-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.profile-field { min-width: 0; display: grid; gap: 8px; padding: 17px 18px; color: #4f5851; font-size: .72rem; font-weight: 700; }
+.profile-field + .profile-field { border-left: 1px solid #e2e5e0; }
+.unit-input { position: relative; }
+.unit-input input { padding-right: 42px; }
+.unit-input span { position: absolute; top: 50%; right: 12px; color: #7b837c; font-size: .68rem; transform: translateY(-50%); }
 .settings-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: start; gap: 24px; padding: 18px 20px; }
 .settings-row + .settings-row { border-top: 1px solid #e2e5e0; }
 .settings-label { padding-top: 9px; color: #3f4741; font-size: .76rem; }
@@ -368,6 +374,9 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .agent-view { grid-template-columns: 310px minmax(0, 1fr); }
   .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .recommendation-card { grid-template-columns: 1fr; }
+  .profile-settings-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-field:nth-child(3) { border-top: 1px solid #e2e5e0; border-left: 0; }
+  .profile-field:nth-child(4) { border-top: 1px solid #e2e5e0; }
   .recommendation-visual { min-height: 230px; }
 }
 
@@ -399,6 +408,8 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .recommendation-visual { min-height: 310px; }
   .preference-proposal, .proposal-actions { align-items: stretch; flex-direction: column; }
   .settings-row, .memory-context-inputs { grid-template-columns: 1fr; }
+  .profile-settings-list { grid-template-columns: 1fr; }
+  .profile-field + .profile-field { border-top: 1px solid #e2e5e0; border-left: 0; }
   .settings-row { gap: 8px; padding: 15px; }
   .settings-label { padding-top: 0; }
   .memory-list li { align-items: flex-start; flex-direction: column; }

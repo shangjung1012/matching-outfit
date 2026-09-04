@@ -1,4 +1,6 @@
 from app.schemas import ChatTurn
+from app.models.user_preference import UserHardRule
+from app.preferences.context import build_planner_preference_context
 from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.query_planner import (
     EnglishQueryRepair,
@@ -37,6 +39,25 @@ def test_requirement_collector_summarizes_and_deduplicates_missing_fields() -> N
     assert result.requirements.search_brief == "參加婚禮，穿搭避免過度搶眼"
     assert result.missing_fields == ["time", "context"]
     assert result.ready_to_plan is False
+
+
+def test_planner_context_includes_user_profile() -> None:
+    profile = UserHardRule(
+        user_key="demo",
+        gender="female",
+        age=28,
+        height_cm=165.5,
+        weight_kg=55.0,
+    )
+
+    context = build_planner_preference_context(profile, [])
+
+    assert context["user_profile"] == {
+        "gender": "female",
+        "age": 28,
+        "height_cm": 165.5,
+        "weight_kg": 55.0,
+    }
 
 
 class FakeLLM:

@@ -76,7 +76,15 @@ def fashion_knowledge_status(db: Session = Depends(get_db)) -> FashionKnowledgeS
     )
 
 
-HARD_RULE_SCALAR_FIELDS = ("price_min", "price_max", "notes")
+HARD_RULE_SCALAR_FIELDS = (
+    "gender",
+    "age",
+    "height_cm",
+    "weight_kg",
+    "price_min",
+    "price_max",
+    "notes",
+)
 HARD_RULE_LIST_FIELDS = (
     "avoid_colours",
     "avoid_article_types",
@@ -92,6 +100,19 @@ def hard_rules_payload(preference: UserHardRule | None) -> dict:
             **{field: [] for field in HARD_RULE_LIST_FIELDS},
         }
     return {field: getattr(preference, field) for field in HARD_RULE_FIELDS}
+
+
+def effective_audience(
+    query: str, explicit: str | None, profile: UserHardRule | None
+) -> str | None:
+    requested = infer_audience(query, explicit)
+    if requested:
+        return requested
+    if profile is not None and profile.gender == "female":
+        return "women"
+    if profile is not None and profile.gender == "male":
+        return "men"
+    return None
 
 
 def semantic_fashion_knowledge(
@@ -255,7 +276,7 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
     style_preferences = relevant_style_preferences(
         style_preferences_for(db, payload.user_key), payload.user_input
     )
-    audience = infer_audience(payload.user_input, payload.audience)
+    audience = effective_audience(payload.user_input, payload.audience, preference)
     try:
         observations = semantic_fashion_knowledge(
             db, payload.user_input, audience=audience, top_k=8
@@ -279,12 +300,13 @@ def clarify_requirements(
     user_text = " ".join(
         message.text for message in payload.messages if message.role == "user"
     )
-    audience = infer_audience(user_text, payload.audience)
+    preference = hard_rules_for(db, payload.user_key)
+    audience = effective_audience(user_text, payload.audience, preference)
     try:
         return RequirementCollector(LLM()).collect(
             payload.messages,
             audience=audience,
-            hard=hard_rules_for(db, payload.user_key),
+            hard=preference,
             style_preferences=style_preferences_for(db, payload.user_key),
         )
     except RuntimeError as error:
@@ -302,7 +324,7 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     style_preferences = relevant_style_preferences(
         style_preferences_for(db, payload.user_key), combined
     )
-    audience = infer_audience(combined, payload.audience)
+    audience = effective_audience(combined, payload.audience, preference)
     try:
         # 先嘗試把 user input + original 去找 fashion knowledge
         observations = semantic_fashion_knowledge(
@@ -325,13 +347,14 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
 @router.post("/catalog/search", response_model=SearchResponse)
 def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchResponse:
     try:
-        audience = infer_audience(payload.user_input, payload.audience)
+        hard = hard_rules_for(db, payload.user_key)
+        audience = effective_audience(payload.user_input, payload.audience, hard)
         results = search_catalog(
             db,
             payload.queries,
             payload.top_k,
             audience=audience,
-            hard=hard_rules_for(db, payload.user_key),
+            hard=hard,
         )
     except Exception as error:
         raise HTTPException(status_code=503, detail=f"Embedding search unavailable: {error}") from error
@@ -340,7 +363,8 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchRespo
 
 @router.post("/recommendations", response_model=RecommendationResponse)
 def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> RecommendationResponse:
-    audience = infer_audience(payload.user_input, payload.audience)
+    hard = hard_rules_for(db, payload.user_key)
+    audience = effective_audience(payload.user_input, payload.audience, hard)
     observations = []
     knowledge_note = ""
     if payload.user_input:
@@ -368,7 +392,6 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             if observation.signal_type != "editorial_example"
         ]
     )
-    hard = hard_rules_for(db, payload.user_key)
     style_preferences = relevant_style_preferences(
         style_preferences_for(db, payload.user_key), payload.user_input
     )
