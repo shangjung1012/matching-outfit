@@ -94,6 +94,20 @@ class FinalizationFailingStorage(FakeStorage):
         super().save_manifest(manifest)
 
 
+class CleanupFailingStorage(FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_list = False
+        self.list_failure_raised = False
+
+    def list_manifests(self) -> list[service.JobManifest]:
+        if self.fail_next_list:
+            self.fail_next_list = False
+            self.list_failure_raised = True
+            raise RuntimeError("injected cleanup list failure")
+        return super().list_manifests()
+
+
 class RecordingEngine:
     device_name = "Fake CUDA"
 
@@ -352,12 +366,60 @@ def test_finalization_failures_do_not_stop_queue_worker(monkeypatch, caplog) -> 
             client,
             lower_image=("lower.png", png_bytes("green"), "image/png"),
         )
+        first_completed = wait_for_status(client, first.json()["id"], "succeeded")
         completed = wait_for_status(client, second.json()["id"], "succeeded")
 
     assert first.status_code == 202
+    assert first_completed["status"] == "succeeded"
     assert completed["status"] == "succeeded"
     assert storage.delete_failure_raised is True
     assert storage.final_save_failure_raised is True
     assert len(engine.calls) == 2
+    first_manifest = storage.manifests[uuid.UUID(first.json()["id"])]
+    assert first_manifest.person_object_key is None
+    assert first_manifest.reference_object_keys == {}
+    assert not any(
+        key.startswith(f"jobs/{first.json()['id']}/") and key != first_manifest.result_object_key
+        for key in storage.objects
+    )
     assert "Could not delete job input" in caplog.text
     assert "Could not persist final job manifest" in caplog.text
+
+
+def test_periodic_cleanup_recovers_after_transient_listing_failure(
+    monkeypatch,
+    caplog,
+) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    real_sleep = service.asyncio.sleep
+
+    async def short_sleep(_delay: float) -> None:
+        await real_sleep(0.001)
+
+    monkeypatch.setattr(service.asyncio, "sleep", short_sleep)
+    storage = CleanupFailingStorage()
+
+    with TestClient(service.create_app(RecordingEngine(), storage)):
+        job_id = uuid.uuid4()
+        now = service.utcnow()
+        storage.save_manifest(
+            service.JobManifest(
+                id=job_id,
+                status="failed",
+                reference_types=["shoe"],
+                created_at=now - timedelta(days=2),
+                updated_at=now - timedelta(days=2),
+                expires_at=now - timedelta(hours=1),
+            )
+        )
+        storage.fail_next_list = True
+
+        for _ in range(100):
+            if storage.list_failure_raised and job_id not in storage.manifests:
+                break
+            time.sleep(0.01)
+
+        assert storage.list_failure_raised is True
+        assert job_id not in storage.manifests
+
+    assert "Could not clean up expired jobs" in caplog.text

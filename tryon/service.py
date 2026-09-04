@@ -23,6 +23,9 @@ from engine import FastFitEngine
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 RESULT_RETENTION_HOURS = 24
+STORAGE_RETRY_ATTEMPTS = 3
+STORAGE_RETRY_BASE_DELAY_SECONDS = 0.05
+CLEANUP_INTERVAL_SECONDS = 3600
 REFERENCE_TYPES = ("upper", "lower", "overall", "shoe", "bag")
 logger = logging.getLogger(__name__)
 
@@ -225,6 +228,74 @@ def create_app(
     async def save_manifest(manifest: JobManifest) -> None:
         await asyncio.to_thread(api.state.storage.save_manifest, manifest)
 
+    async def save_manifest_with_retry(
+        manifest: JobManifest,
+        description: str,
+    ) -> None:
+        for attempt in range(1, STORAGE_RETRY_ATTEMPTS + 1):
+            try:
+                await save_manifest(manifest)
+                return
+            except Exception:
+                logger.warning(
+                    "Could not persist %s for job %s (attempt %s/%s)",
+                    description,
+                    manifest.id,
+                    attempt,
+                    STORAGE_RETRY_ATTEMPTS,
+                    exc_info=True,
+                )
+                if attempt == STORAGE_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(STORAGE_RETRY_BASE_DELAY_SECONDS * attempt)
+
+    async def delete_input_with_retry(
+        job_id: uuid.UUID,
+        object_key: str,
+    ) -> bool:
+        for attempt in range(1, STORAGE_RETRY_ATTEMPTS + 1):
+            try:
+                await asyncio.to_thread(api.state.storage.delete, object_key)
+                return True
+            except Exception:
+                logger.warning(
+                    "Could not delete job input %s for job %s (attempt %s/%s)",
+                    object_key,
+                    job_id,
+                    attempt,
+                    STORAGE_RETRY_ATTEMPTS,
+                    exc_info=True,
+                )
+                if attempt < STORAGE_RETRY_ATTEMPTS:
+                    await asyncio.sleep(STORAGE_RETRY_BASE_DELAY_SECONDS * attempt)
+        return False
+
+    async def delete_job_inputs(manifest: JobManifest) -> bool:
+        targets: list[tuple[str | None, str]] = []
+        if manifest.person_object_key:
+            targets.append((None, manifest.person_object_key))
+        targets.extend(manifest.reference_object_keys.items())
+        if not targets:
+            return False
+
+        delete_results = await asyncio.gather(
+            *(
+                delete_input_with_retry(manifest.id, object_key)
+                for _, object_key in targets
+            )
+        )
+        changed = False
+        for (reference_type, object_key), deleted in zip(targets, delete_results):
+            if not deleted:
+                continue
+            changed = True
+            if reference_type is None:
+                if manifest.person_object_key == object_key:
+                    manifest.person_object_key = None
+            elif manifest.reference_object_keys.get(reference_type) == object_key:
+                manifest.reference_object_keys.pop(reference_type)
+        return changed
+
     async def process_job(job_id: uuid.UUID) -> None:
         manifest = await asyncio.to_thread(api.state.storage.get_manifest, job_id)
         if manifest is None:
@@ -272,36 +343,29 @@ def create_app(
             manifest.status = "failed"
             manifest.error = str(error)[:2000]
         finally:
-            input_keys = [
-                manifest.person_object_key,
-                *manifest.reference_object_keys.values(),
-            ]
-            delete_results = await asyncio.gather(
-                *(
-                    asyncio.to_thread(api.state.storage.delete, object_key)
-                    for object_key in input_keys
-                ),
-                return_exceptions=True,
-            )
-            for object_key, result in zip(input_keys, delete_results):
-                if isinstance(result, BaseException):
-                    logger.error(
-                        "Could not delete job input %s for job %s",
-                        object_key,
-                        manifest.id,
-                        exc_info=(type(result), result, result.__traceback__),
-                    )
-            manifest.person_object_key = None
-            manifest.reference_object_keys = {}
             manifest.updated_at = utcnow()
             manifest.expires_at = utcnow() + timedelta(hours=RESULT_RETENTION_HOURS)
             try:
-                await save_manifest(manifest)
+                await save_manifest_with_retry(manifest, "final job manifest")
             except Exception:
                 logger.exception(
-                    "Could not persist final job manifest for job %s",
+                    "Could not persist final job manifest for job %s after retries",
                     manifest.id,
                 )
+            else:
+                if await delete_job_inputs(manifest):
+                    manifest.updated_at = utcnow()
+                    try:
+                        await save_manifest_with_retry(
+                            manifest,
+                            "input cleanup manifest",
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Could not persist input cleanup manifest for job %s "
+                            "after retries",
+                            manifest.id,
+                        )
 
     async def queue_worker() -> None:
         while True:
@@ -317,13 +381,28 @@ def create_app(
     async def cleanup_expired() -> None:
         manifests = await asyncio.to_thread(api.state.storage.list_manifests)
         for manifest in manifests:
-            if manifest.expires_at <= utcnow():
-                await asyncio.to_thread(api.state.storage.delete_job, manifest.id)
+            try:
+                if manifest.expires_at <= utcnow():
+                    await asyncio.to_thread(api.state.storage.delete_job, manifest.id)
+                elif manifest.status in {"succeeded", "failed"} and (
+                    manifest.person_object_key or manifest.reference_object_keys
+                ):
+                    if await delete_job_inputs(manifest):
+                        manifest.updated_at = utcnow()
+                        await save_manifest_with_retry(
+                            manifest,
+                            "input cleanup manifest",
+                        )
+            except Exception:
+                logger.exception("Could not clean up job %s", manifest.id)
 
     async def cleanup_worker() -> None:
         while True:
-            await asyncio.sleep(3600)
-            await cleanup_expired()
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            try:
+                await cleanup_expired()
+            except Exception:
+                logger.exception("Could not clean up expired jobs")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

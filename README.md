@@ -235,6 +235,8 @@ In the Cloudflare Tunnel configuration, route the published hostname to
 `http://tryon:9001` on the TryOn Compose network. Set the root
 `TRYON_API_URL` to that hostname's HTTPS endpoint, and set root
 `TRYON_API_KEY` to the exact same secret as `TRYON_API_KEY` in `tryon/.env`.
+If you override `TRYON_PORT`, use that same container port in the tunnel
+origin instead of `9001`; `TRYON_BIND_ADDRESS` controls Uvicorn's bind address.
 Leave both root values empty when the GPU service is unavailable; the rest of
 Matching Outfit continues to run and the try-on screen reports the service as
 unavailable.

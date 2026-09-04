@@ -3,7 +3,9 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/models/huggingface
+    HF_HOME=/models/huggingface \
+    TRYON_BIND_ADDRESS=0.0.0.0 \
+    TRYON_PORT=9001
 
 WORKDIR /app
 
@@ -24,4 +26,4 @@ COPY . .
 
 EXPOSE 9001
 
-CMD ["uvicorn", "service:app", "--host", "0.0.0.0", "--port", "9001"]
+CMD ["sh", "-c", "exec uvicorn service:app --host \"$TRYON_BIND_ADDRESS\" --port \"$TRYON_PORT\""]
