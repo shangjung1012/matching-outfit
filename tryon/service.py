@@ -8,7 +8,7 @@ import hmac
 import logging
 import os
 import time
-from typing import Literal, Protocol
+from typing import Awaitable, Callable, Literal, Protocol
 import uuid
 import weakref
 
@@ -34,6 +34,25 @@ logger = logging.getLogger(__name__)
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 ReferenceType = Literal["upper", "lower", "overall", "shoe", "bag"]
+
+
+async def await_cancellation_safe(
+    operation: Awaitable[None],
+    on_success: Callable[[], None],
+) -> None:
+    task = asyncio.create_task(operation)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            await task
+        except Exception:
+            logger.exception("Storage deletion failed while request was cancelled")
+        else:
+            on_success()
+        raise
+    else:
+        on_success()
 
 
 def utcnow() -> datetime:
@@ -483,18 +502,31 @@ def create_app(
             try:
                 async with job_lock(manifest.id):
                     if manifest.id in api.state.deleted_jobs:
-                        await asyncio.to_thread(
-                            api.state.storage.delete_job,
-                            manifest.id,
+                        await await_cancellation_safe(
+                            asyncio.to_thread(
+                                api.state.storage.delete_job,
+                                manifest.id,
+                            ),
+                            lambda job_id=manifest.id: mark_deletion_complete(job_id),
                         )
-                        mark_deletion_complete(manifest.id)
-                    elif manifest.expires_at <= utcnow():
+                        continue
+
+                    current_manifest = await asyncio.to_thread(
+                        api.state.storage.get_manifest,
+                        manifest.id,
+                    )
+                    if current_manifest is None:
+                        continue
+                    manifest = current_manifest
+                    if manifest.expires_at <= utcnow():
                         api.state.deleted_jobs.add(manifest.id)
-                        await asyncio.to_thread(
-                            api.state.storage.delete_job,
-                            manifest.id,
+                        await await_cancellation_safe(
+                            asyncio.to_thread(
+                                api.state.storage.delete_job,
+                                manifest.id,
+                            ),
+                            lambda job_id=manifest.id: mark_deletion_complete(job_id),
                         )
-                        mark_deletion_complete(manifest.id)
                     elif manifest.status in {"succeeded", "failed"} and (
                         manifest.person_object_key or manifest.reference_object_keys
                     ):
@@ -644,8 +676,10 @@ def create_app(
         if manifest.expires_at <= utcnow():
             async with job_lock(job_id):
                 api.state.deleted_jobs.add(job_id)
-                await asyncio.to_thread(api.state.storage.delete_job, job_id)
-                mark_deletion_complete(job_id)
+                await await_cancellation_safe(
+                    asyncio.to_thread(api.state.storage.delete_job, job_id),
+                    lambda: mark_deletion_complete(job_id),
+                )
             raise HTTPException(status_code=410, detail="Result expired")
         if manifest.status != "succeeded" or not manifest.result_object_key:
             raise HTTPException(status_code=409, detail="Result is not ready")
@@ -659,8 +693,10 @@ def create_app(
     async def delete_job(job_id: uuid.UUID, _: None = Depends(verify_api_key)) -> Response:
         async with job_lock(job_id):
             api.state.deleted_jobs.add(job_id)
-            await asyncio.to_thread(api.state.storage.delete_job, job_id)
-            mark_deletion_complete(job_id)
+            await await_cancellation_safe(
+                asyncio.to_thread(api.state.storage.delete_job, job_id),
+                lambda: mark_deletion_complete(job_id),
+            )
         return Response(status_code=204)
 
     return api

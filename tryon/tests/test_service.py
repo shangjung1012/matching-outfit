@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import gc
 from io import BytesIO
@@ -137,6 +138,23 @@ class DeleteOutageStorage(FakeStorage):
             self.delete_failure_raised.set()
             raise RuntimeError("injected job delete outage")
         super().delete_job(job_id)
+
+
+class PausedCleanupSnapshotStorage(FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pause_next_list = False
+        self.snapshot_ready = threading.Event()
+        self.release_snapshot = threading.Event()
+
+    def list_manifests(self) -> list[service.JobManifest]:
+        manifests = super().list_manifests()
+        if self.pause_next_list:
+            self.pause_next_list = False
+            self.snapshot_ready.set()
+            if not self.release_snapshot.wait(timeout=1):
+                raise RuntimeError("test did not release cleanup snapshot")
+        return manifests
 
 
 class ListedObject:
@@ -698,3 +716,94 @@ def test_failed_delete_remains_tombstoned_until_successful_retry(monkeypatch) ->
         assert parsed_job_id not in storage.manifests
         assert app.state.deleted_jobs == set()
         assert app.state.completed_deletions == set()
+
+
+def test_stale_cleanup_snapshot_cannot_resurrect_deleted_job(monkeypatch) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    cleanup_waiting = threading.Event()
+    release_cleanup = threading.Event()
+    cleanup_finished = threading.Event()
+    cleanup_sleeps = 0
+    real_sleep = service.asyncio.sleep
+
+    async def controlled_sleep(delay: float) -> None:
+        nonlocal cleanup_sleeps
+        if delay == 123:
+            cleanup_sleeps += 1
+            if cleanup_sleeps == 1:
+                cleanup_waiting.set()
+                while not release_cleanup.is_set():
+                    await real_sleep(0.001)
+            else:
+                cleanup_finished.set()
+                await real_sleep(60)
+            return
+        await real_sleep(delay)
+
+    monkeypatch.setattr(service, "CLEANUP_INTERVAL_SECONDS", 123)
+    monkeypatch.setattr(service.asyncio, "sleep", controlled_sleep)
+    storage = PausedCleanupSnapshotStorage()
+    app = service.create_app(RecordingEngine(), storage)
+    job_id = uuid.uuid4()
+    now = service.utcnow()
+    person_key = f"jobs/{job_id}/person"
+
+    with TestClient(app) as client:
+        storage.objects[person_key] = png_bytes()
+        storage.save_manifest(
+            service.JobManifest(
+                id=job_id,
+                status="failed",
+                reference_types=["upper"],
+                created_at=now,
+                updated_at=now,
+                expires_at=now + timedelta(hours=24),
+                person_object_key=person_key,
+            )
+        )
+        storage.pause_next_list = True
+        assert cleanup_waiting.wait(timeout=1)
+        release_cleanup.set()
+        assert storage.snapshot_ready.wait(timeout=1)
+
+        deleted = client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        missing_before_cleanup = client.get(
+            f"/v1/jobs/{job_id}", headers=API_HEADERS
+        )
+        storage.release_snapshot.set()
+        assert cleanup_finished.wait(timeout=1)
+        missing_after_cleanup = client.get(
+            f"/v1/jobs/{job_id}", headers=API_HEADERS
+        )
+
+        assert deleted.status_code == 204
+        assert missing_before_cleanup.status_code == 404
+        assert missing_after_cleanup.status_code == 404
+        assert job_id not in storage.manifests
+
+
+def test_cancellation_safe_delete_records_success_before_propagating_cancel() -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        completed: list[bool] = []
+
+        async def delete_operation() -> None:
+            started.set()
+            await release.wait()
+
+        task = asyncio.create_task(
+            service.await_cancellation_safe(
+                delete_operation(),
+                lambda: completed.append(True),
+            )
+        )
+        await started.wait()
+        task.cancel()
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert completed == [True]
+
+    asyncio.run(scenario())
