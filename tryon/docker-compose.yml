@@ -26,7 +26,6 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: tryon-cloudflared
-    profiles: ["tunnel"]
     command:
       - tunnel
       - --no-autoupdate
