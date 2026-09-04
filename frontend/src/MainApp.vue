@@ -80,9 +80,39 @@ const avatarInitial = props.userKey.trim().charAt(0).toUpperCase() || '?'
 function isGroupActive(group: (typeof navGroups)[number]) {
   return group.items.some(item => item.id === activeView.value)
 }
+function openGroup(id: string) {
+  userMenuOpen.value = false
+  openGroupId.value = id
+}
+function closeGroup(id: string) {
+  if (openGroupId.value === id) openGroupId.value = null
+}
 function toggleGroup(id: string) {
   userMenuOpen.value = false
   openGroupId.value = openGroupId.value === id ? null : id
+}
+function handleGroupPointerEnter(id: string) {
+  if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) openGroup(id)
+}
+function handleGroupTriggerClick(event: MouseEvent, id: string) {
+  const isMouseClick = event.detail > 0
+  if (isMouseClick && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    openGroup(id)
+    return
+  }
+  toggleGroup(id)
+}
+function handleGroupFocusOut(event: FocusEvent, id: string) {
+  const group = event.currentTarget
+  const nextTarget = event.relatedTarget
+  if (group instanceof HTMLElement && nextTarget instanceof Node && group.contains(nextTarget)) return
+  closeGroup(id)
+}
+function handleGroupEscape(event: KeyboardEvent, id: string) {
+  closeGroup(id)
+  if (event.currentTarget instanceof HTMLElement) {
+    event.currentTarget.querySelector<HTMLButtonElement>('.nav-group-trigger')?.focus()
+  }
 }
 function selectView(id: AppView) {
   if (route.name !== id) void router.push({ name: id })
@@ -134,17 +164,28 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
       </button>
 
       <nav ref="navRef" class="main-navigation" aria-label="主要功能">
-        <div v-for="group in navGroups" :key="group.id" class="nav-group">
+        <div
+          v-for="group in navGroups"
+          :key="group.id"
+          class="nav-group"
+          @mouseenter="handleGroupPointerEnter(group.id)"
+          @mouseleave="closeGroup(group.id)"
+          @focusin="openGroup(group.id)"
+          @focusout="handleGroupFocusOut($event, group.id)"
+          @keydown.esc.stop="handleGroupEscape($event, group.id)"
+        >
           <button
             class="nav-top-button nav-group-trigger"
             :class="{ active: isGroupActive(group) }"
+            aria-haspopup="true"
             :aria-expanded="openGroupId === group.id"
-            @click="toggleGroup(group.id)"
+            :aria-controls="`nav-menu-${group.id}`"
+            @click="handleGroupTriggerClick($event, group.id)"
           >
             <component :is="group.icon" :size="17" />{{ group.label }}
             <ChevronDown class="nav-caret" :class="{ open: openGroupId === group.id }" :size="14" />
           </button>
-          <div v-if="openGroupId === group.id" class="nav-dropdown">
+          <div v-if="openGroupId === group.id" :id="`nav-menu-${group.id}`" class="nav-dropdown">
             <button
               v-for="item in group.items"
               :key="item.id"
