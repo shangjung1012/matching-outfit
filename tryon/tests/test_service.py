@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import gc
 from io import BytesIO
 import threading
 import time
@@ -124,6 +125,20 @@ class TerminalSaveOutageStorage(FakeStorage):
         super().save_manifest(manifest)
 
 
+class DeleteOutageStorage(FakeStorage):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_delete = False
+        self.delete_failure_raised = threading.Event()
+
+    def delete_job(self, job_id: uuid.UUID) -> None:
+        if self.fail_next_delete:
+            self.fail_next_delete = False
+            self.delete_failure_raised.set()
+            raise RuntimeError("injected job delete outage")
+        super().delete_job(job_id)
+
+
 class ListedObject:
     def __init__(self, object_name: str) -> None:
         self.object_name = object_name
@@ -183,6 +198,23 @@ class SlowEngine(RecordingEngine):
     ) -> bytes:
         self.started.set()
         time.sleep(0.2)
+        return super().run(person, references)
+
+
+class PausingEngine(RecordingEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def run(
+        self,
+        person: Image.Image,
+        references: dict[str, Image.Image],
+    ) -> bytes:
+        self.started.set()
+        if not self.release.wait(timeout=1):
+            raise RuntimeError("test did not release inference")
         return super().run(person, references)
 
 
@@ -562,25 +594,40 @@ def test_shutdown_during_inference_preserves_inputs_for_startup_recovery(
 
 def test_delete_cannot_be_undone_by_pending_finalization_retry(monkeypatch) -> None:
     monkeypatch.setenv("TRYON_API_KEY", "test-key")
-    monkeypatch.setattr(service, "FINALIZATION_RETRY_DELAY_SECONDS", 0.05)
+    retry_waiting = threading.Event()
+    release_retry = threading.Event()
+    real_sleep = service.asyncio.sleep
+
+    async def controlled_sleep(delay: float) -> None:
+        if delay == 123:
+            retry_waiting.set()
+            while not release_retry.is_set():
+                await real_sleep(0.001)
+            return
+        await real_sleep(delay)
+
+    monkeypatch.setattr(service, "FINALIZATION_RETRY_DELAY_SECONDS", 123)
+    monkeypatch.setattr(service.asyncio, "sleep", controlled_sleep)
     storage = TerminalSaveOutageStorage()
     engine = RecordingEngine()
+    app = service.create_app(engine, storage)
 
-    with TestClient(service.create_app(engine, storage)) as client:
+    with TestClient(app) as client:
         created = post_job(
             client,
             upper_image=("upper.png", png_bytes("red"), "image/png"),
         )
         job_id = created.json()["id"]
-        for _ in range(100):
-            if storage.terminal_save_calls == service.STORAGE_RETRY_ATTEMPTS:
-                break
-            time.sleep(0.01)
-        assert storage.terminal_save_calls == service.STORAGE_RETRY_ATTEMPTS
+        assert retry_waiting.wait(timeout=1)
 
         deleted = client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
         missing_before_retry = client.get(f"/v1/jobs/{job_id}", headers=API_HEADERS)
-        time.sleep(0.1)
+        release_retry.set()
+        for _ in range(1000):
+            if app.state.finalization_queue._unfinished_tasks == 0:
+                break
+            time.sleep(0.001)
+        assert app.state.finalization_queue._unfinished_tasks == 0
         missing_after_retry = client.get(f"/v1/jobs/{job_id}", headers=API_HEADERS)
 
     assert deleted.status_code == 204
@@ -589,3 +636,65 @@ def test_delete_cannot_be_undone_by_pending_finalization_retry(monkeypatch) -> N
     assert storage.manifests == {}
     assert not any(key.startswith(f"jobs/{job_id}/") for key in storage.objects)
     assert len(engine.calls) == 1
+
+
+def test_job_coordination_state_is_reclaimed_after_delete(monkeypatch) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    storage = FakeStorage()
+    app = service.create_app(RecordingEngine(), storage)
+
+    with TestClient(app) as client:
+        created = post_job(
+            client,
+            shoe_image=("shoe.png", png_bytes("yellow"), "image/png"),
+        )
+        job_id = created.json()["id"]
+        wait_for_status(client, job_id, "succeeded")
+        deleted = client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        for _ in range(1000):
+            if not app.state.job_work_counts:
+                break
+            time.sleep(0.001)
+        gc.collect()
+
+        assert deleted.status_code == 204
+        assert app.state.deleted_jobs == set()
+        assert app.state.completed_deletions == set()
+        assert app.state.job_work_counts == {}
+        assert len(app.state.job_locks) == 0
+
+
+def test_failed_delete_remains_tombstoned_until_successful_retry(monkeypatch) -> None:
+    monkeypatch.setenv("TRYON_API_KEY", "test-key")
+    storage = DeleteOutageStorage()
+    engine = PausingEngine()
+    app = service.create_app(engine, storage)
+
+    with TestClient(app) as client:
+        created = post_job(
+            client,
+            bag_image=("bag.png", png_bytes("blue"), "image/png"),
+        )
+        job_id = created.json()["id"]
+        parsed_job_id = uuid.UUID(job_id)
+        assert engine.started.wait(timeout=1)
+        storage.fail_next_delete = True
+
+        with pytest.raises(RuntimeError, match="job delete outage"):
+            client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        assert storage.delete_failure_raised.wait(timeout=1)
+        engine.release.set()
+
+        for _ in range(1000):
+            if not app.state.job_work_counts:
+                break
+            time.sleep(0.001)
+        assert app.state.job_work_counts == {}
+        assert parsed_job_id in storage.manifests
+        assert parsed_job_id in app.state.deleted_jobs
+
+        retried = client.delete(f"/v1/jobs/{job_id}", headers=API_HEADERS)
+        assert retried.status_code == 204
+        assert parsed_job_id not in storage.manifests
+        assert app.state.deleted_jobs == set()
+        assert app.state.completed_deletions == set()

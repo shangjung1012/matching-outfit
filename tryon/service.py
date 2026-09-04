@@ -10,6 +10,7 @@ import os
 import time
 from typing import Literal, Protocol
 import uuid
+import weakref
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -259,6 +260,39 @@ def create_app(
             api.state.job_locks[job_id] = lock
         return lock
 
+    def register_job_work(job_id: uuid.UUID) -> None:
+        api.state.job_work_counts[job_id] = (
+            api.state.job_work_counts.get(job_id, 0) + 1
+        )
+
+    def finish_job_work(job_id: uuid.UUID) -> None:
+        remaining = api.state.job_work_counts.get(job_id, 0) - 1
+        if remaining > 0:
+            api.state.job_work_counts[job_id] = remaining
+            return
+        api.state.job_work_counts.pop(job_id, None)
+        release_tombstone_if_idle(job_id)
+
+    def release_tombstone_if_idle(job_id: uuid.UUID) -> None:
+        if (
+            job_id not in api.state.job_work_counts
+            and job_id in api.state.completed_deletions
+        ):
+            api.state.deleted_jobs.discard(job_id)
+            api.state.completed_deletions.discard(job_id)
+
+    def mark_deletion_complete(job_id: uuid.UUID) -> None:
+        api.state.completed_deletions.add(job_id)
+        release_tombstone_if_idle(job_id)
+
+    def enqueue_job(job_id: uuid.UUID) -> None:
+        register_job_work(job_id)
+        api.state.queue.put_nowait(job_id)
+
+    def enqueue_finalization(manifest: JobManifest) -> None:
+        register_job_work(manifest.id)
+        api.state.finalization_queue.put_nowait(manifest)
+
     async def save_manifest(manifest: JobManifest) -> None:
         await asyncio.to_thread(api.state.storage.save_manifest, manifest)
 
@@ -416,7 +450,7 @@ def create_app(
                 async with job_lock(job_id):
                     if job_id not in api.state.deleted_jobs:
                         if not await finalize_manifest(manifest):
-                            await api.state.finalization_queue.put(manifest)
+                            enqueue_finalization(manifest)
 
     async def queue_worker() -> None:
         while True:
@@ -428,6 +462,7 @@ def create_app(
                     logger.exception("Unhandled error processing job %s", job_id)
             finally:
                 api.state.queue.task_done()
+                finish_job_work(job_id)
 
     async def finalization_worker() -> None:
         while True:
@@ -437,23 +472,29 @@ def create_app(
                 async with job_lock(manifest.id):
                     if manifest.id not in api.state.deleted_jobs:
                         if not await finalize_manifest(manifest):
-                            await api.state.finalization_queue.put(manifest)
+                            enqueue_finalization(manifest)
             finally:
                 api.state.finalization_queue.task_done()
+                finish_job_work(manifest.id)
 
     async def cleanup_expired() -> None:
         manifests = await asyncio.to_thread(api.state.storage.list_manifests)
         for manifest in manifests:
             try:
                 async with job_lock(manifest.id):
-                    if manifest.expires_at <= utcnow():
+                    if manifest.id in api.state.deleted_jobs:
+                        await asyncio.to_thread(
+                            api.state.storage.delete_job,
+                            manifest.id,
+                        )
+                        mark_deletion_complete(manifest.id)
+                    elif manifest.expires_at <= utcnow():
                         api.state.deleted_jobs.add(manifest.id)
                         await asyncio.to_thread(
                             api.state.storage.delete_job,
                             manifest.id,
                         )
-                    elif manifest.id in api.state.deleted_jobs:
-                        continue
+                        mark_deletion_complete(manifest.id)
                     elif manifest.status in {"succeeded", "failed"} and (
                         manifest.person_object_key or manifest.reference_object_keys
                     ):
@@ -481,8 +522,10 @@ def create_app(
         app.state.engine = engine or await asyncio.to_thread(FastFitEngine)
         app.state.queue = asyncio.Queue()
         app.state.finalization_queue = asyncio.Queue()
-        app.state.job_locks = {}
+        app.state.job_locks = weakref.WeakValueDictionary()
+        app.state.job_work_counts = {}
         app.state.deleted_jobs = set()
+        app.state.completed_deletions = set()
         await cleanup_expired()
         manifests = await asyncio.to_thread(app.state.storage.list_manifests)
         for manifest in manifests:
@@ -493,7 +536,7 @@ def create_app(
                 manifest.status = "queued"
                 manifest.updated_at = utcnow()
                 await asyncio.to_thread(app.state.storage.save_manifest, manifest)
-                await app.state.queue.put(manifest.id)
+                enqueue_job(manifest.id)
         tasks = [
             asyncio.create_task(queue_worker()),
             asyncio.create_task(finalization_worker()),
@@ -583,7 +626,7 @@ def create_app(
         except Exception:
             await asyncio.to_thread(api.state.storage.delete_job, job_id)
             raise
-        await api.state.queue.put(job_id)
+        enqueue_job(job_id)
         return view_for(manifest)
 
     @api.get("/v1/jobs/{job_id}", response_model=JobView)
@@ -602,6 +645,7 @@ def create_app(
             async with job_lock(job_id):
                 api.state.deleted_jobs.add(job_id)
                 await asyncio.to_thread(api.state.storage.delete_job, job_id)
+                mark_deletion_complete(job_id)
             raise HTTPException(status_code=410, detail="Result expired")
         if manifest.status != "succeeded" or not manifest.result_object_key:
             raise HTTPException(status_code=409, detail="Result is not ready")
@@ -616,6 +660,7 @@ def create_app(
         async with job_lock(job_id):
             api.state.deleted_jobs.add(job_id)
             await asyncio.to_thread(api.state.storage.delete_job, job_id)
+            mark_deletion_complete(job_id)
         return Response(status_code=204)
 
     return api
