@@ -141,6 +141,16 @@ function downloadTrace() {
             <div><small>USER GOAL</small><h4>{{ trace.fashion_intent.user_goal }}</h4></div>
             <strong>信心 {{ percent(trace.fashion_intent.confidence) }}</strong>
           </div>
+          <div v-if="trace.fashion_intent.activity_context" class="debug-panel">
+            <h4>活動雙軸判斷</h4>
+            <p>有活動：{{ trace.fashion_intent.activity_context.activity_present ? '是' : '否' }} ·
+              造型優先度：{{ trace.fashion_intent.activity_context.appearance_priority }} ·
+              機能優先度：{{ trace.fashion_intent.activity_context.functional_priority }}</p>
+            <p>視覺身分：{{ trace.fashion_intent.activity_context.requested_visual_identity || '未提供' }}</p>
+            <p>最低機能：{{ trace.fashion_intent.activity_context.minimum_functional_requirements.join('、') || '無' }}</p>
+            <p>明確機能：{{ trace.fashion_intent.activity_context.explicit_functional_requests?.join('、') || '無' }}</p>
+            <p>避免偏移：{{ trace.fashion_intent.activity_context.avoid_style_drift?.join('、') || '無' }}</p>
+          </div>
           <div class="debug-chip-groups">
             <div><b>目標印象</b><span v-for="item in trace.fashion_intent.desired_impression" :key="item">{{ item }}</span></div>
             <div><b>必須線索</b><span v-for="item in trace.fashion_intent.must_have_visual_cues" :key="item">{{ item }}</span></div>
@@ -328,8 +338,16 @@ function downloadTrace() {
                   <span>材質 <b>{{ outfit.aesthetic_review?.material_coherence ?? '—' }}</b></span>
                   <span>美感 <b>{{ outfit.aesthetic_review?.overall_aesthetic ?? '—' }}</b></span>
                   <span>風格吻合 <b>{{ outfit.aesthetic_review?.style_identity_match ?? '—' }}</b></span>
+                  <span>搭配協調 <b>{{ outfit.aesthetic_review?.pairing_coherence ?? '—' }}</b></span>
+                  <span>限制遵守 <b>{{ outfit.aesthetic_review?.constraint_compliance ?? '—' }}</b></span>
                 </div>
                 <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
+                <p v-if="outfit.aesthetic_review?.style_drift_detected">
+                  重大風格偏移證據：{{ outfit.aesthetic_review.style_drift_evidence?.join('；') }}
+                </p>
+                <p v-if="outfit.aesthetic_review?.local_fallback_fields?.length" class="debug-warning">
+                  本機 fallback，非模型判斷：{{ outfit.aesthetic_review.local_fallback_fields.join('、') }}
+                </p>
                 <em v-if="outfit.aesthetic_review?.fatal_issues.length">Fatal：{{ outfit.aesthetic_review.fatal_issues.join('、') }}</em>
               </div>
             </article>

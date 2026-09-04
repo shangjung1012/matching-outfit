@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from PIL import Image, ImageOps
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink, StylingGuide
 from app.schemas.fashion_knowledge import OutfitObservation
@@ -19,6 +19,38 @@ AESTHETIC_REVIEW_PROMPT = (PROMPTS_DIR / "AestheticReviewer.txt").read_text(
 
 class CandidateAestheticReview(AestheticReview):
     candidate_id: str
+    style_identity_match: int = Field(ge=0, le=100)
+    silhouette_proportion: int = Field(ge=0, le=100)
+    pairing_coherence: int = Field(ge=0, le=100)
+    color_material_harmony: int = Field(ge=0, le=100)
+    constraint_compliance: int = Field(ge=0, le=100)
+    style_drift_detected: bool
+    style_drift_evidence: list[str]
+    _fallback_fields: list[str] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def legacy_local_fallback(cls, value, handler):
+        missing = []
+        if isinstance(value, dict):
+            value = dict(value)
+            defaults = {
+                "style_identity_match": value.get("overall_aesthetic", 0),
+                "silhouette_proportion": value.get("silhouette_balance", 0),
+                "pairing_coherence": value.get("overall_aesthetic", 0),
+                "color_material_harmony": (value.get("color_harmony", 0) + value.get("material_coherence", 0)) // 2,
+                "constraint_compliance": value.get("occasion_fit", 0),
+                "style_drift_detected": False,
+                "style_drift_evidence": [],
+            }
+            for key, default in defaults.items():
+                if value.get(key) is None:
+                    missing.append(key)
+                    value[key] = default
+        result = handler(value)
+        if missing:
+            result._fallback_fields = missing
+        return result
 
 
 class AestheticReviewBatch(BaseModel):
@@ -222,24 +254,32 @@ class AestheticReviewer:
                         attempt["duplicate_ids"].append(identifier)
                         continue
                     seen.add(identifier)
-                    appearance_led = (
-                        fashion_intent is not None
-                        and fashion_intent.activity_context.activity_mode == "appearance_led_performance"
-                    )
-                    if appearance_led and review.style_identity_match is None:
-                        attempt.setdefault("incomplete_review_ids", []).append(identifier)
-                        continue
+                    if review._fallback_fields:
+                        attempt.setdefault("local_fallbacks", []).append({
+                            "candidate_id": identifier,
+                            "fields": review._fallback_fields,
+                            "source": "deterministic_local_fallback",
+                        })
                     accepted = AestheticReview.model_validate({
                         **review.model_dump(exclude={"candidate_id"}),
+                        "local_fallback_fields": review._fallback_fields,
                         "knowledge_observation_ids": list(dict.fromkeys(
                             value for value in review.knowledge_observation_ids
                             if value in valid_observation_ids
                         )),
                     })
-                    if appearance_led and accepted.style_identity_match < 50:
+                    context = fashion_intent.activity_context if fashion_intent else None
+                    if (
+                        context is not None and context.activity_present
+                        and context.requested_visual_identity.strip()
+                        and accepted.style_drift_detected and accepted.style_drift_evidence
+                        and accepted.style_identity_match < 50
+                        and not any(field in review._fallback_fields for field in (
+                            "style_identity_match", "style_drift_detected", "style_drift_evidence",
+                        ))
+                    ):
                         accepted = accepted.model_copy(update={
                             "overall_aesthetic": min(49, accepted.overall_aesthetic),
-                            "fatal_issues": [*accepted.fatal_issues, "未符合要求的視覺風格；不以活動機能取代造型"],
                         })
                     reviews[identifier] = accepted
             except (RuntimeError, ValueError) as error:
@@ -266,6 +306,7 @@ def apply_aesthetic_reviews(
     *,
     final_count: int,
     observations: list[OutfitObservation] | None = None,
+    fashion_intent: FashionIntent | None = None,
 ) -> list[OutfitRecommendation]:
     observations_by_id = {
         observation.observation_id: observation for observation in observations or []
@@ -286,7 +327,17 @@ def apply_aesthetic_reviews(
         final_score = 0.6 * recommendation.score + 0.4 * aesthetic_score
         if review.fatal_issues:
             final_score -= 0.18
-        if "未符合要求的視覺風格；不以活動機能取代造型" in review.fatal_issues:
+        context = fashion_intent.activity_context if fashion_intent else None
+        if (
+            context is not None and context.activity_present
+            and context.requested_visual_identity.strip()
+            and review.style_drift_detected and review.style_drift_evidence
+            and review.style_identity_match is not None and review.style_identity_match < 50
+            and review.overall_aesthetic <= 49
+            and not any(field in review.local_fallback_fields for field in (
+                "style_identity_match", "style_drift_detected", "style_drift_evidence",
+            ))
+        ):
             final_score = min(final_score, 0.49)
         breakdown = recommendation.score_breakdown
         if breakdown is not None:

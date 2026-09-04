@@ -86,7 +86,12 @@ class BodyStrategy(BaseModel):
 
 class ActivityContext(BaseModel):
     activity: str = ""
-    activity_mode: Literal["appearance_led_performance", "functional_training", "mixed", "ordinary_occasion"] = "ordinary_occasion"
+    activity_present: bool = False
+    activity_mode: Literal["appearance_dominant", "balanced", "function_dominant", "not_applicable"] = "not_applicable"
+    appearance_priority: Literal["low", "medium", "high"] = "low"
+    requested_visual_identity: str = ""
+    explicit_functional_requests: list[str] = Field(default_factory=list, max_length=12)
+    avoid_style_drift: list[str] = Field(default_factory=list, max_length=12)
     primary_goal: str = ""
     secondary_goal: str = ""
     functional_priority: Literal["low", "medium", "high"] = "low"
@@ -94,6 +99,40 @@ class ActivityContext(BaseModel):
     avoid_functional_drift: list[str] = Field(default_factory=list, max_length=12)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy(cls, value):
+        if not isinstance(value, dict):
+            return value
+        result = dict(value)
+        legacy = result.get("activity_mode")
+        mapping = {
+            "appearance_led_performance": ("appearance_dominant", "high", "low"),
+            "functional_training": ("function_dominant", "low", "high"),
+            "mixed": ("balanced", "high", "high"),
+            "ordinary_occasion": ("not_applicable", "low", "low"),
+        }
+        if legacy in mapping:
+            mode, appearance, function = mapping[legacy]
+            result["activity_mode"] = mode
+            result.setdefault("appearance_priority", appearance)
+            result.setdefault("functional_priority", function)
+            result.setdefault("activity_present", mode != "not_applicable")
+        result.setdefault("requested_visual_identity", result.get("primary_goal", ""))
+        result.setdefault("avoid_style_drift", result.get("avoid_functional_drift", []))
+        return result
+
+    @model_validator(mode="after")
+    def summarize_priorities(self):
+        if not self.activity_present:
+            self.activity_mode = "not_applicable"
+        else:
+            priorities = {"low": 0, "medium": 1, "high": 2}
+            appearance = priorities[self.appearance_priority]
+            function = priorities[self.functional_priority]
+            self.activity_mode = "appearance_dominant" if appearance > function else "function_dominant" if function > appearance else "balanced"
+        return self
 
 
 class FashionIntent(BaseModel):
@@ -310,6 +349,13 @@ class OutfitScoreBreakdown(BaseModel):
 
 
 class AestheticReview(BaseModel):
+    local_fallback_fields: list[str] = Field(default_factory=list)
+    silhouette_proportion: int | None = Field(default=None, ge=0, le=100)
+    pairing_coherence: int | None = Field(default=None, ge=0, le=100)
+    color_material_harmony: int | None = Field(default=None, ge=0, le=100)
+    constraint_compliance: int | None = Field(default=None, ge=0, le=100)
+    style_drift_detected: bool = False
+    style_drift_evidence: list[str] = Field(default_factory=list)
     style_identity_match: int | None = Field(default=None, ge=0, le=100)
     inner_layer_suggestion: str = Field(default="", max_length=600)
     occasion_fit: int = Field(ge=0, le=100)

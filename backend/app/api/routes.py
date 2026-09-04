@@ -860,6 +860,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             reviews,
             final_count=len(shortlist),
             observations=observations,
+            fashion_intent=payload.fashion_intent,
         )
         diagnostics = getattr(reviewer, "last_debug", {})
         if debug is not None:

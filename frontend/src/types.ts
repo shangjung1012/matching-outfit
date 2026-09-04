@@ -105,7 +105,12 @@ export interface BodyStrategy {
 export interface FashionIntent {
   activity_context?: {
     activity: string
-    activity_mode: 'appearance_led_performance' | 'functional_training' | 'mixed' | 'ordinary_occasion'
+    activity_present: boolean
+    activity_mode: 'appearance_dominant' | 'balanced' | 'function_dominant' | 'not_applicable'
+    appearance_priority: 'low' | 'medium' | 'high'
+    requested_visual_identity: string
+    explicit_functional_requests: string[]
+    avoid_style_drift: string[]
     primary_goal: string
     secondary_goal: string
     functional_priority: 'low' | 'medium' | 'high'
@@ -231,6 +236,13 @@ export interface OutfitRecommendation {
     aesthetic: number | null
   } | null
   aesthetic_review: {
+    silhouette_proportion?: number | null
+    pairing_coherence?: number | null
+    color_material_harmony?: number | null
+    constraint_compliance?: number | null
+    style_drift_detected?: boolean
+    style_drift_evidence?: string[]
+    local_fallback_fields?: string[]
     style_identity_match?: number | null
     inner_layer_suggestion?: string
     occasion_fit: number
