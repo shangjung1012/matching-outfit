@@ -27,6 +27,7 @@ from app.schemas import (
     PlanResponse,
     PreferenceBundle,
     RecommendationResponse,
+    RecommendationDebug,
     RefineRequest,
     SearchRequest,
     SearchResponse,
@@ -345,6 +346,7 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             requirements=payload.requirements,
             fashion_intent=intent,
             intent_fallback_used=fallback_used,
+            include_debug=payload.include_debug,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
@@ -406,6 +408,7 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             refinement=payload.user_input,
             fashion_intent=intent,
             intent_fallback_used=fallback_used,
+            include_debug=payload.include_debug,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
@@ -444,10 +447,21 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         user_context=payload.user_input,
     )
     shortlist = select_diverse(ranked_pool, payload.shortlist_count)
+    debug = (
+        RecommendationDebug(
+            search_results=groups,
+            ranked_candidate_count=len(ranked_pool),
+            ranked_preview=ranked_pool[:30],
+            shortlist_before_review=shortlist,
+        )
+        if payload.include_debug
+        else None
+    )
     if not shortlist:
         return RecommendationResponse(
             recommendations=[],
             review_note="No valid outfit combinations",
+            debug=debug,
         )
 
     should_review = (
@@ -463,6 +477,8 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         )
         final = select_diverse(shortlist, payload.final_count)
         final_ids = {recommendation.id for recommendation in final}
+        if debug is not None:
+            debug = debug.model_copy(update={"aesthetic_review_error": note})
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -472,6 +488,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             ],
             aesthetic_reviewed=False,
             review_note=note,
+            debug=debug,
         )
 
     knowledge_query = outfit_context_embedding_text(
@@ -485,6 +502,14 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         )
     except RuntimeError as error:
         knowledge_note = f"Fashion knowledge retrieval unavailable: {error}"
+
+    if debug is not None:
+        debug = debug.model_copy(
+            update={
+                "knowledge_observations": observations,
+                "aesthetic_review_attempted": True,
+            }
+        )
 
     style_preferences = style_preferences_for(db, payload.user_key)
     preference_context = build_planner_preference_context(hard, style_preferences)
@@ -533,10 +558,13 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             knowledge_observation_count=len(used_observation_ids),
             knowledge_sources=knowledge_sources,
             knowledge_note=knowledge_note,
+            debug=debug,
         )
     except RuntimeError as error:
         final = select_diverse(shortlist, payload.final_count)
         final_ids = {recommendation.id for recommendation in final}
+        if debug is not None:
+            debug = debug.model_copy(update={"aesthetic_review_error": str(error)})
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -547,6 +575,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             aesthetic_reviewed=False,
             review_note=f"Aesthetic review unavailable; match ranking used instead: {error}",
             knowledge_note=knowledge_note,
+            debug=debug,
         )
 
 

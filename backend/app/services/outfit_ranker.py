@@ -73,6 +73,7 @@ def _recommendation(
     items: list[ClothResult],
     coverage_reason: str,
     user_context: str,
+    direction_id: str | None = None,
 ) -> OutfitRecommendation:
     similarity = sum(item.similarity for item in items) / len(items)
     compatibility = _compatibility_score(items)
@@ -84,6 +85,7 @@ def _recommendation(
     return OutfitRecommendation(
         id=str(uuid4()),
         kind=kind,
+        direction_id=direction_id,
         items=items,
         score=round(match_score, 4),
         score_breakdown=OutfitScoreBreakdown(
@@ -152,6 +154,7 @@ def rank_outfits(
                         items,
                         f"Matched styling direction: {direction_id}",
                         user_context,
+                        direction_id,
                     )
                 )
     else:
@@ -171,7 +174,7 @@ def rank_outfits(
         recommendations.append(
             _recommendation(
                 "one_piece", items,
-                "One-piece candidate coverage", user_context,
+                "One-piece candidate coverage", user_context, None,
             )
         )
     ranked = sorted(recommendations, key=lambda result: result.score, reverse=True)
@@ -184,7 +187,7 @@ def rank_outfits(
         one_piece_limit = min(limit // 2, len(viable_one_pieces))
         separates_limit = min(limit - one_piece_limit, len(viable_separates))
         balanced_pool = [
-            *viable_separates[:separates_limit],
+            *_balanced_direction_candidates(viable_separates, separates_limit),
             *viable_one_pieces[:one_piece_limit],
         ]
         if len(balanced_pool) < limit:
@@ -194,7 +197,46 @@ def rank_outfits(
                 if result not in balanced_pool
             )
         return sorted(balanced_pool, key=lambda result: result.score, reverse=True)[:limit]
-    return ranked[:limit]
+    return _balanced_direction_candidates(ranked, limit)
+
+
+def _balanced_direction_candidates(
+    recommendations: list[OutfitRecommendation], limit: int
+) -> list[OutfitRecommendation]:
+    """Keep strong candidates from every separates direction before global ranking."""
+    if limit <= 0:
+        return []
+    by_direction: dict[str, list[OutfitRecommendation]] = {}
+    without_direction: list[OutfitRecommendation] = []
+    for recommendation in recommendations:
+        if recommendation.kind == "separates" and recommendation.direction_id:
+            by_direction.setdefault(recommendation.direction_id, []).append(recommendation)
+        else:
+            without_direction.append(recommendation)
+    if len(by_direction) < 2:
+        return recommendations[:limit]
+
+    ordered_directions = sorted(
+        by_direction,
+        key=lambda direction: by_direction[direction][0].score,
+        reverse=True,
+    )
+    selected: list[OutfitRecommendation] = []
+    selected_ids: set[str] = set()
+    base_quota, extra = divmod(limit, len(ordered_directions))
+    for index, direction in enumerate(ordered_directions):
+        quota = base_quota + (1 if index < extra else 0)
+        for recommendation in by_direction[direction][:quota]:
+            selected.append(recommendation)
+            selected_ids.add(recommendation.id)
+
+    if len(selected) < limit:
+        selected.extend(
+            recommendation
+            for recommendation in recommendations
+            if recommendation.id not in selected_ids
+        )
+    return sorted(selected[:limit], key=lambda result: result.score, reverse=True)
 
 
 def select_diverse(
@@ -291,6 +333,47 @@ def select_diverse(
     def add_with_count(recommendation: OutfitRecommendation) -> None:
         add(recommendation)
         kind_counts[recommendation.kind] += 1
+
+    # Give every viable A-E styling direction a chance to reach the visual reviewer.
+    # This is coverage, not a final-result quota: the reviewer may still reject it.
+    separates_directions = sorted(
+        {
+            recommendation.direction_id
+            for recommendation in recommendations
+            if recommendation.kind == "separates"
+            and recommendation.direction_id
+            and is_suitable(recommendation)
+        }
+    )
+    if len(separates_directions) > 1:
+        for direction_id in separates_directions:
+            if len(selected) >= limit or not within_kind_target(
+                next(
+                    recommendation
+                    for recommendation in recommendations
+                    if recommendation.direction_id == direction_id
+                    and recommendation.kind == "separates"
+                    and is_suitable(recommendation)
+                )
+            ):
+                break
+            candidates = [
+                recommendation
+                for recommendation in recommendations
+                if recommendation.direction_id == direction_id
+                and recommendation.kind == "separates"
+                and is_suitable(recommendation)
+                and tuple(sorted(identities(recommendation))) not in used_combinations
+            ]
+            if not candidates:
+                continue
+            non_repeating = [
+                recommendation
+                for recommendation in candidates
+                if {item.id for item in recommendation.items}.isdisjoint(used_item_ids)
+                and identities(recommendation).isdisjoint(used_assets)
+            ]
+            add_with_count((non_repeating or candidates)[0])
 
     # Prefer different products, images, garment/color combinations, and color profiles.
     # Later passes relax one condition at a time only when the catalog cannot fill the limit.

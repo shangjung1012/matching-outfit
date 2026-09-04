@@ -1,16 +1,46 @@
 <script setup lang="ts">
-import { ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
-import type { OutfitRecommendation } from '../types'
+import { computed } from 'vue'
+import { ChevronDown, ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
+import type { OutfitRecommendation, QueryDraft, StylingGuide } from '../types'
 import { formatCurrency } from '../utils/currency'
 
-defineProps<{
+const props = defineProps<{
   outfit: OutfitRecommendation
   rank: number
   liked: boolean
   featured?: boolean
+  userRequest?: string
+  stylingGuide?: StylingGuide | null
+  queries?: QueryDraft[]
 }>()
 
 defineEmits<{ toggleLike: [] }>()
+
+const zoneLabels = {
+  upper_body: '上身',
+  lower_body: '下身',
+  one_piece: '單件套裝',
+  accessory: '配件',
+  other: '單品',
+} as const
+
+const planningReasons = computed(() => {
+  const zones = new Set(props.outfit.items.map((item) => item.garment_zone))
+  return Array.from(new Set(
+    (props.queries || [])
+      .filter((query) => query.selected && zones.has(query.garment_zone))
+      .map((query) => query.rationale.trim())
+      .filter(Boolean),
+  )).slice(0, props.outfit.kind === 'separates' ? 4 : 2)
+})
+
+function itemSelectionReason(item: OutfitRecommendation['items'][number]): string {
+  const identity = [item.base_colour, item.article_type]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(' ')
+  const similarity = Math.round(item.similarity * 100)
+  return `${zoneLabels[item.garment_zone]}選擇「${item.product_display_name}」：${identity || '商品外觀'}在該區域的搜尋方向中相似度為 ${similarity}%。`
+}
 </script>
 
 <template>
@@ -39,6 +69,48 @@ defineEmits<{ toggleLike: [] }>()
           {{ item.base_colour }} {{ item.article_type }}
         </span>
       </div>
+      <details class="outfit-explanation">
+        <summary>
+          <span><Sparkles :size="14" />為什麼這樣搭？</span>
+          <ChevronDown :size="15" class="explanation-chevron" />
+        </summary>
+        <div class="outfit-explanation-content">
+          <section v-if="userRequest">
+            <strong>你說了什麼</strong>
+            <p>「{{ userRequest }}」</p>
+          </section>
+          <section v-if="stylingGuide?.concept || planningReasons.length">
+            <strong>所以怎麼理解</strong>
+            <p v-if="stylingGuide?.concept">{{ stylingGuide.concept }}</p>
+            <ul v-if="planningReasons.length">
+              <li v-for="reason in planningReasons" :key="reason">{{ reason }}</li>
+            </ul>
+          </section>
+          <section>
+            <strong>因此選擇了什麼</strong>
+            <ul>
+              <li v-for="item in outfit.items" :key="`${item.id}-explanation`">
+                {{ itemSelectionReason(item) }}
+              </li>
+            </ul>
+            <p v-if="outfit.score_breakdown">
+              組合後的搭配協調度為 {{ Math.round(outfit.score_breakdown.compatibility * 100) }}%，
+              場合符合度為 {{ Math.round(outfit.score_breakdown.context_fit * 100) }}%。
+            </p>
+          </section>
+          <section v-if="outfit.aesthetic_review">
+            <strong>最後怎麼確認</strong>
+            <p>
+              視覺審查再檢查場合、配色、輪廓和材質，給出的整體美感為
+              {{ outfit.aesthetic_review.overall_aesthetic }} 分。{{ outfit.aesthetic_review.reason }}
+            </p>
+          </section>
+          <section v-else>
+            <strong>最後怎麼確認</strong>
+            <p>目前由商品相似度、搭配協調度與場合符合度共同排序；本次沒有使用視覺美感審查。</p>
+          </section>
+        </div>
+      </details>
       <div class="recommendation-footer">
         <strong>
           {{

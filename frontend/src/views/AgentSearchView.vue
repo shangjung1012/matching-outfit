@@ -22,11 +22,18 @@ import type {
   RequirementSummary,
   StylingGuide,
   FashionIntent,
+  PipelineDebugSession,
+  QueryPlanDebug,
+  RecommendationDebug,
   StylePreferenceProposal,
 } from '../types'
 
 const props = defineProps<{ userKey: string }>()
-const emit = defineEmits<{ preferenceUpdated: []; openKnowledge: [] }>()
+const emit = defineEmits<{
+  preferenceUpdated: []
+  openKnowledge: []
+  debugUpdated: [trace: PipelineDebugSession]
+}>()
 
 interface ChatMessage {
   id: number
@@ -54,6 +61,10 @@ const audience = ref<Audience | ''>('')
 const requirements = ref<RequirementSummary | null>(null)
 const stylingGuide = ref<StylingGuide | null>(null)
 const fashionIntent = ref<FashionIntent | null>(null)
+const planDebug = ref<QueryPlanDebug | null>(null)
+const recommendationDebug = ref<RecommendationDebug | null>(null)
+const reviewNote = ref('')
+const knowledgeNote = ref('')
 const missingFields = ref<string[]>([])
 const readyToPlan = ref(false)
 let messageId = 2
@@ -103,6 +114,24 @@ function addMessage(role: 'agent' | 'user', text: string) {
   messages.value.push({ id: messageId++, role, text })
 }
 
+function publishDebug() {
+  emit('debugUpdated', {
+    updated_at: new Date().toISOString(),
+    messages: messages.value.map(({ role, text }) => ({ role, text })),
+    original_input: originalRequest.value,
+    requirements: requirements.value,
+    fashion_intent: fashionIntent.value,
+    queries: queries.value,
+    styling_guide: stylingGuide.value,
+    plan_debug: planDebug.value,
+    recommendation_debug: recommendationDebug.value,
+    recommendations: recommendations.value,
+    discarded_recommendations: discardedRecommendations.value,
+    review_note: reviewNote.value,
+    knowledge_note: knowledgeNote.value,
+  })
+}
+
 async function run(task: () => Promise<void>) {
   loading.value = true
   error.value = ''
@@ -136,6 +165,7 @@ async function sendRequest(text = draft.value) {
     missingFields.value = response.missing_fields
     readyToPlan.value = response.ready_to_plan
     addMessage('agent', response.reply)
+    publishDebug()
   })
 }
 
@@ -154,9 +184,12 @@ async function refine(text: string) {
     queries.value = response.queries
     stylingGuide.value = response.styling_guide
     fashionIntent.value = response.fashion_intent
+    planDebug.value = response.debug
+    recommendationDebug.value = null
     audience.value = response.audience ?? audience.value
     originalRequest.value = `${previousRequest} ${text}`.trim()
     addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
+    publishDebug()
   })
 }
 
@@ -179,6 +212,8 @@ async function confirmRequirements() {
     queries.value = response.queries
     stylingGuide.value = response.styling_guide
     fashionIntent.value = response.fashion_intent
+    planDebug.value = response.debug
+    recommendationDebug.value = null
     audience.value = response.audience ?? audience.value
     recommendations.value = []
     discardedRecommendations.value = []
@@ -188,6 +223,7 @@ async function confirmRequirements() {
       'agent',
       `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
     )
+    publishDebug()
   })
 }
 
@@ -203,6 +239,10 @@ function startNewConversation() {
   requirements.value = null
   stylingGuide.value = null
   fashionIntent.value = null
+  planDebug.value = null
+  recommendationDebug.value = null
+  reviewNote.value = ''
+  knowledgeNote.value = ''
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -225,6 +265,9 @@ async function searchOutfits() {
     )
     recommendations.value = response.recommendations
     discardedRecommendations.value = response.discarded_recommendations
+    recommendationDebug.value = response.debug
+    reviewNote.value = response.review_note
+    knowledgeNote.value = response.knowledge_note
     showDiscarded.value = false
     likedOutfitIds.value = new Set()
     proposal.value = null
@@ -234,17 +277,20 @@ async function searchOutfits() {
       'agent',
       `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.aesthetic_reviewed ? '已完成圖片美感審查。' : response.review_note}`,
     )
+    publishDebug()
   })
 }
 
 function setSelected(id: string, selected: boolean) {
   const query = queries.value.find((item) => item.id === id)
   if (query) query.selected = selected
+  publishDebug()
 }
 
 function updateQueryText(id: string, text: string) {
   const query = queries.value.find((item) => item.id === id)
   if (query) query.text = text
+  publishDebug()
 }
 
 async function toggleLike(id: string) {
@@ -418,6 +464,9 @@ async function confirmProposal() {
             :rank="index + 1"
             :liked="likedOutfitIds.has(outfit.id)"
             :featured="index === 0"
+            :user-request="originalRequest"
+            :styling-guide="stylingGuide"
+            :queries="queries"
             @toggle-like="toggleLike(outfit.id)"
           />
         </div>
@@ -447,6 +496,9 @@ async function confirmProposal() {
               :outfit="outfit"
               :rank="recommendations.length + index + 1"
               :liked="likedOutfitIds.has(outfit.id)"
+              :user-request="originalRequest"
+              :styling-guide="stylingGuide"
+              :queries="queries"
               @toggle-like="toggleLike(outfit.id)"
             />
           </div>

@@ -17,6 +17,7 @@ from app.schemas.workflow import (
     FashionIntent,
     PlanResponse,
     QueryDraft,
+    QueryPlanDebug,
     RequirementField,
     RequirementSummary,
     StylingGuide,
@@ -153,6 +154,31 @@ class RequirementCollector:
     def __init__(self, llm: LLM):
         self.llm = llm
 
+    @staticmethod
+    def _implied_formality(messages: list[ChatTurn]) -> str | None:
+        """Return only formality entailed by a narrowly defined context phrase."""
+        user_text = " ".join(
+            message.text for message in messages if message.role == "user"
+        ).lower()
+        fine_dining_terms = (
+            "高級餐廳", "高级餐厅", "高級餐館", "高级餐馆",
+            "fine dining", "fine-dining", "luxury restaurant", "upscale restaurant",
+        )
+        if not any(term in user_text for term in fine_dining_terms):
+            return None
+        dresses_down = bool(
+            re.search(
+                r"(?:不要|不想|不用|不必|避免|別|别|不太|不要太).{0,8}(?:正式|隆重)",
+                user_text,
+            )
+            or re.search(
+                r"\b(?:not|don't|do not|less)\b.{0,24}\bformal\b|\bcasual\b",
+                user_text,
+                flags=re.IGNORECASE,
+            )
+        )
+        return "smart casual" if dresses_down else "formal"
+
     def collect(
         self,
         messages: list[ChatTurn],
@@ -184,6 +210,12 @@ class RequirementCollector:
             )
             for field in REQUIREMENT_VALUE_FIELDS
         }
+        implied_formality = self._implied_formality(messages)
+        inferred_formality = bool(
+            implied_formality and not requirement_values["formalities"]
+        )
+        if inferred_formality:
+            requirement_values["formalities"] = [implied_formality]
         translations = {
             **(
                 previous_requirements.tag_translations
@@ -192,14 +224,42 @@ class RequirementCollector:
             ),
             **{item.tag: item.label_zh for item in result.tag_translations},
         }
+        if inferred_formality:
+            translations[implied_formality] = (
+                "正式" if implied_formality == "formal" else "正式休閒"
+            )
+        missing_fields = list(dict.fromkeys(result.missing_fields))
+        if inferred_formality:
+            missing_fields = [
+                field for field in missing_fields if field != "formalities"
+            ]
+        search_brief = result.search_brief
+        if inferred_formality and implied_formality not in search_brief.lower():
+            label = "正式場合" if implied_formality == "formal" else "正式休閒"
+            search_brief = f"{search_brief.rstrip('，。 ')}，{label}"
+        if inferred_formality:
+            formality_label = (
+                "正式" if implied_formality == "formal" else "正式休閒"
+            )
+            reply = (
+                f"已了解是高級餐廳用餐，依情境先以{formality_label}處理；"
+                "如果想穿得更輕鬆，可以再告訴我。"
+                if "正式" in result.reply
+                else (
+                    f"{result.reply.rstrip()} 已依高級餐廳情境推定為"
+                    f"{formality_label}；如果想穿得更輕鬆，可以再告訴我。"
+                )
+            )
+        else:
+            reply = result.reply
         return ClarificationResponse(
-            reply=result.reply,
+            reply=reply,
             requirements=RequirementSummary(
                 **requirement_values,
-                search_brief=result.search_brief,
+                search_brief=search_brief,
                 tag_translations=translations,
             ),
-            missing_fields=list(dict.fromkeys(result.missing_fields)),
+            missing_fields=missing_fields,
             ready_to_plan=result.ready_to_plan,
         )
 
@@ -646,7 +706,7 @@ class QueryPlanner:
             "top", "tops", "tee", "tees", "t-shirt", "t-shirts", "shirt",
             "shirts", "blouse", "blouses", "tank", "camisole", "sweater",
             "sweaters", "cardigan", "cardigans", "jacket", "jackets", "blazer",
-            "blazers", "trousers", "pants", "jeans", "shorts", "skirt", "skirts",
+            "blazers", "vest", "vests", "trousers", "pants", "jeans", "shorts", "skirt", "skirts",
             "dress", "dresses", "jumpsuit", "jumpsuits", "romper", "rompers",
         }
         statement_terms = {
@@ -656,15 +716,18 @@ class QueryPlanner:
         token_sets: list[tuple[str, set[str]]] = []
         by_direction: dict[str, list[QueryDraft]] = {}
         for query in queries:
+            query_label = f"{query.direction_id or query.id}/{query.garment_zone}"
             words = re.findall(r"[a-z]+(?:-[a-z]+)?", query.text.lower())
             tokens = set(words)
-            token_sets.append((query.id, tokens))
+            token_sets.append((query_label, tokens))
             if len(words) > 22:
-                warnings.append(f"{query.id}: query exceeds 22 English words")
+                warnings.append(f"{query_label}: query exceeds 22 English words")
             if non_product_phrases.search(query.text):
-                warnings.append(f"{query.id}: query contains non-product context")
+                warnings.append(f"{query_label}: query contains non-product context")
             if not tokens.intersection(garment_terms):
-                warnings.append(f"{query.id}: query may lack a recognizable garment type")
+                warnings.append(
+                    f"{query_label}: query may lack a recognizable garment type"
+                )
             if query.direction_id and query.garment_zone in {"upper_body", "lower_body"}:
                 by_direction.setdefault(query.direction_id, []).append(query)
 
@@ -733,6 +796,7 @@ class QueryPlanner:
         refinement: str | None = None,
         fashion_intent: FashionIntent | None = None,
         intent_fallback_used: bool = False,
+        include_debug: bool = False,
     ) -> PlanResponse:
         # get preference payload for LLM
         preference_payload = build_planner_preference_context(hard, style_preferences)
@@ -791,41 +855,48 @@ class QueryPlanner:
             for index in range(QUERY_COUNTS[zone])
         ]
         styling_guide = self._guide_with_intent(result.styling_guide, fashion_intent)
+        # The model may interleave directions (A upper, A lower, B upper, ...),
+        # while our public query contract groups rows by garment zone. Compare
+        # corresponding rows inside each zone instead of zipping the two global
+        # lists, otherwise unchanged queries are incorrectly reported as edits.
+        final_by_zone = {
+            zone: [query for query in queries if query.garment_zone == zone]
+            for zone in QUERY_ZONES
+        }
         normalizer_changes = [
             {
-                "direction_id": before.direction_id,
-                "garment_zone": before.garment_zone,
+                "direction_id": after.direction_id,
+                "garment_zone": zone,
                 "before": before.text,
                 "after": after.text,
             }
-            for before, after in zip(result.queries, queries, strict=True)
+            for zone in QUERY_ZONES
+            for before, after in zip(by_zone[zone], final_by_zone[zone], strict=True)
             if before.text != after.text
         ]
+        trace_payload = {
+            "raw_user_text": user_input,
+            "requirement_summary": (
+                requirements.model_dump(mode="json") if requirements else None
+            ),
+            "fashion_intent": (
+                fashion_intent.model_dump(mode="json") if fashion_intent else None
+            ),
+            "generated_queries_before_normalization": [
+                query.model_dump(mode="json") for query in result.queries
+            ],
+            "generated_queries_after_normalization": [
+                query.model_dump(mode="json") for query in queries
+            ],
+            "normalizer_changes": normalizer_changes,
+            "query_warnings": self._query_warnings(queries),
+            "intent_fallback_used": intent_fallback_used,
+            "model": settings.query_planner_model,
+            "prompt_version": "intent-v1" if fashion_intent else "legacy-v2",
+        }
         logger.info(
             "query_plan_trace %s",
-            json.dumps(
-                {
-                    "raw_user_text": user_input,
-                    "requirement_summary": (
-                        requirements.model_dump(mode="json") if requirements else None
-                    ),
-                    "fashion_intent": (
-                        fashion_intent.model_dump(mode="json") if fashion_intent else None
-                    ),
-                    "generated_queries_before_normalization": [
-                        query.model_dump(mode="json") for query in result.queries
-                    ],
-                    "generated_queries_after_normalization": [
-                        query.model_dump(mode="json") for query in queries
-                    ],
-                    "normalizer_changes": normalizer_changes,
-                    "query_warnings": self._query_warnings(queries),
-                    "intent_fallback_used": intent_fallback_used,
-                    "model": settings.query_planner_model,
-                    "prompt_version": "intent-v1" if fashion_intent else "legacy-v2",
-                },
-                ensure_ascii=False,
-            ),
+            json.dumps(trace_payload, ensure_ascii=False),
         )
 
         return PlanResponse(
@@ -841,4 +912,5 @@ class QueryPlanner:
             ),
             styling_guide=styling_guide,
             fashion_intent=fashion_intent,
+            debug=(QueryPlanDebug.model_validate(trace_payload) if include_debug else None),
         )
