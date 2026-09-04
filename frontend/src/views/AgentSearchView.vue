@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowLeft, Check, Heart, MessageSquare, Send, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, Check, Heart, MessageSquare, MessageSquarePlus, Send, Sparkles } from 'lucide-vue-next'
 import {
+  clarifyRequirements,
   confirmSoftPreferences,
   createQueryPlan,
   getRecommendations,
@@ -11,7 +12,13 @@ import {
 import OutfitCard from '../components/OutfitCard.vue'
 import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
-import type { Audience, OutfitRecommendation, QueryDraft, StylePreferenceProposal } from '../types'
+import type {
+  Audience,
+  OutfitRecommendation,
+  QueryDraft,
+  RequirementSummary,
+  StylePreferenceProposal,
+} from '../types'
 
 const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{ preferenceUpdated: [] }>()
@@ -37,12 +44,29 @@ const error = ref('')
 const stage = ref<'start' | 'review' | 'results'>('start')
 const originalRequest = ref('')
 const audience = ref<Audience | ''>('')
+const requirements = ref<RequirementSummary | null>(null)
+const missingFields = ref<string[]>([])
+const readyToPlan = ref(false)
 let messageId = 2
 
 const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
 const shouldAskPreference = computed(
   () => stage.value === 'results' && likedIds.value.size > 0 && !proposal.value && !proposalDismissed.value && !preferenceUpdated.value,
 )
+const hasUserDetails = computed(() => messages.value.some((message) => message.role === 'user'))
+const composerPlaceholder = computed(() => {
+  if (stage.value === 'start') return '回答 Agent 的問題，或補充你的穿搭需求'
+  if (stage.value === 'review') return '補充調整，例如：不要裙子、再正式一點'
+  return '若要搜尋其他穿搭，請開啟新的對話'
+})
+
+const requirementLabels: Record<keyof Omit<RequirementSummary, 'search_brief'>, string> = {
+  occasion: '場合',
+  time: '時間／季節',
+  context: '情境',
+  special_requirements: '特殊要求',
+  additional_notes: '其他補充',
+}
 
 const quickPrompts = [
   '適合上班的簡約藍色穿搭，預算 3000 元',
@@ -69,25 +93,28 @@ async function run(task: () => Promise<void>) {
 async function sendRequest(text = draft.value) {
   const content = text.trim()
   if (!content || loading.value) return
+  if (stage.value === 'results') return
   draft.value = ''
-  originalRequest.value = content
   addMessage('user', content)
+  if (stage.value === 'review') {
+    await refine(content)
+    return
+  }
   await run(async () => {
-    const response = await createQueryPlan(content, props.userKey, audience.value || undefined)
-    queries.value = response.queries
-    audience.value = response.audience ?? audience.value
-    recommendations.value = []
-    stage.value = 'review'
-    addMessage(
-      'agent',
-      `已參考 ${response.knowledge_observation_ids.length} 條搭配知識並產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+    const response = await clarifyRequirements(
+      messages.value.map(({ role, text }) => ({ role, text })),
+      props.userKey,
+      audience.value || undefined,
     )
+    requirements.value = response.requirements
+    missingFields.value = response.missing_fields
+    readyToPlan.value = response.ready_to_plan
+    addMessage('agent', response.reply)
   })
 }
 
 async function refine(text: string) {
   const previousRequest = originalRequest.value
-  addMessage('user', text)
   await run(async () => {
     const response = await refineQueryPlan(
       text,
@@ -101,6 +128,46 @@ async function refine(text: string) {
     originalRequest.value = `${previousRequest} ${text}`.trim()
     addMessage('agent', `已依照補充條件與 ${response.knowledge_observation_ids.length} 條搭配知識重新規劃。`)
   })
+}
+
+async function confirmRequirements() {
+  if (!hasUserDetails.value || loading.value) return
+  const fallback = messages.value
+    .filter((message) => message.role === 'user')
+    .map((message) => message.text)
+    .join('；')
+  const brief = requirements.value?.search_brief.trim() || fallback
+  originalRequest.value = brief
+  await run(async () => {
+    const response = await createQueryPlan(brief, props.userKey, audience.value || undefined)
+    queries.value = response.queries
+    audience.value = response.audience ?? audience.value
+    recommendations.value = []
+    stage.value = 'review'
+    addMessage(
+      'agent',
+      `需求已確認。已參考 ${response.knowledge_observation_ids.length} 條搭配知識並產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+    )
+  })
+}
+
+function startNewConversation() {
+  messages.value = [
+    { id: messageId++, role: 'agent', text: '今天想找什麼樣的穿搭？我會先和你確認場合、時間與其他重要需求。' },
+  ]
+  draft.value = ''
+  queries.value = []
+  recommendations.value = []
+  requirements.value = null
+  missingFields.value = []
+  readyToPlan.value = false
+  originalRequest.value = ''
+  likedIds.value = new Set()
+  proposal.value = null
+  proposalDismissed.value = false
+  preferenceUpdated.value = false
+  error.value = ''
+  stage.value = 'start'
 }
 
 async function searchOutfits() {
@@ -174,6 +241,9 @@ async function confirmProposal() {
       <header class="chat-header">
         <div class="agent-avatar"><Sparkles :size="18" /></div>
         <div><strong>Outfit Agent</strong><span>Online</span></div>
+        <button class="new-chat-button" title="開啟新對話" @click="startNewConversation">
+          <MessageSquarePlus :size="18" />
+        </button>
       </header>
 
       <div class="message-list">
@@ -194,7 +264,7 @@ async function confirmProposal() {
         </div>
       </div>
 
-      <div class="chat-composer">
+      <div class="chat-composer" :class="{ 'has-confirm': stage === 'start' && hasUserDetails }">
         <div class="audience-control">
           <label for="outfit-audience">服裝受眾</label>
           <select id="outfit-audience" v-model="audience">
@@ -204,21 +274,58 @@ async function confirmProposal() {
             <option value="unisex">不限性別</option>
           </select>
         </div>
-        <textarea v-model="draft" rows="3" placeholder="輸入穿搭需求或補充條件" @keydown.ctrl.enter="sendRequest()" />
-        <button class="send-button" title="送出" :disabled="loading || !draft.trim()" @click="sendRequest()">
+        <textarea
+          v-model="draft"
+          rows="3"
+          :placeholder="composerPlaceholder"
+          :disabled="stage === 'results'"
+          @keydown.ctrl.enter="sendRequest()"
+        />
+        <button class="send-button" title="送出" :disabled="loading || !draft.trim() || stage === 'results'" @click="sendRequest()">
           <Send :size="18" />
+        </button>
+        <button
+          v-if="stage === 'start' && hasUserDetails"
+          class="confirm-requirements-button"
+          :disabled="loading"
+          @click="confirmRequirements"
+        >
+          <Check :size="16" />{{ readyToPlan ? '產生搜尋 query' : '不再補充，產生 query' }}
         </button>
       </div>
       <p v-if="error" class="chat-error">{{ error }}</p>
     </aside>
 
     <main class="agent-workspace">
-      <section v-if="stage === 'start'" class="agent-start">
+      <section v-if="stage === 'start' && !requirements" class="agent-start">
         <div class="start-icon"><MessageSquare :size="26" /></div>
         <h2>開始新的穿搭搜尋</h2>
         <div class="quick-prompts">
           <button v-for="prompt in quickPrompts" :key="prompt" @click="sendRequest(prompt)">{{ prompt }}</button>
         </div>
+      </section>
+
+      <section v-else-if="stage === 'start'" class="requirement-review">
+        <header class="view-heading compact-heading">
+          <div>
+            <span class="section-kicker">Requirement check</span>
+            <h2>確認穿搭需求</h2>
+            <p>繼續在左側回答 Agent，或直接確認並產生搜尋 query。</p>
+          </div>
+        </header>
+        <dl class="requirement-summary">
+          <div
+            v-for="(label, field) in requirementLabels"
+            :key="field"
+            :class="{ missing: missingFields.includes(field) }"
+          >
+            <dt>{{ label }}</dt>
+            <dd>{{ requirements?.[field] || '尚未提供' }}</dd>
+          </div>
+        </dl>
+        <button class="primary-button requirement-confirm" :disabled="loading" @click="confirmRequirements">
+          <Check :size="17" />{{ readyToPlan ? '確認並產生搜尋 query' : '不再補充，直接產生 query' }}
+        </button>
       </section>
 
       <QueryReview
@@ -227,7 +334,6 @@ async function confirmProposal() {
         :loading="loading"
         @select="setSelected"
         @update-text="updateQueryText"
-        @refine="refine"
         @search="searchOutfits"
       />
 

@@ -1,25 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Check, RotateCcw, Send, X } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Check, RotateCcw, X } from 'lucide-vue-next'
 import type { QueryDraft } from '../types'
 
 const props = defineProps<{ queries: QueryDraft[]; loading: boolean }>()
 const emit = defineEmits<{
   select: [id: string, selected: boolean]
   updateText: [id: string, text: string]
-  refine: [text: string]
   search: []
 }>()
 
-const refinement = ref('')
 const active = computed(() => props.queries.filter((query) => query.selected))
 const removed = computed(() => props.queries.filter((query) => !query.selected))
-
-function submitRefinement() {
-  if (!refinement.value.trim()) return
-  emit('refine', refinement.value)
-  refinement.value = ''
-}
 </script>
 
 <template>
@@ -54,13 +46,6 @@ function submitRefinement() {
       <span>已移除</span>
       <button v-for="query in removed" :key="query.id" @click="$emit('select', query.id, true)">
         <RotateCcw :size="14" />{{ query.garment_zone.replace('_', ' ') }}
-      </button>
-    </div>
-
-    <div class="refine-composer">
-      <input v-model="refinement" placeholder="例如：不要裙子、再正式一點" @keyup.enter="submitRefinement" />
-      <button class="icon-button dark" title="送出補充條件" :disabled="loading" @click="submitRefinement">
-        <Send :size="18" />
       </button>
     </div>
 

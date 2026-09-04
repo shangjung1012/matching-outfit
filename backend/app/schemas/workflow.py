@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
 Audience = Literal["men", "women", "unisex"]
+RequirementField = Literal[
+    "occasion", "time", "context", "special_requirements", "additional_notes"
+]
 
 
 class ReferenceLink(BaseModel):
@@ -26,6 +29,33 @@ class PlanRequest(BaseModel):
     user_input: str = Field(min_length=2, max_length=1000)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     audience: Audience | None = None
+
+
+class ChatTurn(BaseModel):
+    role: Literal["agent", "user"]
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class RequirementSummary(BaseModel):
+    occasion: str = ""
+    time: str = ""
+    context: str = ""
+    special_requirements: str = ""
+    additional_notes: str = ""
+    search_brief: str = ""
+
+
+class ClarificationRequest(BaseModel):
+    messages: list[ChatTurn] = Field(min_length=1, max_length=30)
+    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
+    audience: Audience | None = None
+
+
+class ClarificationResponse(BaseModel):
+    reply: str
+    requirements: RequirementSummary
+    missing_fields: list[RequirementField] = Field(default_factory=list)
+    ready_to_plan: bool = False
 
 
 class PlanResponse(BaseModel):

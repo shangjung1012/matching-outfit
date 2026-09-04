@@ -155,6 +155,7 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .chat-header > div:last-child { display: grid; gap: 2px; }
 .chat-header strong { font-size: .82rem; }
 .chat-header span { color: #4d7b64; font-size: .67rem; }
+.new-chat-button { width: 34px; height: 34px; display: grid; place-items: center; margin-left: auto; border: 1px solid #d1d7d1; border-radius: 5px; color: #4c6257; background: #fff; }
 .message-list { overflow-y: auto; padding: 18px 14px; }
 .message { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 14px; }
 .message.user { justify-content: flex-end; }
@@ -171,6 +172,8 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .audience-control select { width: auto; min-width: 112px; padding: 6px 8px; border: 1px solid #d8dcd7; border-radius: 4px; background: #fff; color: #27312c; }
 .chat-composer textarea { min-height: 84px; padding-right: 48px; }
 .send-button { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 4px; color: #fff; background: #245a45; }
+.chat-composer.has-confirm .send-button { bottom: 50px; }
+.confirm-requirements-button { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; border: 1px solid #245a45; border-radius: 5px; color: #fff; background: #245a45; font-size: .75rem; font-weight: 750; }
 .chat-error { margin: -6px 14px 12px; color: #993c31; font-size: .7rem; }
 .agent-workspace { min-width: 0; padding: 32px max(28px, calc((100vw - 350px - 1080px) / 2)); background: #fff; }
 .agent-start { min-height: calc(100vh - 132px); display: grid; place-content: center; justify-items: center; text-align: center; }
@@ -179,6 +182,13 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .quick-prompts { width: min(540px, 100%); display: grid; gap: 8px; }
 .quick-prompts button { padding: 12px 14px; border: 1px solid #d5d9d3; border-radius: 5px; color: #4d554e; background: #fff; text-align: left; font-size: .8rem; }
 .quick-prompts button:hover { border-color: #8ca193; color: #244f3c; background: #f7faf8; }
+.requirement-review { width: min(820px, 100%); margin: 0 auto; }
+.requirement-summary { margin: 0; border-top: 1px solid #d9ddd7; }
+.requirement-summary > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; padding: 16px 4px; border-bottom: 1px solid #e2e5df; }
+.requirement-summary dt { color: #4f6258; font-size: .74rem; font-weight: 800; }
+.requirement-summary dd { min-width: 0; margin: 0; color: #303731; font-size: .82rem; line-height: 1.55; }
+.requirement-summary .missing dd { color: #929891; }
+.requirement-confirm { margin-top: 22px; float: right; }
 
 /* Query review */
 .query-review, .recommendations-view { width: min(1060px, 100%); margin: 0 auto; }
@@ -190,7 +200,6 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .query-copy p { margin: 5px 2px 0; color: #7b817b; font-size: .7rem; }
 .removed-queries { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 13px; color: #7b817b; font-size: .7rem; }
 .removed-queries button { display: flex; align-items: center; gap: 5px; border: 1px dashed #cbd0c8; border-radius: 4px; padding: 5px 8px; color: #626a63; background: #fff; font-size: .67rem; }
-.refine-composer { display: flex; gap: 8px; margin-top: 22px; }
 .query-search-button { float: right; margin-top: 16px; }
 
 /* Recommendations */
@@ -375,11 +384,12 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .segmented-control button { white-space: nowrap; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .agent-view { display: block; }
-  .chat-panel { position: static; width: 100%; height: 330px; border-right: 0; border-bottom: 1px solid #d7dad4; }
+  .chat-panel { position: static; width: 100%; height: 420px; border-right: 0; border-bottom: 1px solid #d7dad4; }
   .agent-workspace { padding: 22px 14px 40px; }
   .agent-start { min-height: 360px; }
   .query-item { grid-template-columns: 1fr 36px; }
   .query-zone { grid-column: 1 / -1; }
+  .requirement-summary > div { grid-template-columns: 1fr; gap: 5px; }
   .recommendation-grid { grid-template-columns: 1fr; }
   .recommendation-card, .recommendation-card.featured { grid-column: auto; grid-template-columns: 1fr; min-height: 0; }
   .recommendation-visual { min-height: 310px; }

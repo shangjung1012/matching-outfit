@@ -1,6 +1,7 @@
 import type {
   Audience,
   CatalogItem,
+  ClarificationResponse,
   HardRules,
   PreferenceBundle,
   QueryDraft,
@@ -43,6 +44,18 @@ function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Requ
 export function createQueryPlan(userInput: string, userKey: string, audience?: Audience) {
   return request<QueryPlanResponse>('/api/query-plans', json('POST', {
     user_input: userInput,
+    user_key: userKey,
+    audience: audience || null,
+  }))
+}
+
+export function clarifyRequirements(
+  messages: Array<{ role: 'agent' | 'user'; text: string }>,
+  userKey: string,
+  audience?: Audience,
+) {
+  return request<ClarificationResponse>('/api/query-plans/clarify', json('POST', {
+    messages,
     user_key: userKey,
     audience: audience || null,
   }))

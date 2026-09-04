@@ -113,6 +113,22 @@ export interface QueryPlanResponse {
   planning_note: string
 }
 
+export interface RequirementSummary {
+  occasion: string
+  time: string
+  context: string
+  special_requirements: string
+  additional_notes: string
+  search_brief: string
+}
+
+export interface ClarificationResponse {
+  reply: string
+  requirements: RequirementSummary
+  missing_fields: Array<keyof Omit<RequirementSummary, 'search_brief'>>
+  ready_to_plan: boolean
+}
+
 export interface RecommendationResponse {
   recommendations: OutfitRecommendation[]
   aesthetic_reviewed: boolean

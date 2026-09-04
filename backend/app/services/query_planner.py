@@ -9,7 +9,14 @@ from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.schemas.fashion_knowledge import OutfitObservation, StrictModel
-from app.schemas.workflow import PlanResponse, QueryDraft, ReferenceLink
+from app.schemas.workflow import (
+    ChatTurn,
+    ClarificationResponse,
+    PlanResponse,
+    QueryDraft,
+    ReferenceLink,
+    RequirementSummary,
+)
 from app.services.integration_tools.llm import LLM
 from app.preferences.context import build_planner_preference_context
 
@@ -18,6 +25,22 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 QUERY_PLANNER_SYSTEM_PROMPT = (PROMPTS_DIR / "QueryPlanner.txt").read_text(encoding="utf-8").strip()
 QUERY_REPAIR_SYSTEM_PROMPT = (PROMPTS_DIR / "QueryPlannerSys.txt").read_text(encoding="utf-8").strip()
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
+
+REQUIREMENT_COLLECTOR_PROMPT = """
+You are the requirement-collection stage of an outfit recommendation system.
+Do not generate catalog search queries or recommend garments yet. Read the full
+conversation and summarize what the user has explicitly provided about: occasion,
+time (season, date, or time of day), context (location, weather, activities, and
+formality), special requirements, and any additional notes.
+
+Decide which missing details would materially change the recommendation. Ask one
+concise Traditional Chinese follow-up containing at most two focused questions.
+Do not force the user to provide optional details and do not ask again for something
+they already answered or declined to provide. Set ready_to_plan when the information
+is sufficient. Always produce a self-contained Traditional Chinese search_brief from
+all known details. The reply must be concise Traditional Chinese and should confirm
+what was learned before asking the next question.
+""".strip()
 
 FALLBACK_QUERIES = {
     "upper_body": (
@@ -66,6 +89,60 @@ class KnowledgeQueryDraft(StrictModel):
     queries: list[PlannedCatalogQuery] = Field(min_length=6, max_length=6)
     cited_observation_ids: list[str] = Field(default_factory=list)
     planning_note: str
+
+
+class RequirementAssessment(StrictModel):
+    reply: str
+    occasion: str = ""
+    time: str = ""
+    context: str = ""
+    special_requirements: str = ""
+    additional_notes: str = ""
+    search_brief: str
+    missing_fields: list[
+        Literal[
+            "occasion", "time", "context", "special_requirements", "additional_notes"
+        ]
+    ] = Field(default_factory=list)
+    ready_to_plan: bool = False
+
+
+class RequirementCollector:
+    def __init__(self, llm: LLM):
+        self.llm = llm
+
+    def collect(
+        self,
+        messages: list[ChatTurn],
+        *,
+        audience: str | None = None,
+        hard: UserHardRule | None = None,
+        style_preferences: list[UserStylePreference] | None = None,
+    ) -> ClarificationResponse:
+        payload = {
+            "conversation": [message.model_dump(mode="json") for message in messages],
+            "audience": audience,
+            "user_preferences": build_planner_preference_context(hard, style_preferences),
+        }
+        result = self.llm.parse(
+            stage="requirement_clarification",
+            instructions=REQUIREMENT_COLLECTOR_PROMPT,
+            content=[{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False)}],
+            schema=RequirementAssessment,
+        )
+        return ClarificationResponse(
+            reply=result.reply,
+            requirements=RequirementSummary(
+                occasion=result.occasion,
+                time=result.time,
+                context=result.context,
+                special_requirements=result.special_requirements,
+                additional_notes=result.additional_notes,
+                search_brief=result.search_brief,
+            ),
+            missing_fields=list(dict.fromkeys(result.missing_fields)),
+            ready_to_plan=result.ready_to_plan,
+        )
 
 
 class RepairedCatalogQuery(StrictModel):

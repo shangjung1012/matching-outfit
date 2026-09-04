@@ -13,6 +13,8 @@ from app.models.user_preference import UserHardRule, UserStylePreference
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
+    ClarificationRequest,
+    ClarificationResponse,
     HardRulesUpdate,
     HardRulesView,
     PlanRequest,
@@ -35,7 +37,7 @@ from app.services.catalog_search import search_catalog
 from app.services.outfit_ranker import rank_outfits
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
-from app.services.query_planner import QueryPlanner
+from app.services.query_planner import QueryPlanner, RequirementCollector
 from app.services.integration_tools.llm import LLM
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
@@ -305,6 +307,27 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
+
+
+@router.post("/query-plans/clarify", response_model=ClarificationResponse)
+def clarify_requirements(
+    payload: ClarificationRequest, db: Session = Depends(get_db)
+) -> ClarificationResponse:
+    user_text = " ".join(
+        message.text for message in payload.messages if message.role == "user"
+    )
+    audience = infer_audience(user_text, payload.audience)
+    try:
+        return RequirementCollector(LLM()).collect(
+            payload.messages,
+            audience=audience,
+            hard=hard_rules_for(db, payload.user_key),
+            style_preferences=style_preferences_for(db, payload.user_key),
+        )
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503, detail=f"Requirement agent unavailable: {error}"
+        ) from error
 
 
 @router.post("/query-plans/refine", response_model=PlanResponse)

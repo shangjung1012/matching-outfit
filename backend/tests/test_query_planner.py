@@ -1,12 +1,42 @@
+from app.schemas import ChatTurn
 from app.schemas.fashion_knowledge import OutfitObservation
 from app.services.query_planner import (
     EnglishQueryRepair,
     KnowledgeQueryDraft,
     QueryPlanner,
     QueryOutputNormalizer,
+    RequirementAssessment,
+    RequirementCollector,
     PlannedCatalogQuery,
     RepairedCatalogQuery,
 )
+
+
+class FakeRequirementLLM:
+    def parse(self, *, schema, **_):
+        assert schema is RequirementAssessment
+        return RequirementAssessment(
+            reply="已知道是婚禮。請問季節和場地是在室內還是戶外？",
+            occasion="參加婚禮",
+            time="",
+            context="",
+            special_requirements="避免過度搶眼",
+            additional_notes="",
+            search_brief="參加婚禮，穿搭避免過度搶眼",
+            missing_fields=["time", "context", "time"],
+            ready_to_plan=False,
+        )
+
+
+def test_requirement_collector_summarizes_and_deduplicates_missing_fields() -> None:
+    result = RequirementCollector(FakeRequirementLLM()).collect(
+        [ChatTurn(role="user", text="我要參加婚禮，不想穿得太搶眼")]
+    )
+
+    assert result.requirements.occasion == "參加婚禮"
+    assert result.requirements.search_brief == "參加婚禮，穿搭避免過度搶眼"
+    assert result.missing_fields == ["time", "context"]
+    assert result.ready_to_plan is False
 
 
 class FakeLLM:
