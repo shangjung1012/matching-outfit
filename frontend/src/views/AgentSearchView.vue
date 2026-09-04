@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ArrowLeft, Check, Heart, MessageSquare, MessageSquarePlus, Send, Sparkles } from 'lucide-vue-next'
+import { computed, nextTick, ref } from 'vue'
+import { ArrowLeft, Check, MessageSquare, MessageSquarePlus, Send, Sparkles } from 'lucide-vue-next'
 import {
   clarifyRequirements,
   confirmSoftPreferences,
@@ -37,8 +37,8 @@ const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
 const likedOutfitIds = ref(new Set<string>())
 const proposal = ref<StylePreferenceProposal | null>(null)
-const proposalDismissed = ref(false)
 const preferenceUpdated = ref(false)
+const proposalArea = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const error = ref('')
 const stage = ref<'start' | 'review' | 'results'>('start')
@@ -50,9 +50,6 @@ const readyToPlan = ref(false)
 let messageId = 2
 
 const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
-const shouldAskPreference = computed(
-  () => stage.value === 'results' && likedOutfitIds.value.size > 0 && !proposal.value && !proposalDismissed.value && !preferenceUpdated.value,
-)
 const hasUserDetails = computed(() => messages.value.some((message) => message.role === 'user'))
 const composerPlaceholder = computed(() => {
   if (stage.value === 'start') return '回答 Agent 的問題，或補充你的穿搭需求'
@@ -164,7 +161,6 @@ function startNewConversation() {
   originalRequest.value = ''
   likedOutfitIds.value = new Set()
   proposal.value = null
-  proposalDismissed.value = false
   preferenceUpdated.value = false
   error.value = ''
   stage.value = 'start'
@@ -181,7 +177,6 @@ async function searchOutfits() {
     recommendations.value = response.recommendations
     likedOutfitIds.value = new Set()
     proposal.value = null
-    proposalDismissed.value = false
     preferenceUpdated.value = false
     stage.value = 'results'
     addMessage(
@@ -201,19 +196,21 @@ function updateQueryText(id: string, text: string) {
   if (query) query.text = text
 }
 
-function toggleLike(id: string) {
+async function toggleLike(id: string) {
+  if (loading.value) return
   const next = new Set(likedOutfitIds.value)
   next.has(id) ? next.delete(id) : next.add(id)
   likedOutfitIds.value = next
   proposal.value = null
-  proposalDismissed.value = false
   preferenceUpdated.value = false
+
+  if (next.size > 0) await buildProposal(next)
 }
 
-async function buildProposal() {
+async function buildProposal(selectedIds = likedOutfitIds.value) {
   await run(async () => {
     const likedOutfits = recommendations.value.filter((outfit) =>
-      likedOutfitIds.value.has(outfit.id),
+      selectedIds.has(outfit.id),
     )
     proposal.value = await proposeSoftFromOutfit(
       props.userKey,
@@ -221,8 +218,13 @@ async function buildProposal() {
       originalRequest.value,
       requirements.value,
     )
-    addMessage('agent', '我把完整需求與你喜歡的整套搭配整理成偏好句，你可以先確認再更新。')
+    await nextTick()
+    proposalArea.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
+}
+
+function dismissProposal() {
+  proposal.value = null
 }
 
 async function confirmProposal() {
@@ -232,7 +234,6 @@ async function confirmProposal() {
     proposal.value = null
     preferenceUpdated.value = true
     emit('preferenceUpdated')
-    addMessage('agent', '偏好已更新，下次拆解需求時會一起參考。')
   })
 }
 </script>
@@ -254,16 +255,6 @@ async function confirmProposal() {
           <p>{{ message.text }}</p>
         </div>
 
-        <div v-if="shouldAskPreference" class="message agent action-message">
-          <span class="message-avatar"><Heart :size="13" /></span>
-          <div>
-            <p>你喜歡了 {{ likedOutfitIds.size }} 套搭配，要用這些選擇更新個人偏好嗎？</p>
-            <button :disabled="loading" @click="buildProposal">查看更新內容</button>
-          </div>
-        </div>
-        <div v-if="preferenceUpdated" class="message agent status-message">
-          <span class="message-avatar"><Check :size="13" /></span><p>這次的偏好已經記下來了。</p>
-        </div>
       </div>
 
       <div class="chat-composer" :class="{ 'has-confirm': stage === 'start' && hasUserDetails }">
@@ -349,13 +340,19 @@ async function confirmProposal() {
           </div>
         </header>
 
-        <PreferenceProposalPanel
-          v-if="proposal"
-          :proposal="proposal"
-          :loading="loading"
-          @confirm="confirmProposal"
-          @dismiss="proposal = null; proposalDismissed = true"
-        />
+        <div v-if="proposal || preferenceUpdated" ref="proposalArea" class="preference-confirmation-area">
+          <PreferenceProposalPanel
+            v-if="proposal"
+            :proposal="proposal"
+            :loading="loading"
+            @confirm="confirmProposal"
+            @dismiss="dismissProposal"
+          />
+          <div v-else class="preference-update-status">
+            <Check :size="17" />
+            <span>偏好已更新，下次規劃穿搭時會參考這次的選擇。</span>
+          </div>
+        </div>
 
         <div v-if="recommendations.length" class="recommendation-grid">
           <OutfitCard
