@@ -9,6 +9,8 @@ services:
       IMAGE_DIR: /data/images
       FASHION_CLIP_MODEL: patrickjohncyh/fashion-clip
       HF_HOME: /models/huggingface
+      CATVTON_API_URL: ${CATVTON_API_URL:-}
+      CATVTON_API_KEY: ${CATVTON_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

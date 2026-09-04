@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { MessageSquareText, Shirt, SlidersHorizontal } from 'lucide-vue-next'
+import { MessageSquareText, ScanFace, Shirt, SlidersHorizontal } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
 import PreferencesView from './views/PreferencesView.vue'
+import VirtualTryOnView from './views/VirtualTryOnView.vue'
 import type { AppView } from './types'
 
 const activeView = ref<AppView>('agent')
@@ -13,6 +14,7 @@ const preferenceRevision = ref(0)
 const navigation = [
   { id: 'agent' as const, label: 'Agent 搜尋', icon: MessageSquareText },
   { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
+  { id: 'tryon' as const, label: '虛擬試穿', icon: ScanFace },
   { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
 ]
 </script>
@@ -48,6 +50,7 @@ const navigation = [
         @preference-updated="preferenceRevision++"
       />
       <CatalogView v-show="activeView === 'catalog'" />
+      <VirtualTryOnView v-if="activeView === 'tryon'" :user-key="userKey" />
       <PreferencesView
         v-show="activeView === 'preferences'"
         :key="preferenceRevision"

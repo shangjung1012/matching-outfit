@@ -266,6 +266,39 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
 .tag-entry { display: flex; gap: 7px; }
 .notes-field textarea { min-height: 100px; }
 
+/* Virtual try-on */
+.tryon-service-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; padding: 13px 15px; border: 1px solid; border-radius: 6px; }
+.tryon-service-banner.available { border-color: #b8d3c3; color: #276044; background: #f0f8f3; }
+.tryon-service-banner.unavailable { border-color: #e2c5a4; color: #76501e; background: #fff8ec; }
+.tryon-service-banner strong { display: block; font-size: .82rem; }
+.tryon-service-banner p { margin: 3px 0 0; font-size: .72rem; }
+.tryon-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr); gap: 18px; }
+.tryon-form-card, .tryon-result-card { min-width: 0; padding: 20px; border: 1px solid #d9ddd7; border-radius: 7px; background: #fff; }
+.tryon-upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tryon-upload { min-width: 0; display: grid; gap: 8px; color: #505850; font-size: .73rem; font-weight: 800; }
+.tryon-upload input { height: auto; border: 0; padding: 0; color: #666d67; background: transparent; font-size: .68rem; }
+.tryon-upload input::file-selector-button { margin-right: 8px; border: 1px solid #cbd0c8; border-radius: 4px; padding: 7px 9px; color: #384038; background: #fff; cursor: pointer; }
+.tryon-preview { aspect-ratio: 3 / 4; overflow: hidden; display: grid; place-items: center; border: 1px dashed #bcc5bd; border-radius: 6px; color: #768078; background: #f5f7f4; }
+.tryon-preview img { width: 100%; height: 100%; display: block; object-fit: contain; background: #eef0ed; }
+.tryon-preview > div { display: grid; justify-items: center; gap: 8px; padding: 20px; text-align: center; }
+.tryon-preview small { color: #8a908a; font-size: .65rem; font-weight: 500; }
+.tryon-type-field { margin: 20px 0 0; border: 0; padding: 0; }
+.tryon-type-field legend { margin-bottom: 9px; color: #505850; font-size: .73rem; font-weight: 800; }
+.tryon-type-field .segmented-control { width: fit-content; }
+.tryon-submit { width: 100%; margin-top: 18px; }
+.tryon-limit { margin: 8px 0 0; color: #858b85; text-align: center; font-size: .65rem; }
+.tryon-result-card { display: grid; min-height: 570px; }
+.tryon-result-placeholder { min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 9px; color: #778078; background: #f4f6f3; text-align: center; }
+.tryon-result-placeholder.processing { color: #34604b; background: #f0f6f2; }
+.tryon-result-placeholder h3 { margin: 4px 0 0; color: #3c443d; font-size: .95rem; }
+.tryon-result-placeholder p { max-width: 300px; margin: 0; font-size: .72rem; line-height: 1.5; }
+.tryon-result { min-height: 100%; display: flex; flex-direction: column; gap: 12px; }
+.tryon-result img { min-height: 0; width: 100%; flex: 1; object-fit: contain; background: #f0f2ef; }
+.tryon-result > div { display: flex; align-items: center; justify-content: center; gap: 7px; color: #276044; font-size: .78rem; }
+.tryon-attribution { margin: 14px 0 0; color: #878d87; text-align: center; font-size: .65rem; }
+.spinning { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 @media (max-width: 1050px) {
   .app-header { grid-template-columns: 210px 1fr 160px; }
   .main-navigation button { min-width: 110px; }
@@ -302,4 +335,6 @@ input:focus, textarea:focus { border-color: #39705b; box-shadow: 0 0 0 3px #dce9
   .recommendation-visual { min-height: 310px; }
   .preference-proposal, .proposal-actions { align-items: stretch; flex-direction: column; }
   .two-column-section, .preference-fields-grid { grid-template-columns: 1fr; }
+  .tryon-layout, .tryon-upload-grid { grid-template-columns: 1fr; }
+  .tryon-result-card { min-height: 420px; }
 }

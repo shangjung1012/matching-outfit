@@ -9,6 +9,7 @@
 - Database: PostgreSQL 16 + pgvector
 - Migration: Alembic
 - Embedding: `patrickjohncyh/fashion-clip`（512 維、cosine distance）
+- Virtual try-on: 獨立 CatVTON GPU API + 私有 MinIO
 
 目前 Query Planner 是不需 API key 的規則版，介面已獨立放在 `backend/app/services/query_planner.py`，之後可以直接替換成 LLM agent。搭配排序目前以 embedding 相似度為基礎，`fashion_rules` 與完整 user preference 加權是後續開發接點。
 
@@ -91,6 +92,40 @@ docker compose up --build
 - API docs: http://localhost:8000/docs
 - API health: http://localhost:8000/health
 - PostgreSQL: `localhost:5432`
+
+一般網站 stack 不會啟動 CatVTON 或 MinIO。未設定遠端 GPU API 時，虛擬試穿分頁會顯示服務尚未連線，其餘功能可正常使用。
+
+## 虛擬試穿部署
+
+CatVTON 與 MinIO 有獨立的 Compose stack，位於 `catvton/`。它不使用或連接 Matching Outfit 的 PostgreSQL；MinIO 只存在於 CatVTON 私有 Docker network，保存排隊中的輸入、job manifest 與生成結果。
+
+在 NVIDIA Linux 主機上設定：
+
+```bash
+cd catvton
+cp .env.example .env
+# 編輯 .env，替換 CATVTON_API_KEY、MINIO_ROOT_USER、MINIO_ROOT_PASSWORD
+docker compose up --build -d
+```
+
+CatVTON API 預設監聽 `9002`。MinIO API 不發布到主機；管理 console 只綁定 `127.0.0.1:9001`，需要遠端管理時可透過 SSH tunnel 使用。
+
+第一次啟動會從 Hugging Face 下載 CatVTON、DensePose、SCHP 與 base model，需等待模型下載及載入完成。健康檢查需要 API key：
+
+```bash
+curl -H "X-API-Key: $CATVTON_API_KEY" http://127.0.0.1:9002/health
+```
+
+網站主機透過私有網路或 VPN 設定同一組 secret：
+
+```bash
+cp .env.example .env
+# CATVTON_API_URL=http://<GPU_PRIVATE_IP>:9002
+# CATVTON_API_KEY=<與 GPU 主機相同的 secret>
+docker compose up --build -d
+```
+
+人物照與衣服照由 CatVTON 在工作結束後立即從 MinIO 刪除；結果與 manifest 保存 24 小時。Matching Outfit backend 只保存本地 job metadata 和遠端 job UUID，前端不會取得 MinIO 帳密或 CatVTON API key。
 
 Backend 啟動前會自動執行 `alembic upgrade head`。這次 initial migration 已重建；若你曾用舊版 schema 建立 Docker volume，請先執行：
 

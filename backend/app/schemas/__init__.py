@@ -18,6 +18,7 @@ from app.schemas.workflow import (
     UserPreferenceUpdate,
     UserPreferenceView,
 )
+from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobStatus, TryOnJobView
 
 __all__ = [
     "CatalogItem",
@@ -38,4 +39,8 @@ __all__ = [
     "SearchResponse",
     "UserPreferenceUpdate",
     "UserPreferenceView",
+    "TryOnCapabilities",
+    "TryOnClothType",
+    "TryOnJobStatus",
+    "TryOnJobView",
 ]

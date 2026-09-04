@@ -17,5 +17,9 @@ data/images/*
 !data/images/.gitkeep
 data/*.csv
 
+# Runtime object/model storage
+catvton/densepose_/
+catvton/output/
+
 .DS_Store
 Thumbs.db

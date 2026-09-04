@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     image_dir: str = "/data/images"
     fashion_clip_model: str = "patrickjohncyh/fashion-clip"
     embedding_batch_size: int = 16
+    catvton_api_url: str = ""
+    catvton_api_key: str = ""
+    catvton_request_timeout_seconds: float = 300.0
+    tryon_max_upload_bytes: int = 10 * 1024 * 1024
+    tryon_max_image_pixels: int = 20_000_000
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

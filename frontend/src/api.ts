@@ -3,6 +3,9 @@ import type {
   OutfitRecommendation,
   PreferenceProposal,
   QueryDraft,
+  TryOnCapabilities,
+  TryOnClothType,
+  TryOnJob,
   UserPreference,
 } from './types'
 
@@ -70,4 +73,26 @@ export function saveUserPreference(userKey: string, preference: UserPreference) 
     `/api/preferences/${encodeURIComponent(userKey)}`,
     json('PUT', preference),
   )
+}
+
+export function getTryOnCapabilities() {
+  return request<TryOnCapabilities>('/api/try-on/capabilities')
+}
+
+export function createTryOnJob(
+  personImage: File,
+  clothImage: File,
+  clothType: TryOnClothType,
+  userKey: string,
+) {
+  const form = new FormData()
+  form.append('person_image', personImage)
+  form.append('cloth_image', clothImage)
+  form.append('cloth_type', clothType)
+  form.append('user_key', userKey)
+  return request<TryOnJob>('/api/try-on/jobs', { method: 'POST', body: form })
+}
+
+export function getTryOnJob(jobId: string) {
+  return request<TryOnJob>(`/api/try-on/jobs/${encodeURIComponent(jobId)}`)
 }
