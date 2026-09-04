@@ -36,8 +36,12 @@ const activeObservationTotal = computed(() =>
   articles.value.reduce((sum, article) => sum + article.active_observation_count, 0),
 )
 
-function parseUrls(value: string) {
-  return [...new Set(value.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean))]
+function retryFailed() {
+  urlInput.value = collectResults.value
+    .filter(result => result.status === 'failed' || result.status === 'unsupported')
+    .map(result => (result.category ? '# ' + result.category + '\n' : '') + result.url)
+    .join('\n')
+  void collectUrls()
 }
 
 function formatDate(value: string | null) {
@@ -90,13 +94,10 @@ function toggleExpanded(id: number) {
   expandedIds.value = next
 }
 
-async function collectUrls(urls = parseUrls(urlInput.value)) {
-  if (!urls.length) {
+async function collectUrls(urls: string[] = [], forceRefresh = false) {
+  const rawText = urls.length ? '' : urlInput.value
+  if (!urls.length && !rawText.trim()) {
     error.value = '請輸入至少一個文章網址，每行一個。'
-    return
-  }
-  if (urls.length > 10) {
-    error.value = '一次最多抓取 10 篇，請分批處理。'
     return
   }
   collecting.value = true
@@ -104,10 +105,10 @@ async function collectUrls(urls = parseUrls(urlInput.value)) {
   notice.value = '正在抓取文章、翻譯整理並建立 embedding，請勿關閉頁面。'
   collectResults.value = []
   try {
-    const response = await collectFashionArticles(urls)
+    const response = await collectFashionArticles(urls, rawText, forceRefresh)
     collectResults.value = response.results
-    notice.value = `完成：${response.succeeded} 篇成功，${response.failed} 篇失敗。`
-    if (!response.failed) urlInput.value = ''
+    notice.value = `成功匯入 ${response.succeeded}；略過 ${response.skipped}；網域未開放 ${response.unsupported}；抓取或整理失敗 ${response.failed}。`
+    if (!response.failed && !response.unsupported) urlInput.value = ''
     await loadArticles()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '文章抓取失敗。'
@@ -149,7 +150,7 @@ async function autoUpdate() {
 
 async function refreshArticle(article: FashionArticleAdmin) {
   if (!window.confirm(`重新抓取「${article.title}」並取代原本的參考句子？`)) return
-  await collectUrls([article.source_url])
+  await collectUrls([article.source_url], true)
   expandedIds.value = new Set([...expandedIds.value, article.id])
 }
 
@@ -236,7 +237,7 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
       </div>
       <details class="manual-import">
         <summary>手動補抓特定文章（選用）</summary>
-        <textarea v-model="urlInput" rows="3" placeholder="每行貼一個文章網址" />
+        <textarea v-model="urlInput" rows="3" placeholder="可貼上 Markdown 分類標題、文章連結或每行一個網址" />
         <button class="secondary-button" :disabled="collecting" @click="collectUrls()">
           <Plus :size="15" />抓取指定網址
         </button>
@@ -250,12 +251,19 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     </ul>
     <ul v-if="collectResults.length" class="collect-results">
       <li v-for="result in collectResults" :key="result.url" :class="result.status">
-        <strong>{{ result.status === 'failed' ? '失敗' : result.status === 'updated' ? '已更新' : '已新增' }}</strong>
+        <strong>{{ result.status === 'skipped' ? '略過' : result.status === 'unsupported' ? '網域未開放' : result.status === 'failed' ? '失敗' : result.status === 'updated' ? '已更新' : '已新增' }}</strong>
+        <small v-if="result.category">分類：{{ result.category }}</small>
         <span>{{ result.title || '文章處理失敗' }}</span>
-        <a :href="result.url" target="_blank" rel="noreferrer">{{ result.url }}</a>
+        <a v-if="result.status !== 'skipped'" :href="result.url" target="_blank" rel="noopener noreferrer">{{ result.url }}</a>
+        <span v-else>{{ result.url }}</span>
         <small>{{ result.message }}<template v-if="result.observation_count"> · {{ result.observation_count }} 條</template></small>
       </li>
     </ul>
+    <button v-if="collectResults.some(result => result.status === 'failed' || result.status === 'unsupported')"
+      class="secondary-button" :disabled="collecting"
+      @click="retryFailed">
+      <RefreshCw :size="15" />只重試網域未開放與抓取失敗的文章
+    </button>
 
     <div class="knowledge-toolbar">
       <button class="secondary-button" :disabled="loading" @click="loadArticles">
@@ -283,12 +291,17 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
               <span>{{ formatDate(article.published_at || article.collected_at) }}</span>
               <span>{{ article.active_observation_count }}/{{ article.observation_count }} 條啟用</span>
             </div>
-            <h3>{{ article.title }}</h3>
+            <h3>
+              <a class="knowledge-article-title" :href="article.source_url" target="_blank" rel="noopener noreferrer">
+                {{ article.title }} <ExternalLink :size="14" />
+              </a>
+            </h3>
+            <small v-for="category in article.extraction_notes.filter(note => note.startsWith('匯入分類：'))" :key="category">{{ category }}</small>
             <a class="knowledge-source-url" :href="article.source_url" target="_blank" rel="noreferrer">
               <ExternalLink :size="12" />{{ article.source_url }}
             </a>
-            <p>{{ article.article_summary }}</p>
-            <div class="knowledge-tags">
+            <p v-if="expandedIds.has(article.id)">{{ article.article_summary }}</p>
+            <div v-if="expandedIds.has(article.id)" class="knowledge-tags">
               <span v-for="tag in tags(article)" :key="tag">{{ tag }}</span>
             </div>
           </div>

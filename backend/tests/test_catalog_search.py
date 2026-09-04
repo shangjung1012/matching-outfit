@@ -1,6 +1,8 @@
 from app.models.cloth import Cloth
 from app.models.user_preference import UserHardRule
 from app.services import catalog_search
+from app.api import routes
+from app.schemas import CatalogSemanticSearchRequest
 
 
 class FakeRows:
@@ -21,6 +23,18 @@ class FakeSession:
         self.statement = statement
         self.execute_count += 1
         return FakeRows(self.rows)
+
+
+def test_semantic_catalog_route_calls_imported_search_service(monkeypatch):
+    monkeypatch.setattr(routes, "hard_rules_for", lambda *_: None)
+    monkeypatch.setattr(routes, "effective_audience", lambda *_: "women")
+    monkeypatch.setattr(catalog_search.fashion_clip, "encode_texts", lambda _: [[0.0] * 512])
+    db = FakeSession([])
+    result = routes.semantic_catalog_search(
+        CatalogSemanticSearchRequest(query="lightweight summer dress"), db=db,
+    )
+    assert result.total == 0
+    assert db.execute_count == 1
 
 
 def test_free_text_catalog_search_uses_fashion_clip_and_returns_similarity(monkeypatch) -> None:

@@ -32,6 +32,10 @@ def outfit_context_embedding_text(
         )
     if requirements.additional_notes:
         lines.append(f"additional notes: {requirements.additional_notes}")
+    if requirements.location:
+        lines.append(f"location: {requirements.location}")
+    if requirements.target_date:
+        lines.append(f"target date: {requirements.target_date}")
     return "\n".join(lines) or fallback.strip()
 
 

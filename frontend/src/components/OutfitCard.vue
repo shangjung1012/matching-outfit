@@ -6,11 +6,9 @@ import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
   outfit: OutfitRecommendation
-  rank: number
   preferred: boolean
   favorited: boolean
   actionLoading?: boolean
-  featured?: boolean
   userRequest?: string
   stylingGuide?: StylingGuide | null
   queries?: QueryDraft[]
@@ -46,15 +44,17 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
 </script>
 
 <template>
-  <article class="recommendation-card" :class="{ featured }">
+  <article class="recommendation-card">
     <div class="recommendation-visual" :class="{ single: outfit.items.length === 1 }">
       <div v-for="item in outfit.items" :key="item.id" class="recommendation-item">
-        <img :src="item.image_url" :alt="item.product_display_name" />
+        <a :href="item.image_url" target="_blank" rel="noopener noreferrer" :aria-label="`查看 ${item.product_display_name} 原始商品圖片`">
+          <img :src="item.image_url" :alt="item.product_display_name" />
+          <span class="outfit-original-image"><ExternalLink :size="12" />查看原圖</span>
+        </a>
       </div>
     </div>
     <div class="recommendation-body">
       <div class="recommendation-rank">
-        <span>#{{ rank }}</span>
         <strong>{{ Math.round(outfit.score * 100) }}% match</strong>
         <strong v-if="outfit.aesthetic_review">
           美感 {{ outfit.aesthetic_review.overall_aesthetic }}
@@ -66,6 +66,11 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
       </div>
       <h3>{{ outfit.items.map((item) => item.product_display_name).join(' + ') }}</h3>
       <p v-if="outfit.aesthetic_review">{{ outfit.aesthetic_review.reason }}</p>
+      <aside v-if="outfit.aesthetic_review?.inner_layer_suggestion" class="outfit-inner-layer">
+        <strong>內搭建議</strong>
+        <p>{{ outfit.aesthetic_review.inner_layer_suggestion }}</p>
+        <small>穿搭建議，非本次推薦商品；不含於顯示價格。</small>
+      </aside>
       <div class="recommendation-tags">
         <span v-for="item in outfit.items" :key="`${item.id}-tag`">
           {{ item.base_colour }} {{ item.article_type }}
@@ -109,7 +114,7 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
           </section>
           <section v-else>
             <strong>最後怎麼確認</strong>
-            <p>目前由商品相似度、搭配協調度與場合符合度共同排序；本次沒有使用視覺美感審查。</p>
+            <p>這套沒有圖片美感審查結果，目前僅有初步搭配分數，請勿把它視為已通過美感審查。</p>
           </section>
         </div>
       </details>

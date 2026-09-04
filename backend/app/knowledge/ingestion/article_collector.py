@@ -13,6 +13,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.schemas.fashion_knowledge import ArticleBlock, ArticleImage, CollectedArticle
+from app.knowledge.ingestion.import_input import allowed_domain, normalize_article_url
 
 
 NOISE_SELECTOR = ",".join(
@@ -96,10 +97,11 @@ class ArticleCollector:
         )
 
     def _validate_url(self, url: str) -> None:
+        normalize_article_url(url)
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("Only public http(s) article URLs are supported")
-        if parsed.hostname.lower() not in self.allowed_domains:
+        if not allowed_domain(url, self.allowed_domains):
             raise ValueError(f"Article domain is not allowlisted: {parsed.hostname}")
 
     def _check_robots(self, url: str) -> None:

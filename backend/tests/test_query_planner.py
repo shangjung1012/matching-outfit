@@ -63,9 +63,9 @@ def test_requirement_collector_only_uses_current_conversation() -> None:
     )
 
     assert result.requirements.occasions == ["wedding"]
-    assert result.missing_fields == ["seasons", "climates"]
+    assert result.missing_fields == ["climates"]
     assert result.ready_to_plan is False
-    assert set(llm.payload) == {"conversation", "audience", "previous_requirements"}
+    assert set(llm.payload) == {"conversation", "audience", "previous_requirements", "current_context"}
 
 
 class FakeUpdateRequirementLLM:

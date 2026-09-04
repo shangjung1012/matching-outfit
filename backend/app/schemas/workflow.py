@@ -10,6 +10,8 @@ from app.schemas.fashion_knowledge import OutfitObservation
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
 Audience = Literal["men", "women", "unisex"]
 RequirementField = Literal[
+    "location",
+    "target_date",
     "occasions",
     "seasons",
     "times_of_day",
@@ -49,7 +51,56 @@ class StylingConcept(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class BodyContext(BaseModel):
+    height_band: Literal["short", "average", "tall", "unknown"] = "unknown"
+    bmi_band: Literal["lower", "middle", "higher", "unknown"] = "unknown"
+    frame_scale: Literal["small", "medium", "large", "unknown"] = "unknown"
+    shoulder_hip_balance: Literal["shoulder_dominant", "balanced", "hip_dominant", "unknown"] = "unknown"
+    midsection_fullness: Literal["lower", "moderate", "higher", "unknown"] = "unknown"
+    upper_body_volume: Literal["lower", "moderate", "higher", "unknown"] = "unknown"
+    lower_body_volume: Literal["lower", "moderate", "higher", "unknown"] = "unknown"
+    thigh_or_calf_volume: Literal["lower", "moderate", "higher", "unknown"] = "unknown"
+    leg_torso_ratio: Literal["shorter_legs", "balanced", "longer_legs", "unknown"] = "unknown"
+    fit_preference: Literal["fitted", "regular", "relaxed", "oversized", "mixed", "unknown"] = "unknown"
+    exposure_preference: Literal["low", "medium", "high", "unknown"] = "unknown"
+    areas_to_emphasize: list[str] = Field(default_factory=list, max_length=12)
+    areas_not_to_emphasize: list[str] = Field(default_factory=list, max_length=12)
+    access_needs: list[str] = Field(default_factory=list, max_length=12)
+    confidence: Literal["high", "medium", "low"] = "low"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BodyStrategy(BaseModel):
+    confidence: Literal["low", "medium", "high"] = "low"
+    fit_direction: list[str] = Field(default_factory=list, max_length=12)
+    proportion_direction: list[str] = Field(default_factory=list, max_length=12)
+    exposure_direction: list[str] = Field(default_factory=list, max_length=12)
+    movement_and_access_direction: list[str] = Field(default_factory=list, max_length=12)
+    soft_biases: list[str] = Field(default_factory=list, max_length=12)
+    hard_constraints: list[str] = Field(default_factory=list, max_length=12)
+    unknowns: list[str] = Field(default_factory=list, max_length=20)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ActivityContext(BaseModel):
+    activity: str = ""
+    activity_mode: Literal["appearance_led_performance", "functional_training", "mixed", "ordinary_occasion"] = "ordinary_occasion"
+    primary_goal: str = ""
+    secondary_goal: str = ""
+    functional_priority: Literal["low", "medium", "high"] = "low"
+    minimum_functional_requirements: list[str] = Field(default_factory=list, max_length=12)
+    avoid_functional_drift: list[str] = Field(default_factory=list, max_length=12)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class FashionIntent(BaseModel):
+    activity_context: ActivityContext = Field(default_factory=ActivityContext)
+    forbidden_style_drift: list[str] = Field(default_factory=list, max_length=16)
+    body_context: BodyContext = Field(default_factory=BodyContext)
+    body_strategy: BodyStrategy = Field(default_factory=BodyStrategy)
     user_goal: str = Field(min_length=3, max_length=500)
     desired_impression: list[str] = Field(min_length=1, max_length=10)
     occasion_interpretation: OccasionInterpretation
@@ -119,6 +170,9 @@ class ChatTurn(BaseModel):
 
 
 class RequirementSummary(BaseModel):
+    location: str = ""
+    target_date: str = ""
+    defaulted_fields: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     seasons: list[str] = Field(default_factory=list)
     times_of_day: list[str] = Field(default_factory=list)
@@ -209,8 +263,9 @@ class SearchRequest(BaseModel):
     audience: Audience | None = None
     requirements: RequirementSummary | None = None
     styling_guide: StylingGuide | None = None
-    shortlist_count: int = Field(default=15, ge=5, le=30)
-    final_count: int = Field(default=5, ge=1, le=10)
+    shortlist_count: int = Field(default=30, ge=5, le=30)
+    fashion_intent: FashionIntent | None = None
+    final_count: int = Field(default=10, ge=1, le=10)
     use_aesthetic_review: bool = True
     include_debug: bool = False
 
@@ -255,6 +310,8 @@ class OutfitScoreBreakdown(BaseModel):
 
 
 class AestheticReview(BaseModel):
+    style_identity_match: int | None = Field(default=None, ge=0, le=100)
+    inner_layer_suggestion: str = Field(default="", max_length=600)
     occasion_fit: int = Field(ge=0, le=100)
     color_harmony: int = Field(ge=0, le=100)
     silhouette_balance: int = Field(ge=0, le=100)
@@ -285,6 +342,7 @@ class RecommendationDebug(BaseModel):
     knowledge_observations: list[OutfitObservation] = Field(default_factory=list)
     aesthetic_review_attempted: bool = False
     aesthetic_review_error: str = ""
+    aesthetic_review_diagnostics: dict = Field(default_factory=dict)
 
 
 class RecommendationResponse(BaseModel):

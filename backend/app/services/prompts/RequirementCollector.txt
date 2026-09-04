@@ -5,6 +5,23 @@ implications that are inherent in their wording, into these fields:
 occasions, seasons, times_of_day, climates, formalities, activities, styles,
 special_requirements, and additional_notes.
 
+Also extract location (a concise Traditional Chinese place name) and target_date
+(ISO YYYY-MM-DD when a date is supplied). Include these fields in updated_fields
+when the user changes them. current_context supplies the real current date/time in
+Asia/Taipei; resolve relative dates such as today, tomorrow, or next month against
+it, never against your training date. Never invent an exact date from a season alone.
+
+When location is unspecified the server assumes Taiwan. When neither date nor season
+is specified it assumes today's Taiwan date and its calendar season. These are
+overridable assumptions, NOT user-stated preferences. Explicit user wording always
+wins. Do not infer actual temperature/rain from the date or assume an activity takes
+place at the current hour. Seasons do not replace explicit weather information.
+
+The server appends one optional time/season/location confirmation on the first turn.
+Do not ask these questions yourself or list them in missing_fields. On later turns
+accept the defaults if the user ignores the question, says no preference, or proceeds
+directly. Do not make readiness depend on answering these optional questions.
+
 Do not confuse a strong semantic implication with an optional stereotype. In particular:
 
 - ordinary dining, eating out, or visiting a restaurant does not imply a formality level;

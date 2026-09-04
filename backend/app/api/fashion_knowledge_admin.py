@@ -12,6 +12,8 @@ from app.knowledge.ingestion.article_discovery import (
     discover_new_articles,
 )
 from app.knowledge.ingestion.article_extractor import ArticleKnowledgeExtractor
+from app.knowledge.ingestion.import_input import normalize_article_url, normalize_hostname, allowed_domain, parse_import_input
+from urllib.parse import urlsplit
 from app.knowledge.ingestion.db_importer import import_knowledge_records
 from app.knowledge.store import FashionKnowledgeStore
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
@@ -129,10 +131,12 @@ def _collect_urls(
     *,
     download_images: bool = False,
     max_images: int = 4,
+    raw_text: str = "",
+    force_refresh: bool = False,
 ) -> FashionArticleCollectResponse:
     _require_api_key()
-    urls = list(dict.fromkeys(url.strip() for url in urls if url.strip()))
-    if not urls:
+    entries = [(url, "") for url in urls] + parse_import_input(raw_text)
+    if not entries:
         raise HTTPException(status_code=422, detail="請至少輸入一個文章網址。")
     store = FashionKnowledgeStore(settings.article_data_dir)
     collector = ArticleCollector(settings.allowed_article_domains, settings.article_user_agent)
@@ -143,7 +147,30 @@ def _collect_urls(
         settings.knowledge_embedding_dimensions,
     )
     results: list[FashionArticleCollectResult] = []
-    for url in urls:
+    seen: set[str] = set()
+    internal_hosts = {normalize_hostname(urlsplit(origin).hostname or "") for origin in settings.cors_origins}
+    known = {}
+    for row in db.scalars(select(FashionArticle)).all():
+        try:
+            known[normalize_article_url(row.source_url)] = row
+        except ValueError:
+            continue
+    for raw_url, category in entries:
+        try:
+            url = normalize_article_url(raw_url, internal_hosts)
+        except ValueError as error:
+            results.append(FashionArticleCollectResult(url=raw_url, category=category, status="skipped", message=str(error)))
+            continue
+        if url in seen:
+            results.append(FashionArticleCollectResult(url=url, category=category, status="skipped", message="略過重複網址"))
+            continue
+        seen.add(url)
+        if not allowed_domain(url, settings.allowed_article_domains):
+            results.append(FashionArticleCollectResult(url=url, category=category, status="unsupported", message="網域尚未開放"))
+            continue
+        if url in known and not force_refresh:
+            results.append(FashionArticleCollectResult(url=url, category=category, status="skipped", article_id=known[url].id, message="已收錄，不重複消耗 LLM 用量"))
+            continue
         try:
             article = collector.collect(url)
             existing = db.scalar(
@@ -151,6 +178,9 @@ def _collect_urls(
                     FashionArticle.source_url.in_([url, article.source_url])
                 )
             )
+            if existing and not force_refresh:
+                results.append(FashionArticleCollectResult(url=url, category=category, status="skipped", article_id=existing.id, message="轉址後文章已收錄"))
+                continue
             if download_images:
                 image_dir = store.images_dir / article.source_name.replace(".", "_")
                 article = collector.download_images(
@@ -158,6 +188,8 @@ def _collect_urls(
                 )
             store.save_collected(article)
             record = extractor.extract(article)
+            if category:
+                record.extraction.extraction_notes.append(f"匯入分類：{category}")
             store.save_record(record)
             _, observation_count, _ = import_knowledge_records(db, [record], embedder)
             imported = db.scalar(
@@ -166,6 +198,7 @@ def _collect_urls(
             results.append(
                 FashionArticleCollectResult(
                     url=url,
+                    category=category,
                     status="updated" if existing else "created",
                     article_id=imported.id if imported else None,
                     title=record.article.title,
@@ -178,14 +211,17 @@ def _collect_urls(
             results.append(
                 FashionArticleCollectResult(
                     url=url,
+                    category=category,
                     status="failed",
                     message=str(error),
                 )
             )
     return FashionArticleCollectResponse(
         results=results,
-        succeeded=sum(item.status != "failed" for item in results),
+        succeeded=sum(item.status in {"created", "updated"} for item in results),
         failed=sum(item.status == "failed" for item in results),
+        skipped=sum(item.status == "skipped" for item in results),
+        unsupported=sum(item.status == "unsupported" for item in results),
     )
 
 
@@ -212,6 +248,8 @@ def collect_articles(
         request.urls,
         download_images=request.download_images,
         max_images=request.max_images,
+        raw_text=request.raw_text,
+        force_refresh=request.force_refresh,
     )
 
 

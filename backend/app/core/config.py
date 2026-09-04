@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     catalog_currency: str = "INR"
     article_data_dir: str = "/data/articles"
     article_allowed_domains: str = (
-        "elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,"
+        "vogue.com,gq.com,instyle.com,theguardian.com,elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,"
         "marieclairekorea.com,www.marieclairekorea.com,gqkorea.co.kr,www.gqkorea.co.kr"
     )
     article_user_agent: str = "MatchingOutfitResearchBot/0.1"

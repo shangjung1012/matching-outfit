@@ -56,7 +56,7 @@ from app.schemas import (
     FashionKnowledgeStatus,
 )
 from app.schemas.workflow import GarmentZone
-from app.services.catalog_search import search_catalog
+from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
@@ -72,6 +72,7 @@ from app.services.integration_tools.llm import LLM
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
 from app.services.outfit_ranker import select_diverse
+from app.services.requirement_context import with_context_defaults
 
 router = APIRouter()
 
@@ -646,6 +647,7 @@ def item_preference_proposal(cloth: Cloth) -> StylePreferenceCreate:
 
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
+    payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
@@ -701,6 +703,7 @@ def clarify_requirements(
 
 @router.post("/query-plans/refine", response_model=PlanResponse)
 def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> PlanResponse:
+    payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
@@ -759,6 +762,7 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchRespo
 
 @router.post("/recommendations", response_model=RecommendationResponse)
 def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> RecommendationResponse:
+    payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
     hard = hard_rules_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, hard)
     try:
@@ -839,6 +843,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
 
     style_preferences = style_preferences_for(db, payload.user_key)
     preference_context = build_planner_preference_context(hard, style_preferences)
+    reviewer = None
     try:
         reviewer = AestheticReviewer(LLM())
         reviews = reviewer.review(
@@ -847,6 +852,8 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             observations=observations,
             user_preferences=preference_context,
             styling_guide=payload.styling_guide,
+            requirements=payload.requirements,
+            fashion_intent=payload.fashion_intent,
         )
         reviewed_pool = apply_aesthetic_reviews(
             shortlist,
@@ -854,7 +861,30 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             final_count=len(shortlist),
             observations=observations,
         )
-        final = select_diverse(reviewed_pool, payload.final_count)
+        diagnostics = getattr(reviewer, "last_debug", {})
+        if debug is not None:
+            debug = debug.model_copy(update={"aesthetic_review_diagnostics": diagnostics})
+        final = [
+            recommendation
+            for recommendation in reviewed_pool
+            if recommendation.aesthetic_review is not None
+            and not recommendation.aesthetic_review.fatal_issues
+        ][:payload.final_count]
+        reviewed_count = sum(
+            recommendation.aesthetic_review is not None
+            for recommendation in reviewed_pool
+        )
+        missing_count = len(shortlist) - reviewed_count
+        review_note = f"已完成 {reviewed_count}/{len(shortlist)} 套圖片美感審查，推薦 {len(final)} 套。"
+        if missing_count:
+            image_failed = len(diagnostics.get("image_failures", []))
+            model_missing = len(diagnostics.get("missing_ids", []))
+            review_note += (
+                f" {missing_count} 套未完成審查，不列入最終推薦。"
+                f"圖片失敗 {image_failed} 套；補審後仍缺評分 {model_missing} 套。"
+            )
+            if debug is not None:
+                debug = debug.model_copy(update={"aesthetic_review_error": review_note})
         final_ids = {recommendation.id for recommendation in final}
         discarded = [
             recommendation
@@ -880,7 +910,7 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
             recommendations=final,
             discarded_recommendations=discarded,
             aesthetic_reviewed=True,
-            review_note=f"Outfit agent reviewed {len(reviews)} shortlisted outfits",
+            review_note=review_note,
             knowledge_observation_count=len(used_observation_ids),
             knowledge_sources=knowledge_sources,
             knowledge_note=knowledge_note,
@@ -890,7 +920,10 @@ def recommendations(payload: SearchRequest, db: Session = Depends(get_db)) -> Re
         final = select_diverse(shortlist, payload.final_count)
         final_ids = {recommendation.id for recommendation in final}
         if debug is not None:
-            debug = debug.model_copy(update={"aesthetic_review_error": str(error)})
+            debug = debug.model_copy(update={
+                "aesthetic_review_error": str(error),
+                "aesthetic_review_diagnostics": getattr(reviewer, "last_debug", {}),
+            })
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[

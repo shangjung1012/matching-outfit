@@ -226,7 +226,7 @@ function downloadTrace() {
       </section>
 
       <section class="debug-section">
-        <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及真正交給視覺 LLM 的 15 套。</p></div></header>
+        <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及送進視覺審查的候選（最多 30 套）。</p></div></header>
         <div v-if="trace.recommendation_debug" class="debug-panel">
           <p class="debug-count-line"><Database :size="16" />產生 {{ trace.recommendation_debug.ranked_candidate_count }} 套組合，shortlist {{ trace.recommendation_debug.shortlist_before_review.length }} 套。</p>
           <details>
@@ -275,13 +275,36 @@ function downloadTrace() {
       </section>
 
       <section class="debug-section">
-        <header><span>7</span><div><h3>Aesthetic Reviewer 與最終重排</h3><p>比較最終 5 套和被捨棄候選的各項視覺評分及致命問題。</p></div></header>
+        <header><span>7</span><div><h3>Aesthetic Reviewer 與最終重排</h3><p>比較最佳 10 套和其他候選的各項視覺評分及致命問題；漏審候選不列入最終推薦。</p></div></header>
         <div v-if="reviewedCandidates.length" class="debug-panel">
           <p class="debug-count-line">
             <component :is="trace.recommendation_debug?.aesthetic_review_error ? AlertTriangle : CheckCircle2" :size="16" />
             {{ trace.review_note || '審查完成' }}
           </p>
           <p v-if="trace.recommendation_debug?.aesthetic_review_error" class="debug-warning">{{ trace.recommendation_debug.aesthetic_review_error }}</p>
+          <section v-if="trace.recommendation_debug?.aesthetic_review_diagnostics?.submitted_ids" class="debug-review-diagnostics">
+            <h4>美感審查完整性與補審紀錄</h4>
+            <p>
+              候選 {{ trace.recommendation_debug.aesthetic_review_diagnostics.candidate_count }} 套 ·
+              可送審 {{ trace.recommendation_debug.aesthetic_review_diagnostics.submitted_ids.length }} 套 ·
+              有效評分 {{ trace.recommendation_debug.aesthetic_review_diagnostics.reviewed_count }} 套 ·
+              圖片失敗 {{ trace.recommendation_debug.aesthetic_review_diagnostics.image_failures.length }} 套 ·
+              補審後缺評分 {{ trace.recommendation_debug.aesthetic_review_diagnostics.missing_ids.length }} 套
+            </p>
+            <details v-for="(attempt, index) in trace.recommendation_debug.aesthetic_review_diagnostics.attempts" :key="index">
+              <summary>
+                {{ attempt.round === 0 ? '首次審查' : '補審第 ' + attempt.round + ' 輪' }}：
+                送出 {{ attempt.requested_ids.length }} ／ 回覆 {{ attempt.returned_ids.length }} ／
+                缺漏 {{ attempt.missing_ids.length }} ／ 無效 ID {{ attempt.invalid_ids.length }} ／
+                重複 ID {{ attempt.duplicate_ids.length }}
+              </summary>
+              <pre>{{ JSON.stringify(attempt, null, 2) }}</pre>
+            </details>
+            <details v-if="trace.recommendation_debug.aesthetic_review_diagnostics.image_failures.length">
+              <summary>查看圖片失敗的商品 ID 與原因</summary>
+              <pre>{{ JSON.stringify(trace.recommendation_debug.aesthetic_review_diagnostics.image_failures, null, 2) }}</pre>
+            </details>
+          </section>
           <div class="debug-reviewed-grid">
             <article
               v-for="(outfit, index) in reviewedCandidates"
@@ -304,6 +327,7 @@ function downloadTrace() {
                   <span>輪廓 <b>{{ outfit.aesthetic_review?.silhouette_balance ?? '—' }}</b></span>
                   <span>材質 <b>{{ outfit.aesthetic_review?.material_coherence ?? '—' }}</b></span>
                   <span>美感 <b>{{ outfit.aesthetic_review?.overall_aesthetic ?? '—' }}</b></span>
+                  <span>風格吻合 <b>{{ outfit.aesthetic_review?.style_identity_match ?? '—' }}</b></span>
                 </div>
                 <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
                 <em v-if="outfit.aesthetic_review?.fatal_issues.length">Fatal：{{ outfit.aesthetic_review.fatal_issues.join('、') }}</em>

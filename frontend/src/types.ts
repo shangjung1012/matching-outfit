@@ -1,6 +1,7 @@
 export type GarmentZone = 'upper_body' | 'lower_body' | 'one_piece' | 'accessory' | 'other'
 export type AppView =
   | 'agent'
+  | 'knowledge'
   | 'debug'
   | 'similarity'
   | 'catalog'
@@ -72,7 +73,48 @@ export interface StylingConcept {
   balance_rules: string[]
 }
 
+export interface BodyContext {
+  height_band: 'short' | 'average' | 'tall' | 'unknown'
+  bmi_band: 'lower' | 'middle' | 'higher' | 'unknown'
+  frame_scale: 'small' | 'medium' | 'large' | 'unknown'
+  shoulder_hip_balance: 'shoulder_dominant' | 'balanced' | 'hip_dominant' | 'unknown'
+  midsection_fullness: 'lower' | 'moderate' | 'higher' | 'unknown'
+  upper_body_volume: 'lower' | 'moderate' | 'higher' | 'unknown'
+  lower_body_volume: 'lower' | 'moderate' | 'higher' | 'unknown'
+  thigh_or_calf_volume: 'lower' | 'moderate' | 'higher' | 'unknown'
+  leg_torso_ratio: 'shorter_legs' | 'balanced' | 'longer_legs' | 'unknown'
+  fit_preference: 'fitted' | 'regular' | 'relaxed' | 'oversized' | 'mixed' | 'unknown'
+  exposure_preference: 'low' | 'medium' | 'high' | 'unknown'
+  areas_to_emphasize: string[]
+  areas_not_to_emphasize: string[]
+  access_needs: string[]
+  confidence: 'low' | 'medium' | 'high'
+}
+
+export interface BodyStrategy {
+  confidence: 'low' | 'medium' | 'high'
+  fit_direction: string[]
+  proportion_direction: string[]
+  exposure_direction: string[]
+  movement_and_access_direction: string[]
+  soft_biases: string[]
+  hard_constraints: string[]
+  unknowns: string[]
+}
+
 export interface FashionIntent {
+  activity_context?: {
+    activity: string
+    activity_mode: 'appearance_led_performance' | 'functional_training' | 'mixed' | 'ordinary_occasion'
+    primary_goal: string
+    secondary_goal: string
+    functional_priority: 'low' | 'medium' | 'high'
+    minimum_functional_requirements: string[]
+    avoid_functional_drift: string[]
+  }
+  forbidden_style_drift?: string[]
+  body_context?: BodyContext
+  body_strategy?: BodyStrategy
   user_goal: string
   desired_impression: string[]
   occasion_interpretation: OccasionInterpretation
@@ -189,6 +231,8 @@ export interface OutfitRecommendation {
     aesthetic: number | null
   } | null
   aesthetic_review: {
+    style_identity_match?: number | null
+    inner_layer_suggestion?: string
     occasion_fit: number
     color_harmony: number
     silhouette_balance: number
@@ -239,6 +283,9 @@ export interface QueryPlanDebug {
 }
 
 export interface RequirementSummary {
+  location: string
+  target_date: string
+  defaulted_fields: string[]
   occasions: string[]
   seasons: string[]
   times_of_day: string[]
@@ -255,7 +302,7 @@ export interface RequirementSummary {
 export interface ClarificationResponse {
   reply: string
   requirements: RequirementSummary
-  missing_fields: Array<Exclude<keyof RequirementSummary, 'search_brief' | 'tag_translations'>>
+  missing_fields: Array<Exclude<keyof RequirementSummary, 'search_brief' | 'tag_translations' | 'defaulted_fields'>>
   ready_to_plan: boolean
 }
 
@@ -310,6 +357,22 @@ export interface RecommendationDebug {
   knowledge_observations: FashionObservationTrace[]
   aesthetic_review_attempted: boolean
   aesthetic_review_error: string
+  aesthetic_review_diagnostics?: {
+    candidate_count: number
+    submitted_ids: string[]
+    reviewed_count: number
+    image_failures: { candidate_id: string; reason: string; items: { item_id: number; reason: string }[] }[]
+    missing_ids: string[]
+    attempts: {
+      round: number
+      requested_ids: string[]
+      returned_ids: string[]
+      invalid_ids: string[]
+      duplicate_ids: string[]
+      missing_ids: string[]
+      error: string
+    }[]
+  }
 }
 
 export interface PipelineDebugSession {
@@ -421,7 +484,8 @@ export interface FashionArticleAdmin {
 
 export interface FashionArticleCollectResult {
   url: string
-  status: 'created' | 'updated' | 'failed'
+  status: 'created' | 'updated' | 'failed' | 'skipped' | 'unsupported'
+  category: string
   article_id: number | null
   title: string | null
   observation_count: number
@@ -429,6 +493,8 @@ export interface FashionArticleCollectResult {
 }
 
 export interface FashionArticleCollectResponse {
+  skipped: number
+  unsupported: number
   results: FashionArticleCollectResult[]
   succeeded: number
   failed: number

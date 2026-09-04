@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -138,14 +138,22 @@ class FashionArticleList(StrictModel):
 
 
 class FashionArticleCollectRequest(StrictModel):
-    urls: list[str] = Field(min_length=1, max_length=10)
+    urls: list[str] = Field(default_factory=list)
+    raw_text: str = ""
+    force_refresh: bool = False
+    @model_validator(mode="after")
+    def require_input(self):
+        if not self.urls and not self.raw_text.strip():
+            raise ValueError("請提供文章網址或貼上文字")
+        return self
     download_images: bool = False
     max_images: int = Field(default=4, ge=0, le=4)
 
 
 class FashionArticleCollectResult(StrictModel):
     url: str
-    status: Literal["created", "updated", "failed"]
+    status: Literal["created", "updated", "failed", "skipped", "unsupported"]
+    category: str = ""
     article_id: int | None = None
     title: str | None = None
     observation_count: int = 0
@@ -156,6 +164,8 @@ class FashionArticleCollectResponse(StrictModel):
     results: list[FashionArticleCollectResult]
     succeeded: int
     failed: int
+    skipped: int = 0
+    unsupported: int = 0
 
 
 class FashionObservationPatch(StrictModel):

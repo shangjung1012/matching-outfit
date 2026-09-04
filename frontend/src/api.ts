@@ -118,6 +118,7 @@ export function getRecommendations(
   stylingGuide: StylingGuide | null,
   audience?: Audience,
   signal?: AbortSignal,
+  fashionIntent?: FashionIntent | null,
 ) {
   return request<RecommendationResponse>('/api/recommendations', withSignal(json('POST', {
     queries,
@@ -127,8 +128,9 @@ export function getRecommendations(
     audience: audience || null,
     requirements,
     styling_guide: stylingGuide,
-    shortlist_count: 15,
-    final_count: 5,
+    shortlist_count: 30,
+    fashion_intent: fashionIntent || null,
+    final_count: 10,
     use_aesthetic_review: true,
     include_debug: true,
   }), signal))
@@ -284,10 +286,10 @@ export function getFashionArticles(search = '') {
   )
 }
 
-export function collectFashionArticles(urls: string[]) {
+export function collectFashionArticles(urls: string[], rawText = '', forceRefresh = false) {
   return request<FashionArticleCollectResponse>(
     '/api/fashion-knowledge/articles/collect',
-    json('POST', { urls, download_images: false, max_images: 4 }),
+    json('POST', { urls, raw_text: rawText, force_refresh: forceRefresh, download_images: false, max_images: 4 }),
   )
 }
 

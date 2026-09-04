@@ -20,6 +20,7 @@ def test_aesthetic_review_changes_final_score_and_is_attached() -> None:
         material_coherence=82,
         overall_aesthetic=90,
         reason="配色乾淨，輪廓協調。",
+        inner_layer_suggestion="內可穿同色系圓領短袖上衣，選擇輕薄平滑材質。",
     )
 
     result = apply_aesthetic_reviews(
@@ -27,6 +28,7 @@ def test_aesthetic_review_changes_final_score_and_is_attached() -> None:
     )[0]
 
     assert result.aesthetic_review == review
+    assert result.aesthetic_review.inner_layer_suggestion == review.inner_layer_suggestion
     assert result.score_breakdown is not None
     assert result.score_breakdown.aesthetic is not None
     assert result.score != recommendation.score

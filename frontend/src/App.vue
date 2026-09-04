@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import {
-  Bookmark, Bug, Fingerprint, MessageSquareText, ScanFace, Search, Shirt, SlidersHorizontal, X,
+  Bookmark, BookOpenText, Bug, Fingerprint, MessageSquareText, ScanFace, Search, Shirt, SlidersHorizontal,
 } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
 import SimilarSearchView from './views/SimilarSearchView.vue'
@@ -16,7 +16,6 @@ import type { AppView, PipelineDebugSession } from './types'
 import { useUserLibrary } from './composables/useUserLibrary'
 
 const activeView = ref<AppView>('agent')
-const knowledgeOpen = ref(false)
 const userKey = 'demo-user'
 const preferenceRevision = ref(0)
 const debugTrace = ref<PipelineDebugSession | null>(null)
@@ -24,6 +23,7 @@ const { loadLibrary } = useUserLibrary(userKey)
 
 const navigation = [
   { id: 'agent' as const, label: '找搭配', icon: MessageSquareText },
+  { id: 'knowledge' as const, label: '文章知識', icon: BookOpenText },
   { id: 'debug' as const, label: '流程除錯', icon: Bug },
   { id: 'similarity' as const, label: '找相似', icon: Search },
   { id: 'catalog' as const, label: '衣服商品', icon: Shirt },
@@ -33,15 +33,9 @@ const navigation = [
   { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
 ]
 
-function closeKnowledgeOnEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') knowledgeOpen.value = false
-}
-
 onMounted(() => {
-  window.addEventListener('keydown', closeKnowledgeOnEscape)
   void loadLibrary().catch(() => undefined)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEscape))
 </script>
 
 <template>
@@ -73,10 +67,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEsca
         v-show="activeView === 'agent'"
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
-        @open-knowledge="knowledgeOpen = true"
+        @open-knowledge="activeView = 'knowledge'"
         @debug-updated="debugTrace = $event"
       />
       <DebugPipelineView v-show="activeView === 'debug'" :trace="debugTrace" />
+      <KnowledgeManagementView v-if="activeView === 'knowledge'" />
       <SimilarSearchView v-show="activeView === 'similarity'" />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
       <FavoritesView v-show="activeView === 'favorites'" :user-key="userKey" />
@@ -89,15 +84,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', closeKnowledgeOnEsca
       />
     </div>
 
-    <Teleport to="body">
-      <div v-if="knowledgeOpen" class="knowledge-modal-backdrop" @click.self="knowledgeOpen = false">
-        <section class="knowledge-modal-panel" role="dialog" aria-modal="true" aria-label="文章與搭配知識">
-          <button class="knowledge-modal-close" title="關閉知識來源" @click="knowledgeOpen = false">
-            <X :size="20" />
-          </button>
-          <KnowledgeManagementView />
-        </section>
-      </div>
-    </Teleport>
   </div>
 </template>

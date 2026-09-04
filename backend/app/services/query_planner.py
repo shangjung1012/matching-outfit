@@ -24,6 +24,7 @@ from app.schemas.workflow import (
 )
 from app.services.integration_tools.llm import LLM
 from app.preferences.context import build_planner_preference_context
+from app.services.requirement_context import current_taiwan_context, with_context_defaults
 
 # get system and general prompts for QueryPlanner
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -39,6 +40,8 @@ logger = logging.getLogger(__name__)
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
 QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
 REQUIREMENT_VALUE_FIELDS = (
+    "location",
+    "target_date",
     "occasions",
     "seasons",
     "times_of_day",
@@ -134,6 +137,8 @@ class TagTranslation(StrictModel):
 
 class RequirementAssessment(StrictModel):
     reply: str
+    location: str = ""
+    target_date: str = ""
     occasions: list[str] = Field(default_factory=list)
     seasons: list[str] = Field(default_factory=list)
     times_of_day: list[str] = Field(default_factory=list)
@@ -188,6 +193,7 @@ class RequirementCollector:
     ) -> ClarificationResponse:
         payload = {
             "conversation": [message.model_dump(mode="json") for message in messages],
+            "current_context": current_taiwan_context(),
             "audience": audience,
             "previous_requirements": (
                 previous_requirements.model_dump(mode="json")
@@ -252,15 +258,36 @@ class RequirementCollector:
             )
         else:
             reply = result.reply
+        defaults = set(previous_requirements.defaulted_fields if previous_requirements else [])
+        defaults.difference_update(updated_fields)
+        if "location" in updated_fields and "seasons" in defaults:
+            requirement_values["seasons"] = []
+        if "seasons" in updated_fields and "target_date" in defaults:
+            requirement_values["target_date"] = ""
+            defaults.discard("target_date")
+        summary = with_context_defaults(RequirementSummary(
+            **requirement_values,
+            search_brief=search_brief,
+            tag_translations=translations,
+            defaulted_fields=sorted(defaults),
+        ))
+        missing_fields = [field for field in missing_fields if field not in {"location", "target_date", "seasons", "times_of_day"}]
+        if previous_requirements is None and summary.defaulted_fields:
+            assumptions = [
+                "台灣" if field == "location" else
+                summary.target_date if field == "target_date" else
+                "、".join(summary.tag_translations.get(tag, tag) for tag in summary.seasons)
+                for field in ("location", "target_date", "seasons")
+                if field in summary.defaulted_fields
+            ]
+            reply += f" 時間、季節或地點有其他安排嗎？未補充會先以{'／'.join(assumptions)}搭配，可直接確認。"
         return ClarificationResponse(
             reply=reply,
-            requirements=RequirementSummary(
-                **requirement_values,
-                search_brief=search_brief,
-                tag_translations=translations,
-            ),
+            requirements=summary,
             missing_fields=missing_fields,
-            ready_to_plan=result.ready_to_plan,
+            ready_to_plan=(result.ready_to_plan or (
+                not missing_fields and bool(summary.occasions or summary.styles or summary.activities)
+            )),
         )
 
 

@@ -123,10 +123,12 @@ const composerPlaceholder = computed(() => {
 
 type RequirementDisplayField = Exclude<
   keyof RequirementSummary,
-  'search_brief' | 'tag_translations'
+  'search_brief' | 'tag_translations' | 'defaulted_fields'
 >
 
 const requirementLabels: Record<RequirementDisplayField, string> = {
+  location: '地點',
+  target_date: '日期（台灣時間）',
   occasions: '場合',
   seasons: '季節',
   times_of_day: '時段',
@@ -427,6 +429,7 @@ async function requestRecommendations(
       currentStylingGuide,
       selectedAudience,
       signal,
+      fashionIntent.value,
     ),
     (response) => {
       recommendations.value = response.recommendations
@@ -441,7 +444,7 @@ async function requestRecommendations(
       stage.value = 'results'
       addMessage(
         'agent',
-        `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.aesthetic_reviewed ? '已完成圖片美感審查。' : response.review_note}`,
+        `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.review_note}`,
       )
       publishDebug()
     },
@@ -792,7 +795,7 @@ onBeforeUnmount(() => cancelAgentRequest(false))
           </div>
         </header>
         <div class="skeleton-outfit-grid">
-          <article v-for="index in 3" :key="index" class="skeleton-outfit-card" :class="{ featured: index === 1 }">
+          <article v-for="index in 4" :key="index" class="skeleton-outfit-card">
             <div class="skeleton-outfit-image skeleton-block"></div>
             <div class="skeleton-outfit-copy">
               <span class="skeleton-block skeleton-short-line"></span>
@@ -833,7 +836,7 @@ onBeforeUnmount(() => cancelAgentRequest(false))
             :key="field"
             :class="{ missing: missingFields.includes(field) }"
           >
-            <dt>{{ label }}</dt>
+            <dt>{{ label }}<small v-if="requirements?.defaulted_fields.includes(field)">（預設，可更改）</small></dt>
             <dd>{{ requirementValue(field) }}</dd>
           </div>
         </dl>
@@ -877,14 +880,12 @@ onBeforeUnmount(() => cancelAgentRequest(false))
 
         <div v-if="recommendations.length" class="recommendation-grid">
           <OutfitCard
-            v-for="(outfit, index) in recommendations"
+            v-for="outfit in recommendations"
             :key="outfit.id"
             :outfit="outfit"
-            :rank="index + 1"
             :preferred="outfitIsPreferred(outfit)"
             :favorited="outfitIsFavorited(outfit)"
             :action-loading="actionLoading"
-            :featured="index === 0"
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
             :queries="queries"
@@ -913,10 +914,9 @@ onBeforeUnmount(() => cancelAgentRequest(false))
           </button>
           <div v-if="showDiscarded" class="recommendation-grid discarded-grid">
             <OutfitCard
-              v-for="(outfit, index) in discardedRecommendations"
+              v-for="outfit in discardedRecommendations"
               :key="outfit.id"
               :outfit="outfit"
-              :rank="recommendations.length + index + 1"
               :user-request="originalRequest"
               :styling-guide="stylingGuide"
               :queries="queries"

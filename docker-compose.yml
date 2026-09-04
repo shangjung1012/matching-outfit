@@ -10,7 +10,7 @@ services:
       FASHION_CLIP_MODEL: patrickjohncyh/fashion-clip
       CATALOG_CURRENCY: ${CATALOG_CURRENCY:-TWD}
       ARTICLE_DATA_DIR: /data/articles
-      ARTICLE_ALLOWED_DOMAINS: ${ARTICLE_ALLOWED_DOMAINS:-elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,marieclairekorea.com,www.marieclairekorea.com,gqkorea.co.kr,www.gqkorea.co.kr}
+      ARTICLE_ALLOWED_DOMAINS: ${ARTICLE_ALLOWED_DOMAINS:-elle.com,www.elle.com,gq.com.tw,www.gq.com.tw,marieclairekorea.com,www.marieclairekorea.com,gqkorea.co.kr,www.gqkorea.co.kr,vogue.com,gq.com,instyle.com,theguardian.com}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTICLE_EXTRACTION_MODEL: ${ARTICLE_EXTRACTION_MODEL:-gpt-4.1-mini}
       QUERY_PLANNER_MODEL: ${QUERY_PLANNER_MODEL:-gpt-4.1-mini}

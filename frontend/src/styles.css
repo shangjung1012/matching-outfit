@@ -494,11 +494,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .recommendation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
 .recommendation-card { overflow: hidden; display: grid; grid-template-columns: 48% 52%; min-height: 440px; border: 1px solid #d9ddd7; border-radius: 7px; background: #fff; }
 .recommendation-card.featured { grid-column: 1 / -1; grid-template-columns: 58% 42%; min-height: 560px; }
-.recommendation-visual { min-width: 0; display: grid; grid-auto-flow: row; grid-auto-rows: minmax(0, 1fr); background: #edf0ec; }
+.recommendation-visual { min-width: 0; display: grid; grid-auto-flow: row; grid-auto-rows: auto; align-content: start; background: #edf0ec; }
 .recommendation-visual.single { grid-template-rows: 1fr; }
 .recommendation-item { position: relative; min-width: 0; overflow: hidden; }
 .recommendation-item + .recommendation-item { border-top: 1px solid #d9ddd7; }
 .recommendation-item img { width: 100%; height: 100%; display: block; object-fit: contain; background: #f5f6f3; }
+.recommendation-item a { position: relative; display: block; height: 260px; }
+.recommendation-visual.single .recommendation-item a { height: 520px; }
+.outfit-original-image { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 4px; color: #315d49; background: #fffffff0; font-size: .65rem; }
 .outfit-card-actions { display: flex; gap: 6px; }
 .outfit-action-button { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #d8ddd7; border-radius: 50%; color: #4d554e; background: #fff; }
 .outfit-action-button.preference.active { border-color: #d8a4a4; color: #a34048; background: #fff5f5; }
@@ -837,6 +840,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .knowledge-tags.compact span:first-child { color: #75552d; background: #f7eee1; }
 .knowledge-card-actions { display: flex; gap: 5px; }
 .knowledge-card-actions a { text-decoration: none; }
+.outfit-inner-layer { margin: 12px 0; padding: 12px; background: #f7f8f6; border-left: 3px solid #386650; border-radius: 4px; }
+.outfit-inner-layer > strong { color: #386650; font-size: .8rem; }
+.outfit-inner-layer > p { margin: 6px 0; font-size: .8rem; line-height: 1.6; }
+.outfit-inner-layer > small { color: #788079; font-size: .65rem; }
+
+.knowledge-article-title { color: inherit; text-decoration: none; }
+.knowledge-article-title:hover { color: #286348; text-decoration: underline; }
+.knowledge-article-title svg { vertical-align: middle; margin-left: 4px; }
 .icon-button.danger { color: #91443a; }
 .icon-button.danger:hover { border-color: #d7aaa4; background: #fff4f2; }
 .knowledge-observations { border-top: 1px solid #e0e4df; background: #f7f8f6; }
