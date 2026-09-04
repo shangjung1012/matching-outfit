@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Bookmark, ChevronDown, ExternalLink, Heart, Sparkles } from 'lucide-vue-next'
-import type { OutfitRecommendation, QueryDraft, StylingGuide } from '../types'
+import { Bookmark, ChevronDown, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
+import type { OutfitRecommendation, PreferenceType, QueryDraft, StylingGuide } from '../types'
 import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
   outfit: OutfitRecommendation
-  preferred: boolean
+  preferenceType: PreferenceType | null
   favorited: boolean
   actionLoading?: boolean
   userRequest?: string
@@ -15,7 +15,7 @@ const props = defineProps<{
   referencePreviewUrl?: string
 }>()
 
-defineEmits<{ togglePreference: []; toggleFavorite: [] }>()
+defineEmits<{ react: [type: PreferenceType]; toggleFavorite: [] }>()
 
 const zoneLabels = {
   upper_body: '上身',
@@ -132,12 +132,21 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
         <div class="outfit-card-actions">
           <button
             class="outfit-action-button preference"
-            :class="{ active: preferred }"
+            :class="{ active: preferenceType === 'prefer' }"
             :disabled="actionLoading"
-            :title="preferred ? '停用這套搭配的偏好' : '將這套搭配加入偏好'"
-            @click="$emit('togglePreference')"
+            :title="preferenceType === 'prefer' ? '取消喜歡這套搭配' : '喜歡這套搭配'"
+            @click="$emit('react', 'prefer')"
           >
-            <Heart :size="17" :fill="preferred ? 'currentColor' : 'none'" />
+            <ThumbsUp :size="17" :fill="preferenceType === 'prefer' ? 'currentColor' : 'none'" />
+          </button>
+          <button
+            class="outfit-action-button preference avoid"
+            :class="{ active: preferenceType === 'avoid' }"
+            :disabled="actionLoading"
+            :title="preferenceType === 'avoid' ? '取消不喜歡這套搭配' : '不喜歡這套搭配'"
+            @click="$emit('react', 'avoid')"
+          >
+            <ThumbsDown :size="17" :fill="preferenceType === 'avoid' ? 'currentColor' : 'none'" />
           </button>
           <button
             class="outfit-action-button favorite"

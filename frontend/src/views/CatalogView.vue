@@ -1,19 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Check, Search, Shirt } from 'lucide-vue-next'
-import { getCatalog, proposeSoftFromItem, searchCatalogByEmbedding } from '../api'
+import { getCatalog, searchCatalogByEmbedding } from '../api'
 import ProductCard from '../components/ProductCard.vue'
-import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
-import type { CatalogItem, ClothResult, StylePreferenceProposal } from '../types'
+import type { CatalogItem, ClothResult, PreferenceType } from '../types'
 
 const props = defineProps<{ userKey: string }>()
 const {
   favoriteItemIds,
-  isPreferred,
+  outfitPreference,
   setFavoriteItems,
-  confirmPreferences,
-  deactivatePreferenceOrigin,
+  addOutfitReaction,
+  removePreference,
 } = useUserLibrary(props.userKey)
 
 const items = ref<Array<CatalogItem | ClothResult>>([])
@@ -24,7 +23,6 @@ const semanticSearchActive = ref(false)
 const loading = ref(false)
 const actionLoading = ref(false)
 const error = ref('')
-const proposal = ref<StylePreferenceProposal | null>(null)
 const preferenceStatus = ref('')
 
 const zones = [
@@ -65,30 +63,21 @@ async function runAction(task: () => Promise<void>) {
   }
 }
 
-async function togglePreference(itemId: number) {
+async function reactToPreference(itemId: number, preferenceType: PreferenceType) {
   await runAction(async () => {
     preferenceStatus.value = ''
-    if (isPreferred([itemId])) {
-      await deactivatePreferenceOrigin([itemId])
-      proposal.value = null
-      preferenceStatus.value = '這件商品的偏好已停用，可在「我的偏好」重新啟用。'
+    const current = outfitPreference([itemId])
+    if (current?.preference_type === preferenceType) {
+      await removePreference(current.id)
+      preferenceStatus.value = '這件商品的偏好已移除。'
       return
     }
-    proposal.value = await proposeSoftFromItem(props.userKey, itemId)
+    if (current) await removePreference(current.id)
+    await addOutfitReaction([itemId], '', null, preferenceType)
+    preferenceStatus.value = preferenceType === 'avoid'
+      ? '已記錄不喜歡這件商品，下次規劃穿搭時會避開它。'
+      : '偏好已更新，下次規劃穿搭時會參考這件商品。'
   })
-}
-
-async function confirmProposal() {
-  if (!proposal.value) return
-  await runAction(async () => {
-    await confirmPreferences(proposal.value!.proposals)
-    proposal.value = null
-    preferenceStatus.value = '偏好已更新，下次規劃穿搭時會參考這件商品。'
-  })
-}
-
-function dismissProposal() {
-  proposal.value = null
 }
 
 async function toggleFavorite(itemId: number) {
@@ -129,15 +118,8 @@ onMounted(loadCatalog)
     </div>
 
     <p v-if="error" class="error-banner">{{ error }}</p>
-    <div v-if="proposal || preferenceStatus" class="preference-confirmation-area">
-      <PreferenceProposalPanel
-        v-if="proposal"
-        :proposal="proposal"
-        :loading="actionLoading"
-        @confirm="confirmProposal"
-        @dismiss="dismissProposal"
-      />
-      <div v-else class="preference-update-status">
+    <div v-if="preferenceStatus" class="preference-confirmation-area">
+      <div class="preference-update-status">
         <Check :size="17" />
         <span>{{ preferenceStatus }}</span>
       </div>
@@ -148,13 +130,13 @@ onMounted(loadCatalog)
         v-for="item in items"
         :key="item.id"
         :item="item"
-        :preferred="isPreferred([item.id])"
+        :preference-type="outfitPreference([item.id])?.preference_type ?? null"
         :favorited="favoriteItemIds.has(item.id)"
         :action-loading="actionLoading"
         preference-enabled
         favorite-enabled
         :show-similarity="semanticSearchActive"
-        @toggle-preference="togglePreference"
+        @react="reactToPreference"
         @toggle-favorite="toggleFavorite"
       />
     </div>

@@ -49,6 +49,7 @@ from app.schemas import (
     RecommendationDebug,
     RefineRequest,
     SearchRequest,
+    StylePreferenceAddRequest,
     SearchResponse,
     StylePreferenceConfirmRequest,
     StylePreferenceCreate,
@@ -633,7 +634,10 @@ def upsert_style_preference(
         (
             candidate
             for candidate in candidates
-            if sorted(set(candidate.origin_item_ids)) == origin_key
+            if (
+                candidate.preference_type == row.preference_type
+                and sorted(set(candidate.origin_item_ids)) == origin_key
+            )
         ),
         None,
     )
@@ -642,6 +646,7 @@ def upsert_style_preference(
         created = UserStylePreference(
             user_key=user_key,
             preference_text=row.preference_text,
+            preference_type=row.preference_type,
             source=row.source,
             origin_item_ids=row.origin_item_ids,
             occasions=row.occasions,
@@ -692,6 +697,7 @@ def outfit_memory_proposals(
         proposals.append(
             StylePreferenceCreate(
                 preference_text=sentence,
+                preference_type="prefer",
                 source="implicit",
                 origin_item_ids=[str(cloth.id) for cloth in clothes],
                 occasions=payload.requirements.occasions if payload.requirements else [],
@@ -720,8 +726,57 @@ def item_preference_proposal(cloth: Cloth) -> StylePreferenceCreate:
         sentence = f"{sentence[:497]}..."
     return StylePreferenceCreate(
         preference_text=sentence,
+        preference_type="prefer",
         source="implicit",
         origin_item_ids=[str(cloth.id)],
+    )
+
+
+def outfit_reaction_preference(
+    clothes: list[Cloth], payload: StylePreferenceAddRequest
+) -> StylePreferenceCreate:
+    """Make one durable, structured preference from a Like/Dislike reaction.
+
+    A single item reads like a catalog-page reaction (named attributes); more than
+    one reads like a recommendation-card reaction (a whole outfit). Either shape
+    switches its verb/label by ``preference_type`` so the sentence itself states a
+    direction, since downstream matching (query planner) only reads that field.
+    """
+    is_avoid = payload.preference_type == "avoid"
+    if len(clothes) == 1:
+        cloth = clothes[0]
+        attributes = [
+            value.strip()
+            for value in (cloth.base_colour, cloth.article_type, cloth.usage)
+            if value and value.strip()
+        ]
+        verb = "使用者不喜歡" if is_avoid else "使用者喜歡"
+        label = "應避免的商品特徵" if is_avoid else "偏好的商品特徵"
+        sentence = f"{verb}「{cloth.product_display_name}」"
+        if attributes:
+            sentence += f"；{label}包含 {'、'.join(attributes)}"
+        sentence += "。"
+    else:
+        outfit_description = "、".join(cloth.product_display_name for cloth in clothes)
+        verb = "使用者想避免由" if is_avoid else "使用者喜歡由"
+        sentence = f"{verb} {outfit_description} 組成的整套搭配。"
+    user_request = (payload.user_request or "").strip()
+    if user_request:
+        sentence = f"在「{user_request}」的需求下，{sentence}"
+    if len(sentence) > 500:
+        sentence = f"{sentence[:497]}..."
+    return StylePreferenceCreate(
+        preference_text=sentence,
+        preference_type=payload.preference_type,
+        source="implicit",
+        origin_item_ids=[str(cloth.id) for cloth in clothes],
+        occasions=payload.requirements.occasions if payload.requirements else [],
+        seasons=payload.requirements.seasons if payload.requirements else [],
+        times_of_day=payload.requirements.times_of_day if payload.requirements else [],
+        climates=payload.requirements.climates if payload.requirements else [],
+        formalities=payload.requirements.formalities if payload.requirements else [],
+        activities=payload.requirements.activities if payload.requirements else [],
+        styles=payload.requirements.styles if payload.requirements else [],
     )
 
 
@@ -1117,7 +1172,7 @@ def list_style_preferences(
     ]
 
 
-@router.post("/preferences/{user_key}/soft", response_model=StylePreferenceView, status_code=201)
+@router.post("/preferences/{user_key}/soft/create", response_model=StylePreferenceView, status_code=201)
 def add_style_preference(
     user_key: str, payload: StylePreferenceCreate, db: Session = Depends(get_db)
 ) -> StylePreferenceView:
@@ -1126,6 +1181,39 @@ def add_style_preference(
     db.commit()
     db.refresh(row)
     return StylePreferenceView.model_validate(row)
+
+
+@router.post(
+    "/preferences/{user_key}/soft/add",
+    response_model=StylePreferenceView,
+    status_code=201,
+)
+def add_outfit_reaction(
+    user_key: str,
+    payload: StylePreferenceAddRequest,
+    db: Session = Depends(get_db),
+) -> StylePreferenceView:
+    """Persist one explicit Like/Dislike reaction without a proposal step."""
+    if payload.user_key != user_key:
+        raise HTTPException(status_code=400, detail="user_key in path and body must match")
+    item_ids = list(dict.fromkeys(payload.outfit_item_ids))
+    clothes_by_id = {
+        cloth.id: cloth
+        for cloth in db.scalars(select(Cloth).where(Cloth.id.in_(item_ids))).all()
+    }
+    missing = [item_id for item_id in item_ids if item_id not in clothes_by_id]
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Catalog items not found: {', '.join(map(str, missing))}",
+        )
+    row = outfit_reaction_preference(
+        [clothes_by_id[item_id] for item_id in item_ids], payload
+    )
+    saved, _ = upsert_style_preference(db, user_key, row, confirmed=True)
+    db.commit()
+    db.refresh(saved)
+    return StylePreferenceView.model_validate(saved)
 
 
 @router.patch(
@@ -1149,7 +1237,7 @@ def patch_style_preference(
     return StylePreferenceView.model_validate(row)
 
 
-@router.delete("/preferences/{user_key}/soft/{preference_id}", status_code=204)
+@router.delete("/preferences/{user_key}/soft/remove/{preference_id}", status_code=204)
 def delete_style_preference(
     user_key: str, preference_id: int, db: Session = Depends(get_db)
 ) -> None:

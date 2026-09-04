@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import {
   addStylePreference,
+  addOutfitPreferenceReaction,
   confirmSoftPreferences,
   deleteStylePreference,
   getFavorites,
@@ -15,6 +16,8 @@ import type {
   PreferenceBundle,
   StylePreference,
   StylePreferenceCreate,
+  PreferenceType,
+  RequirementSummary,
 } from '../types'
 
 const favoriteItems = ref<FavoriteItem[]>([])
@@ -87,11 +90,11 @@ export function useUserLibrary(userKey: string) {
     favoriteOutfits.value = collection.outfits
   }
 
-  function isPreferred(itemIds: Array<number | string>): boolean {
+  function outfitPreference(itemIds: Array<number | string>): StylePreference | null {
     const origin = normalizedOrigin(itemIds)
-    return stylePreferences.value.some(
+    return stylePreferences.value.find(
       (row) => row.is_active && normalizedOrigin(row.origin_item_ids) === origin,
-    )
+    ) ?? null
   }
 
   async function confirmPreferences(rows: StylePreferenceCreate[]): Promise<void> {
@@ -115,6 +118,23 @@ export function useUserLibrary(userKey: string) {
 
   async function addPreference(row: StylePreferenceCreate): Promise<StylePreference> {
     const updated = await addStylePreference(userKey, row)
+    replacePreference(updated)
+    return updated
+  }
+
+  async function addOutfitReaction(
+    itemIds: number[],
+    userRequest: string,
+    requirements: RequirementSummary | null,
+    preferenceType: PreferenceType,
+  ): Promise<StylePreference> {
+    const updated = await addOutfitPreferenceReaction(userKey, {
+      user_key: userKey,
+      user_request: userRequest,
+      outfit_item_ids: itemIds,
+      preference_type: preferenceType,
+      requirements,
+    })
     replacePreference(updated)
     return updated
   }
@@ -146,10 +166,11 @@ export function useUserLibrary(userKey: string) {
     setFavoriteItems,
     isOutfitFavorited,
     setFavoriteOutfit,
-    isPreferred,
+    outfitPreference,
     confirmPreferences,
     deactivatePreferenceOrigin,
     addPreference,
+    addOutfitReaction,
     patchPreference,
     removePreference,
   }

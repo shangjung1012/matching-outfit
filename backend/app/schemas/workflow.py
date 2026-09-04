@@ -460,6 +460,7 @@ class RecommendationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 PreferenceSource = Literal["explicit", "implicit"]
+PreferenceType = Literal["prefer", "avoid"]
 ProfileGender = Literal["female", "male", "non_binary", "prefer_not_to_say"]
 
 
@@ -508,6 +509,7 @@ class StylePreferenceBase(BaseModel):
 
 
 class StylePreferenceCreate(StylePreferenceBase):
+    preference_type: PreferenceType = "prefer"
     source: PreferenceSource = "explicit"
     origin_item_ids: list[str] = Field(default_factory=list)
 
@@ -536,6 +538,20 @@ class StylePreferenceProposalRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_request: str = Field(min_length=2, max_length=1200)
     outfit_item_ids: list[list[int]] = Field(min_length=1)
+    requirements: RequirementSummary | None = None
+
+
+class StylePreferenceAddRequest(BaseModel):
+    """A deliberate like/dislike reaction to one or more catalog items.
+
+    ``user_request`` is the in-flight search text when the reaction comes from a
+    recommendation card; it is absent when reacting from a plain catalog listing.
+    """
+
+    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
+    user_request: str | None = Field(default=None, max_length=1200)
+    outfit_item_ids: list[int] = Field(min_length=1)
+    preference_type: PreferenceType
     requirements: RequirementSummary | None = None
 
 

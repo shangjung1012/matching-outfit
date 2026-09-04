@@ -309,6 +309,65 @@ def test_single_item_preference_is_proposed_before_it_is_persisted(client) -> No
     assert disabled.json()["is_active"] is False
 
 
+def test_outfit_reaction_is_saved_immediately_and_can_be_removed(client) -> None:
+    test_client, test_session = client
+    created = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "user_request": "秋天晚宴想要俐落穿搭",
+            "outfit_item_ids": [2, 1],
+            "preference_type": "avoid",
+            "requirements": None,
+        },
+    )
+
+    assert created.status_code == 201
+    row = created.json()
+    assert row["preference_type"] == "avoid"
+    assert row["source"] == "implicit"
+    assert row["origin_item_ids"] == ["2", "1"]
+    assert row["confirmed_at"] is not None
+    assert "White Shirt、Black Casual Trousers" in row["preference_text"]
+
+    removed = test_client.delete(
+        f"/api/preferences/alice/soft/remove/{row['id']}"
+    )
+    assert removed.status_code == 204
+    with test_session() as db:
+        assert db.get(UserStylePreference, row["id"]) is None
+
+
+def test_single_item_reaction_has_no_context_prefix_without_user_request(client) -> None:
+    test_client, _ = client
+    liked = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "outfit_item_ids": [1],
+            "preference_type": "prefer",
+        },
+    )
+    assert liked.status_code == 201
+    liked_row = liked.json()
+    assert liked_row["preference_text"] == (
+        "使用者喜歡「Black Casual Trousers」；偏好的商品特徵包含 Black、Trousers、Casual。"
+    )
+
+    disliked = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "outfit_item_ids": [2],
+            "preference_type": "avoid",
+        },
+    )
+    assert disliked.status_code == 201
+    disliked_row = disliked.json()
+    assert disliked_row["preference_text"] == "使用者不喜歡「White Shirt」。"
+    assert disliked_row["preference_type"] == "avoid"
+
+
 def test_identical_item_descriptions_keep_distinct_preference_origins(client) -> None:
     test_client, test_session = client
     with test_session() as db:

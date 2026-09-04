@@ -9,11 +9,9 @@ import {
   clarifyRequirements,
   createQueryPlan,
   getRecommendations,
-  proposeSoftFromOutfit,
   refineQueryPlan,
 } from '../api'
 import OutfitCard from '../components/OutfitCard.vue'
-import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
@@ -26,7 +24,6 @@ import type {
   PlannerGarmentZone,
   RecommendationDebug,
   RequirementSummary,
-  StylePreferenceProposal,
   StylingGuide,
 } from '../types'
 
@@ -37,12 +34,12 @@ const emit = defineEmits<{
 }>()
 const {
   favoriteItemIds,
-  isPreferred,
   isOutfitFavorited,
   setFavoriteItems,
   setFavoriteOutfit,
-  confirmPreferences,
-  deactivatePreferenceOrigin,
+  outfitPreference,
+  addOutfitReaction,
+  removePreference,
 } = useUserLibrary(props.userKey)
 
 interface ChatMessage {
@@ -73,10 +70,6 @@ const queries = ref<QueryDraft[]>([])
 const recommendations = ref<OutfitRecommendation[]>([])
 const discardedRecommendations = ref<OutfitRecommendation[]>([])
 const showDiscarded = ref(false)
-const likedOutfitIds = ref(new Set<string>())
-const proposal = ref<StylePreferenceProposal | null>(null)
-const preferenceStatus = ref('')
-const proposalArea = ref<HTMLElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
 const composerInput = ref<HTMLTextAreaElement | null>(null)
 const agentActivity = ref<AgentActivityKind | null>(null)
@@ -467,9 +460,6 @@ async function requestRecommendations(
       reviewNote.value = response.review_note
       knowledgeNote.value = response.knowledge_note
       showDiscarded.value = false
-      likedOutfitIds.value = new Set()
-      proposal.value = null
-      preferenceStatus.value = ''
       stage.value = 'results'
       addMessage(
         'agent',
@@ -539,9 +529,6 @@ function startNewConversation() {
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
-  likedOutfitIds.value = new Set()
-  proposal.value = null
-  preferenceStatus.value = ''
   actionError.value = ''
   stoppedNotice.value = ''
   hasUnreadMessage.value = false
@@ -570,8 +557,8 @@ function outfitItemIds(outfit: OutfitRecommendation): number[] {
   return outfit.items.filter((item) => !item.is_reference).map((item) => item.id)
 }
 
-function outfitIsPreferred(outfit: OutfitRecommendation): boolean {
-  return likedOutfitIds.value.has(outfit.id) || isPreferred(outfitItemIds(outfit))
+function outfitPreferenceType(outfit: OutfitRecommendation) {
+  return outfitPreference(outfitItemIds(outfit))?.preference_type ?? null
 }
 
 function outfitIsFavorited(outfit: OutfitRecommendation): boolean {
@@ -581,25 +568,27 @@ function outfitIsFavorited(outfit: OutfitRecommendation): boolean {
     : isOutfitFavorited(itemIds)
 }
 
-async function togglePreference(outfit: OutfitRecommendation) {
+async function reactToOutfit(
+  outfit: OutfitRecommendation,
+  preferenceType: 'prefer' | 'avoid',
+) {
   if (actionLoading.value) return
   const itemIds = outfitItemIds(outfit)
-  if (isPreferred(itemIds)) {
-    await runAction(async () => {
-      await deactivatePreferenceOrigin(itemIds)
-      preferenceStatus.value = '這套搭配的偏好已停用，可在「我的偏好」重新啟用。'
-      emit('preferenceUpdated')
-    })
-    return
-  }
-
-  const next = new Set(likedOutfitIds.value)
-  next.has(outfit.id) ? next.delete(outfit.id) : next.add(outfit.id)
-  likedOutfitIds.value = next
-  proposal.value = null
-  preferenceStatus.value = ''
-
-  if (next.size > 0) await buildProposal(next)
+  const current = outfitPreference(itemIds)
+  await runAction(async () => {
+    if (current?.preference_type === preferenceType) {
+      await removePreference(current.id)
+    } else {
+      if (current) await removePreference(current.id)
+      await addOutfitReaction(
+        itemIds,
+        originalRequest.value,
+        requirements.value,
+        preferenceType,
+      )
+    }
+    emit('preferenceUpdated')
+  })
 }
 
 async function toggleFavorite(outfit: OutfitRecommendation) {
@@ -612,42 +601,6 @@ async function toggleFavorite(outfit: OutfitRecommendation) {
     } else {
       await setFavoriteOutfit(itemIds, favorited)
     }
-  })
-}
-
-async function buildProposal(selectedIds = likedOutfitIds.value) {
-  await runAction(async () => {
-    const likedOutfits = [
-      ...recommendations.value,
-      ...discardedRecommendations.value,
-    ].filter((outfit) => selectedIds.has(outfit.id))
-    proposal.value = await proposeSoftFromOutfit(
-      props.userKey,
-      likedOutfits.map((outfit) => outfit.items.map((item) => item.id)),
-      originalRequest.value,
-      requirements.value,
-    )
-    await nextTick()
-    proposalArea.value?.scrollIntoView({
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-      block: 'start',
-    })
-  })
-}
-
-function dismissProposal() {
-  proposal.value = null
-  likedOutfitIds.value = new Set()
-}
-
-async function confirmProposal() {
-  if (!proposal.value) return
-  await runAction(async () => {
-    await confirmPreferences(proposal.value!.proposals)
-    proposal.value = null
-    likedOutfitIds.value = new Set()
-    preferenceStatus.value = '偏好已更新，下次規劃穿搭時會參考這次的選擇。'
-    emit('preferenceUpdated')
   })
 }
 
@@ -913,33 +866,19 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <div v-if="proposal || preferenceStatus" ref="proposalArea" class="preference-confirmation-area">
-          <PreferenceProposalPanel
-            v-if="proposal"
-            :proposal="proposal"
-            :loading="actionLoading"
-            @confirm="confirmProposal"
-            @dismiss="dismissProposal"
-          />
-          <div v-else class="preference-update-status">
-            <Check :size="17" />
-            <span>{{ preferenceStatus }}</span>
-          </div>
-        </div>
-
         <div v-if="recommendations.length" class="recommendation-grid">
           <OutfitCard
             v-for="outfit in recommendations"
             :key="outfit.id"
             :outfit="outfit"
-            :preferred="outfitIsPreferred(outfit)"
+            :preference-type="outfitPreferenceType(outfit)"
             :favorited="outfitIsFavorited(outfit)"
             :action-loading="actionLoading"
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
             :queries="queries"
             :reference-preview-url="referencePreviewUrl"
-            @toggle-preference="togglePreference(outfit)"
+            @react="reactToOutfit(outfit, $event)"
             @toggle-favorite="toggleFavorite(outfit)"
           />
         </div>
@@ -971,10 +910,10 @@ onBeforeUnmount(() => {
               :styling-guide="stylingGuide"
               :queries="queries"
               :reference-preview-url="referencePreviewUrl"
-              :preferred="outfitIsPreferred(outfit)"
+              :preference-type="outfitPreferenceType(outfit)"
               :favorited="outfitIsFavorited(outfit)"
               :action-loading="actionLoading"
-              @toggle-preference="togglePreference(outfit)"
+              @react="reactToOutfit(outfit, $event)"
               @toggle-favorite="toggleFavorite(outfit)"
             />
           </div>

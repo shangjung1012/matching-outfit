@@ -92,6 +92,7 @@ async function addSoft() {
   try {
     await addPreference({
       preference_text: preferenceText,
+      preference_type: 'prefer',
       source: 'explicit',
       origin_item_ids: [],
       occasions: [],

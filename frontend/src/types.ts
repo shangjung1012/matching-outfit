@@ -429,6 +429,7 @@ export interface PipelineDebugSession {
 // ---- User preferences ----
 
 export type PreferenceSource = 'explicit' | 'implicit'
+export type PreferenceType = 'prefer' | 'avoid'
 
 export interface HardRules {
   user_key?: string
@@ -446,6 +447,7 @@ export interface HardRules {
 
 export interface StylePreferenceCreate {
   preference_text: string
+  preference_type: PreferenceType
   source: PreferenceSource
   origin_item_ids: string[]
   occasions: string[]
@@ -470,9 +472,12 @@ export interface PreferenceBundle {
   soft: StylePreference[]
 }
 
-export interface StylePreferenceProposal {
-  proposals: StylePreferenceCreate[]
-  explanation: string
+export interface OutfitPreferenceReaction {
+  user_key: string
+  user_request: string
+  outfit_item_ids: number[]
+  preference_type: PreferenceType
+  requirements: RequirementSummary | null
 }
 
 export interface FashionObservationAdmin {

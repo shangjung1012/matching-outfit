@@ -83,6 +83,10 @@ class UserStylePreference(Base):
             "source IN ('explicit', 'implicit')",
             name="ck_user_style_preferences_source",
         ),
+        CheckConstraint(
+            "preference_type IN ('prefer', 'avoid')",
+            name="ck_user_style_preferences_preference_type",
+        ),
         Index("ix_user_style_preferences_lookup", "user_key", "is_active"),
     )
 
@@ -90,6 +94,8 @@ class UserStylePreference(Base):
     user_key: Mapped[str] = mapped_column(String(120), index=True)
 
     preference_text: Mapped[str] = mapped_column(String(500))
+    # What this memory means to a recommendation: a direction to prefer or avoid.
+    preference_type: Mapped[str] = mapped_column(String(8), default="prefer")
     source: Mapped[str] = mapped_column(String(16), default="explicit")
     origin_item_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     occasions: Mapped[list[str]] = mapped_column(JSON, default=list)

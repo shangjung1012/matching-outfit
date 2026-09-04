@@ -165,6 +165,10 @@ Use this priority order:
 
 The user's original wording is authoritative.
 
+For each relevant outfit memory, `preference_type=prefer` is positive evidence and
+`preference_type=avoid` is a reason not to reward that visible direction. An avoid
+memory is soft evidence; it never overrides the current request or hard constraints.
+
 The styling_guide is supporting interpretation evidence, NOT authority over the user's
 request.
 

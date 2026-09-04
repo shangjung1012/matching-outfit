@@ -67,6 +67,7 @@ def build_planner_preference_context(
         payload.setdefault("outfit_memories", []).append(
             {
                 "preference_sentence": row.preference_text,
+                "preference_type": row.preference_type,
                 **{
                     field: getattr(row, field) or []
                     for field in OUTFIT_CONTEXT_FIELDS

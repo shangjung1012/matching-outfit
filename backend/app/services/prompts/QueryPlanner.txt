@@ -732,6 +732,14 @@ OUTFIT MEMORIES
 
 Outfit memories are soft preference evidence.
 
+Each memory has a `preference_type`:
+
+- `prefer`: use it as a conservative positive retrieval direction when its context is relevant.
+- `avoid`: do not use its identifiable garment, color, silhouette, or styling direction as a retrieval direction when its context is relevant.
+
+An `avoid` memory is soft evidence, not a hard catalog exclusion. The current request
+and hard rules still take priority.
+
 Use a memory only when its situation is identical or meaningfully similar in:
 
 - occasion,

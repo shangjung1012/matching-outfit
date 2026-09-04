@@ -12,7 +12,7 @@ import type {
   RequirementSummary,
   StylePreference,
   StylePreferenceCreate,
-  StylePreferenceProposal,
+  OutfitPreferenceReaction,
   TryOnCapabilities,
   TryOnJob,
   TryOnReferenceType,
@@ -166,33 +166,10 @@ export function getSimilarClothes(image: File, garmentType: GarmentZone, results
 
 const prefBase = (userKey: string) => `/api/preferences/${encodeURIComponent(userKey)}`
 
-// ---- Learn soft preferences from a liked outfit ----
-
-export function proposeSoftFromOutfit(
-  userKey: string,
-  outfitItemIds: number[][],
-  userRequest: string,
-  requirements: RequirementSummary | null,
-) {
-  return request<StylePreferenceProposal>(`${prefBase(userKey)}/soft/from-outfit`, json('POST', {
-    user_key: userKey,
-    user_request: userRequest,
-    outfit_item_ids: outfitItemIds,
-    requirements,
-  }))
-}
-
 export function confirmSoftPreferences(userKey: string, rows: StylePreferenceCreate[]) {
   return request<{ status: string; created: number; updated: number }>(
     `${prefBase(userKey)}/soft/confirm`,
     json('POST', { user_key: userKey, rows }),
-  )
-}
-
-export function proposeSoftFromItem(userKey: string, itemId: number) {
-  return request<StylePreferenceProposal>(
-    `${prefBase(userKey)}/soft/from-item`,
-    json('POST', { item_id: itemId }),
   )
 }
 
@@ -258,7 +235,14 @@ export function saveHardRules(userKey: string, hard: HardRules) {
 }
 
 export function addStylePreference(userKey: string, row: StylePreferenceCreate) {
-  return request<StylePreference>(`${prefBase(userKey)}/soft`, json('POST', row))
+  return request<StylePreference>(`${prefBase(userKey)}/soft/create`, json('POST', row))
+}
+
+export function addOutfitPreferenceReaction(
+  userKey: string,
+  reaction: OutfitPreferenceReaction,
+) {
+  return request<StylePreference>(`${prefBase(userKey)}/soft/add`, json('POST', reaction))
 }
 
 export function patchStylePreference(
@@ -270,7 +254,7 @@ export function patchStylePreference(
 }
 
 export function deleteStylePreference(userKey: string, id: number) {
-  return request<void>(`${prefBase(userKey)}/soft/${id}`, json('DELETE'))
+  return request<void>(`${prefBase(userKey)}/soft/remove/${id}`, json('DELETE'))
 }
 
 export function getTryOnCapabilities() {

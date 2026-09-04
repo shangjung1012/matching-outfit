@@ -167,6 +167,7 @@ async function saveToPreferences() {
     await confirmPreferences([
       {
         preference_text: preferenceText(result.value),
+        preference_type: 'prefer',
         source: 'explicit',
         origin_item_ids: MBTI_ORIGIN,
         occasions: [],

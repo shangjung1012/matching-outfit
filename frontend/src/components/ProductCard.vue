@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { Bookmark, Heart } from 'lucide-vue-next'
-import type { CatalogItem, ClothResult } from '../types'
+import { Bookmark, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
+import type { CatalogItem, ClothResult, PreferenceType } from '../types'
 import { formatCurrency } from '../utils/currency'
 
 defineProps<{
   item: CatalogItem | ClothResult
-  preferred?: boolean
+  preferenceType?: PreferenceType | null
   preferenceEnabled?: boolean
   favorited?: boolean
   favoriteEnabled?: boolean
@@ -14,7 +14,7 @@ defineProps<{
 }>()
 
 defineEmits<{
-  togglePreference: [id: number]
+  react: [id: number, type: PreferenceType]
   toggleFavorite: [id: number]
 }>()
 </script>
@@ -28,12 +28,22 @@ defineEmits<{
         <button
           v-if="preferenceEnabled"
           class="product-action-button preference"
-          :class="{ active: preferred }"
+          :class="{ active: preferenceType === 'prefer' }"
           :disabled="actionLoading"
-          :title="preferred ? '停用這件商品的偏好' : '將這件商品加入偏好'"
-          @click="$emit('togglePreference', item.id)"
+          :title="preferenceType === 'prefer' ? '取消喜歡這件商品' : '喜歡這件商品'"
+          @click="$emit('react', item.id, 'prefer')"
         >
-          <Heart :size="18" :fill="preferred ? 'currentColor' : 'none'" />
+          <ThumbsUp :size="18" :fill="preferenceType === 'prefer' ? 'currentColor' : 'none'" />
+        </button>
+        <button
+          v-if="preferenceEnabled"
+          class="product-action-button preference avoid"
+          :class="{ active: preferenceType === 'avoid' }"
+          :disabled="actionLoading"
+          :title="preferenceType === 'avoid' ? '取消不喜歡這件商品' : '不喜歡這件商品'"
+          @click="$emit('react', item.id, 'avoid')"
+        >
+          <ThumbsDown :size="18" :fill="preferenceType === 'avoid' ? 'currentColor' : 'none'" />
         </button>
         <button
           v-if="favoriteEnabled"

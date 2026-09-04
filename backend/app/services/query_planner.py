@@ -498,7 +498,7 @@ class QueryOutputNormalizer:
     ) -> set[str]:
         sources = [user_input.lower()]
         for row in style_preferences or []:
-            if row.is_active:
+            if row.is_active and getattr(row, "preference_type", "prefer") == "prefer":
                 sources.append(row.preference_text.lower())
         allowed: set[str] = set()
         for color, aliases in COLOR_ALIASES.items():
@@ -577,6 +577,19 @@ class QueryOutputNormalizer:
         for input_aliases, query_aliases in REJECTABLE_CONCEPTS.values():
             if any(cls._is_rejected(source, alias) for source in sources for alias in input_aliases):
                 forbidden.update(query_aliases)
+
+        # A structured "avoid" reaction is trustworthy even though its saved
+        # sentence deliberately stays neutral and does not contain "don't want".
+        for row in style_preferences or []:
+            if not row.is_active or getattr(row, "preference_type", "prefer") != "avoid":
+                continue
+            source = row.preference_text.lower()
+            for input_aliases, query_aliases in REJECTABLE_CONCEPTS.values():
+                if any(alias.lower() in source for alias in input_aliases):
+                    forbidden.update(query_aliases)
+            for color, aliases in COLOR_ALIASES.items():
+                if any(alias.lower() in source for alias in aliases):
+                    forbidden.update(alias for alias in aliases if alias.isascii())
 
         if hard is not None:
             for value in (*hard.avoid_article_types, *hard.avoid_master_categories):
