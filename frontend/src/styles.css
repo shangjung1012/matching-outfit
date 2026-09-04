@@ -113,6 +113,13 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .debug-two-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .debug-panel, .debug-details-stack details, .debug-raw-json { border: 1px solid #d9ddd7; border-radius: 6px; background: #fff; }
 .debug-panel { padding: 16px; }
+.debug-history { margin-bottom: 20px; }
+.debug-history-list { display: grid; gap: 8px; max-height: 320px; overflow: auto; margin-top: 12px; }
+.debug-history-row { display: flex; align-items: center; gap: 8px; }
+.debug-history-row > button:first-child { flex: 1; min-width: 0; text-align: left; padding: 10px 12px; border: 1px solid #d9ddd7; border-radius: 6px; background: #fff; cursor: pointer; }
+.debug-history-row > button.active { border-color: #16757a; background: #eff8f6; }
+.debug-history-row strong, .debug-history-row small { display: block; overflow-wrap: anywhere; }
+.debug-history-row small { color: #68716e; margin-top: 5px; }
 .debug-panel > h4 { margin: 0 0 12px; font-size: .78rem; text-transform: uppercase; }
 .debug-muted { color: #858c85; font-size: .76rem; }
 .debug-conversation { display: grid; gap: 8px; }

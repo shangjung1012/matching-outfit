@@ -116,6 +116,9 @@ class FashionObservationAdminView(StrictModel):
 
 
 class FashionArticleAdminView(StrictModel):
+    search_similarity: float | None = None
+    search_match_kind: Literal["title_summary", "knowledge"] | None = None
+    search_match_text: str = ""
     id: int
     source_url: str
     source_name: str

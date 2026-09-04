@@ -55,7 +55,7 @@ from app.schemas import (
     StylePreferenceView,
     FashionKnowledgeStatus,
 )
-from app.schemas.workflow import GarmentZone
+from app.schemas.workflow import GarmentZone, RequirementSummary
 from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
@@ -70,6 +70,7 @@ from app.services.query_planner import (
 )
 from app.services.integration_tools.llm import LLM
 from app.services.integration_tools.text_embeddings import TextEmbeddingService
+from app.services.integration_tools.weather import with_weather_context
 from app.services.aesthetic_reviewer import AestheticReviewer, apply_aesthetic_reviews
 from app.services.outfit_ranker import select_diverse
 from app.services.requirement_context import with_context_defaults
@@ -645,12 +646,22 @@ def item_preference_proposal(cloth: Cloth) -> StylePreferenceCreate:
     )
 
 
+def planning_knowledge(db: Session, raw_text: str, requirements: RequirementSummary, audience: str | None):
+    # Keep the user's precise style words, not just broad summary/default fields.
+    query = f"{raw_text}\n{outfit_context_embedding_text(requirements, raw_text)}"[:4000]
+    try:
+        return semantic_fashion_knowledge(db, query, audience=audience, top_k=12), ""
+    except RuntimeError as error:
+        return [], f"文章知識檢索不可用，這不是已確認的知識缺口：{error}"
+
+
 @router.post("/query-plans", response_model=PlanResponse)
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
-    payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
+    payload = payload.model_copy(update={"requirements": with_weather_context(with_context_defaults(payload.requirements))})
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
+    observations, knowledge_note = planning_knowledge(db, payload.user_input, payload.requirements, audience)
     try:
         llm = LLM()
         intent, fallback_used = interpret_fashion_intent_or_none(
@@ -664,6 +675,7 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             audience=audience,
             hard=preference,
             style_preferences=style_preferences,
+            observations=observations,
         )
         planner = QueryPlanner(llm)
         return planner.plan(
@@ -675,6 +687,8 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
             fashion_intent=intent,
             intent_fallback_used=fallback_used,
             include_debug=payload.include_debug,
+            observations=observations,
+            knowledge_retrieval_note=knowledge_note,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error
@@ -690,11 +704,12 @@ def clarify_requirements(
     preference = hard_rules_for(db, payload.user_key)
     audience = effective_audience(user_text, payload.audience, preference)
     try:
-        return RequirementCollector(LLM()).collect(
+        result = RequirementCollector(LLM()).collect(
             payload.messages,
             audience=audience,
             previous_requirements=payload.previous_requirements,
         )
+        return result.model_copy(update={"requirements": with_weather_context(result.requirements)})
     except RuntimeError as error:
         raise HTTPException(
             status_code=503, detail=f"Requirement agent unavailable: {error}"
@@ -703,13 +718,14 @@ def clarify_requirements(
 
 @router.post("/query-plans/refine", response_model=PlanResponse)
 def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> PlanResponse:
-    payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
+    payload = payload.model_copy(update={"requirements": with_weather_context(with_context_defaults(payload.requirements))})
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
     preference = hard_rules_for(db, payload.user_key)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(combined, payload.audience, preference)
+    observations, knowledge_note = planning_knowledge(db, combined, payload.requirements, audience)
     try:
         llm = LLM()
         intent, fallback_used = interpret_fashion_intent_or_none(
@@ -725,6 +741,7 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             style_preferences=style_preferences,
             refinement=payload.user_input,
             previous_intent=payload.fashion_intent,
+            observations=observations,
         )
         planner = QueryPlanner(llm)
         return planner.plan(
@@ -738,6 +755,8 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
             fashion_intent=intent,
             intent_fallback_used=fallback_used,
             include_debug=payload.include_debug,
+            observations=observations,
+            knowledge_retrieval_note=knowledge_note,
         )
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=f"Query planner unavailable: {error}") from error

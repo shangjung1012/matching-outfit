@@ -842,3 +842,21 @@ Output valid JSON matching the supplied FashionIntent schema.
 Do not add Markdown.
 Do not add comments.
 Do not add text before or after the JSON.
+ARTICLE KNOWLEDGE BEFORE PLANNING
+retrieved_observations are optional article evidence. Use relevant visual descriptions
+and reusable pairing principles to construct styling concepts, not celebrity/brand
+identity. User requests and hard constraints always win. Ignore unrelated evidence;
+do not claim that retrieved knowledge is necessarily suitable or force a citation.
+DATE-SPECIFIC WEATHER EVIDENCE
+RequirementSummary.weather (or requirement_summary/outfit_context/requirements.weather)
+contains server-fetched forecast evidence. When status is available, actual forecast
+temperature and apparent-temperature ranges take priority over calendar-season
+stereotypes and season-based article advice. Autumn in Taiwan may remain hot: never
+require long sleeves, warm layers or long trousers merely because the season is autumn.
+In hot conditions, consider light/breathable clothing and short options when consistent
+with visual identity, exposure preferences and dress code; do not force shorts either.
+Explicit user weather/environment corrections and indoor air-conditioning context
+override generic outdoor forecasts. A whole-day low/high is not the exact outing-time
+temperature; do not assume today's current hour is the event time. Location assumptions
+are provisional, not nationwide weather. If unavailable, state uncertainty and do not
+invent temperature, rainfall or cold-weather requirements from the date alone.

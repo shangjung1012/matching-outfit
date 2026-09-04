@@ -208,7 +208,23 @@ class ChatTurn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class WeatherContext(BaseModel):
+    status: Literal["available", "unavailable"] = "unavailable"
+    location: str = ""
+    target_date: str = ""
+    location_assumed: bool = False
+    temperature_min_c: float | None = None
+    temperature_max_c: float | None = None
+    apparent_temperature_min_c: float | None = None
+    apparent_temperature_max_c: float | None = None
+    precipitation_probability_max: float | None = None
+    source_url: str = "https://open-meteo.com/"
+    fetched_at: str = ""
+    note: str = ""
+
+
 class RequirementSummary(BaseModel):
+    weather: WeatherContext | None = None
     location: str = ""
     target_date: str = ""
     defaulted_fields: list[str] = Field(default_factory=list)
@@ -240,6 +256,10 @@ class QueryNormalizationChange(BaseModel):
 
 
 class QueryPlanDebug(BaseModel):
+    knowledge_observations: list[OutfitObservation] = Field(default_factory=list)
+    knowledge_used_ids: list[str] = Field(default_factory=list)
+    knowledge_gaps: list[str] = Field(default_factory=list)
+    knowledge_note: str = ""
     raw_user_text: str
     requirement_summary: RequirementSummary | None = None
     fashion_intent: FashionIntent | None = None
@@ -277,6 +297,9 @@ class ClarificationResponse(BaseModel):
 
 
 class PlanResponse(BaseModel):
+    knowledge_observations: list[OutfitObservation] = Field(default_factory=list)
+    knowledge_gaps: list[str] = Field(default_factory=list)
+    knowledge_note: str = ""
     original_input: str
     queries: list[QueryDraft]
     planner: str

@@ -73,6 +73,8 @@ async function loadArticles() {
     articles.value = response.items
     total.value = response.total
   } catch (reason) {
+    articles.value = []
+    total.value = 0
     error.value = reason instanceof Error ? reason.message : '無法讀取文章資料。'
   } finally {
     loading.value = false
@@ -190,7 +192,7 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
       </div>
       <div class="catalog-search">
         <Search :size="17" />
-        <input v-model="search" placeholder="搜尋標題、來源或摘要" @keyup.enter="loadArticles" />
+        <input v-model="search" placeholder="語意搜尋標題或知識，例如：女團造型、短上衣配寬褲" @keyup.enter="loadArticles" />
       </div>
     </header>
 
@@ -266,6 +268,7 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     </button>
 
     <div class="knowledge-toolbar">
+      <small>輸入時使用 embedding 語意搜尋；留空顯示所有文章。首次搜尋補建缺少的文字向量，可能較久。</small>
       <button class="secondary-button" :disabled="loading" @click="loadArticles">
         <RefreshCw :class="{ spinning: loading }" :size="15" />重新整理
       </button>
@@ -300,6 +303,11 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
             <a class="knowledge-source-url" :href="article.source_url" target="_blank" rel="noreferrer">
               <ExternalLink :size="12" />{{ article.source_url }}
             </a>
+            <p v-if="article.search_match_kind">
+              命中{{ article.search_match_kind === 'knowledge' ? '知識句子' : '標題／摘要' }}
+              · 語意相似度 {{ Math.round((article.search_similarity ?? 0) * 100) }}%（非適合度）
+              <br />{{ article.search_match_text }}
+            </p>
             <p v-if="expandedIds.has(article.id)">{{ article.article_summary }}</p>
             <div v-if="expandedIds.has(article.id)" class="knowledge-tags">
               <span v-for="tag in tags(article)" :key="tag">{{ tag }}</span>

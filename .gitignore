@@ -32,3 +32,4 @@ Thumbs.db
 
 # Local database/article transfer bundles
 backups/
+data/query_smoke/

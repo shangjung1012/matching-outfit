@@ -10,7 +10,7 @@ from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.core.config import settings
-from app.schemas.fashion_knowledge import StrictModel
+from app.schemas.fashion_knowledge import StrictModel, OutfitObservation
 from app.schemas.workflow import (
     ChatTurn,
     ClarificationResponse,
@@ -121,6 +121,9 @@ class PlannedCatalogQuery(StrictModel):
 
 
 class KnowledgeQueryDraft(StrictModel):
+    cited_observation_ids: list[str] = Field(default_factory=list)
+    knowledge_gaps: list[str] = Field(default_factory=list)
+    knowledge_note: str = ""
     context_restrictiveness: Literal["low", "medium", "high"]
     hard_constraints: list[str] = Field(default_factory=list)
     excluded_query_terms: list[str] = Field(default_factory=list)
@@ -374,8 +377,10 @@ class FashionIntentInterpreter:
         style_preferences: list[UserStylePreference] | None,
         refinement: str | None = None,
         previous_intent: FashionIntent | None = None,
+        observations: list[OutfitObservation] | None = None,
     ) -> FashionIntent:
         payload = {
+            "retrieved_observations": [item.model_dump(mode="json") for item in observations or []],
             "raw_user_text": raw_user_text,
             "requirement_summary": requirement_summary.model_dump(mode="json"),
             "audience": audience,
@@ -413,6 +418,7 @@ def interpret_fashion_intent_or_none(
     style_preferences: list[UserStylePreference] | None,
     refinement: str | None = None,
     previous_intent: FashionIntent | None = None,
+    observations: list[OutfitObservation] | None = None,
 ) -> tuple[FashionIntent | None, bool]:
     """Return a validated intent, falling back without breaking query planning."""
     if not enabled:
@@ -427,6 +433,7 @@ def interpret_fashion_intent_or_none(
                 style_preferences=style_preferences,
                 refinement=refinement,
                 previous_intent=previous_intent,
+                observations=observations,
             ),
             False,
         )
@@ -824,12 +831,16 @@ class QueryPlanner:
         fashion_intent: FashionIntent | None = None,
         intent_fallback_used: bool = False,
         include_debug: bool = False,
+        observations: list[OutfitObservation] | None = None,
+        knowledge_retrieval_note: str = "",
     ) -> PlanResponse:
         # get preference payload for LLM
         preference_payload = build_planner_preference_context(hard, style_preferences)
 
         # build payload for LLM
         payload = {
+            "retrieved_observations": [item.model_dump(mode="json") for item in observations or []],
+            "knowledge_retrieval_note": knowledge_retrieval_note,
             "user_request": user_input,
             "outfit_context": (
                 requirements.model_dump(mode="json") if requirements else None
@@ -882,6 +893,26 @@ class QueryPlanner:
             for index in range(QUERY_COUNTS[zone])
         ]
         styling_guide = self._guide_with_intent(result.styling_guide, fashion_intent)
+        used_ids = list(dict.fromkeys(
+            identifier for identifier in result.cited_observation_ids
+            if identifier in {item.observation_id for item in observations or []}
+        ))
+        used_observations = [item for item in observations or [] if item.observation_id in used_ids]
+        gaps = result.knowledge_gaps
+        if not used_ids and not gaps:
+            gaps = [f"缺少能支持此需求的具體搭配依據：{normalization_input}"]
+        if knowledge_retrieval_note:
+            gaps = [f"待檢索恢復後確認（非確定缺口）：{gap}" for gap in gaps]
+        knowledge_note = "；".join(value for value in (knowledge_retrieval_note, result.knowledge_note) if value)
+        if gaps:
+            logger.warning("planning_knowledge_gap %s", json.dumps({
+                "request": normalization_input,
+                "audience": audience,
+                "gaps": gaps,
+                "retrieval_error": knowledge_retrieval_note,
+                "retrieved_ids": [item.observation_id for item in observations or []],
+                "used_ids": used_ids,
+            }, ensure_ascii=False))
         # The model may interleave directions (A upper, A lower, B upper, ...),
         # while our public query contract groups rows by garment zone. Compare
         # corresponding rows inside each zone instead of zipping the two global
@@ -902,6 +933,10 @@ class QueryPlanner:
             if before.text != after.text
         ]
         trace_payload = {
+            "knowledge_observations": [item.model_dump(mode="json") for item in observations or []],
+            "knowledge_used_ids": used_ids,
+            "knowledge_gaps": gaps,
+            "knowledge_note": knowledge_note,
             "raw_user_text": user_input,
             "requirement_summary": (
                 requirements.model_dump(mode="json") if requirements else None
@@ -931,7 +966,10 @@ class QueryPlanner:
             queries=queries,
             planner=self.name,
             audience=audience,
-            knowledge_observation_ids=[],
+            knowledge_observation_ids=used_ids,
+            knowledge_observations=used_observations,
+            knowledge_gaps=gaps,
+            knowledge_note=knowledge_note,
             planning_note=(
                 f"{result.planning_note} FashionCLIP 搜尋句已自動正規化為英文。"
                 if normalized_queries.repair_attempted

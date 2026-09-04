@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -16,6 +16,7 @@ from app.knowledge.ingestion.import_input import normalize_article_url, normaliz
 from urllib.parse import urlsplit
 from app.knowledge.ingestion.db_importer import import_knowledge_records
 from app.knowledge.store import FashionKnowledgeStore
+from app.knowledge.article_search import search_articles
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.schemas.fashion_knowledge import (
     FashionArticleAdminView,
@@ -98,16 +99,16 @@ def list_articles(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> FashionArticleList:
-    filters = []
     if search and search.strip():
-        term = f"%{search.strip()}%"
-        filters.append(
-            or_(
-                FashionArticle.title.ilike(term),
-                FashionArticle.source_name.ilike(term),
-                FashionArticle.article_summary.ilike(term),
-            )
-        )
+        try:
+            embedder = TextEmbeddingService(settings.openai_api_key, settings.knowledge_embedding_model,
+                                            settings.knowledge_embedding_dimensions)
+            rows, total = search_articles(db, search.strip(), embedder, limit=limit, offset=offset)
+            return FashionArticleList(items=[_article_view(row).model_copy(update={
+                "search_similarity": float(similarity), "search_match_kind": kind, "search_match_text": text,
+            }) for row, similarity, kind, text in rows], total=total)
+        except (RuntimeError, ValueError) as error:
+            raise HTTPException(status_code=503, detail=f"文章語意搜尋不可用：{error}") from error
     total_query = select(func.count()).select_from(FashionArticle)
     rows_query = (
         select(FashionArticle)
@@ -116,9 +117,6 @@ def list_articles(
         .offset(offset)
         .limit(limit)
     )
-    if filters:
-        total_query = total_query.where(*filters)
-        rows_query = rows_query.where(*filters)
     return FashionArticleList(
         items=[_article_view(row) for row in db.scalars(rows_query).all()],
         total=db.scalar(total_query) or 0,

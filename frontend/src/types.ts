@@ -257,6 +257,9 @@ export interface OutfitRecommendation {
 }
 
 export interface QueryPlanResponse {
+  knowledge_observations: FashionObservationTrace[]
+  knowledge_gaps: string[]
+  knowledge_note: string
   queries: QueryDraft[]
   planner: string
   audience: Audience | null
@@ -282,6 +285,10 @@ export interface QueryNormalizationChange {
 }
 
 export interface QueryPlanDebug {
+  knowledge_observations: FashionObservationTrace[]
+  knowledge_used_ids: string[]
+  knowledge_gaps: string[]
+  knowledge_note: string
   raw_user_text: string
   requirement_summary: RequirementSummary | null
   fashion_intent: FashionIntent | null
@@ -295,6 +302,20 @@ export interface QueryPlanDebug {
 }
 
 export interface RequirementSummary {
+  weather?: {
+    status: 'available' | 'unavailable'
+    location: string
+    target_date: string
+    location_assumed: boolean
+    temperature_min_c: number | null
+    temperature_max_c: number | null
+    apparent_temperature_min_c: number | null
+    apparent_temperature_max_c: number | null
+    precipitation_probability_max: number | null
+    source_url: string
+    fetched_at: string
+    note: string
+  } | null
   location: string
   target_date: string
   defaulted_fields: string[]
@@ -478,6 +499,9 @@ export interface FashionObservationAdmin {
 }
 
 export interface FashionArticleAdmin {
+  search_similarity?: number | null
+  search_match_kind?: 'title_summary' | 'knowledge' | null
+  search_match_text?: string
   id: number
   source_url: string
   source_name: string

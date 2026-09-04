@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { DebugHistoryItem } from '../composables/useDebugHistory'
 import {
   AlertTriangle, BrainCircuit, CheckCircle2, Database, Download, SearchCode,
 } from 'lucide-vue-next'
@@ -10,7 +11,20 @@ import type {
   QueryDraft,
 } from '../types'
 
-const props = defineProps<{ trace: PipelineDebugSession | null }>()
+const props = defineProps<{
+  trace: PipelineDebugSession | null
+  history: DebugHistoryItem[]
+  selectedId: string | null
+  storageError: string
+}>()
+const emit = defineEmits<{
+  selectHistory: [id: string]
+  showCurrent: []
+  deleteHistory: [id: string]
+}>()
+function deleteHistory(id: string) {
+  if (window.confirm('確定刪除這份除錯快照？此操作不會刪除商品、文章或其他分析。')) emit('deleteHistory', id)
+}
 
 const reviewedCandidates = computed(() => [
   ...(props.trace?.recommendations ?? []),
@@ -35,6 +49,7 @@ function zoneLabel(zone: GarmentZone) {
 
 function displayValue(value: unknown): string {
   if (Array.isArray(value)) return value.length ? value.join('、') : '—'
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value, null, 2)
   if (value === null || value === undefined || value === '') return '—'
   return String(value)
 }
@@ -79,12 +94,29 @@ function downloadTrace() {
       <div>
         <span class="section-kicker">Pipeline inspector</span>
         <h2>推薦流程除錯</h2>
-        <p>查看最近一次 Agent 搜尋在每個階段實際使用與產生的資料。</p>
+        <p>每次階段更新自動保存為快照，可選取歷史紀錄查看完整分析。</p>
       </div>
       <button v-if="trace" class="secondary-button" @click="downloadTrace">
         <Download :size="16" />下載完整 JSON
       </button>
     </header>
+
+    <section class="debug-panel debug-history">
+      <h3>分析歷史（{{ history.length }} 筆）</h3>
+      <p>保存在這個瀏覽器；重新整理後仍可查看。不會自動同步到隊友或其他裝置。圖片保留連結，原圖刪除後可能無法顯示。</p>
+      <p v-if="storageError" class="chat-error" role="alert">{{ storageError }}</p>
+      <button class="secondary-button" @click="emit('showCurrent')">查看目前分析</button>
+      <div class="debug-history-list">
+        <article v-for="item in history" :key="item.id" class="debug-history-row">
+          <button :class="{ active: selectedId === item.id }" @click="emit('selectHistory', item.id)">
+            <strong>{{ item.title }}</strong>
+            <small>{{ new Date(item.savedAt).toLocaleString('zh-TW') }} · {{ item.stage }}{{ selectedId === item.id ? ' · 正在查看' : '' }}</small>
+          </button>
+          <button class="secondary-button" @click="deleteHistory(item.id)">刪除快照</button>
+        </article>
+      </div>
+      <p v-if="!history.length">尚未保存分析；後續有使用者需求的階段更新會自動保存。</p>
+    </section>
 
     <div v-if="!trace" class="empty-view debug-empty">
       <SearchCode :size="34" />
@@ -136,6 +168,17 @@ function downloadTrace() {
 
       <section class="debug-section">
         <header><span>2</span><div><h3>Fashion Intent Interpreter</h3><p>檢查抽象需求被解讀成什麼形象、視覺線索與搭配策略。</p></div></header>
+        <details class="debug-panel" open>
+          <summary>產生 query 前的文章知識與缺口</summary>
+          <p>{{ trace.plan_debug?.knowledge_note }}</p>
+          <p v-if="!trace.plan_debug?.knowledge_used_ids?.length">本次未採用合適的文章句子；以下缺口是規劃診斷，非全庫不存在的證明。</p>
+          <ul><li v-for="gap in trace.plan_debug?.knowledge_gaps" :key="gap">待補充：{{ gap }}</li></ul>
+          <article v-for="item in trace.plan_debug?.knowledge_observations" :key="item.observation_id">
+            <strong>{{ trace.plan_debug?.knowledge_used_ids?.includes(item.observation_id) ? '已採用' : '已檢索但未採用' }}</strong>
+            <p>{{ item.summary }}</p>
+            <a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ item.source_title || item.source_url }}</a>
+          </article>
+        </details>
         <div v-if="trace.fashion_intent" class="debug-panel">
           <div class="debug-intent-title">
             <div><small>USER GOAL</small><h4>{{ trace.fashion_intent.user_goal }}</h4></div>

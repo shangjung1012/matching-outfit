@@ -14,11 +14,17 @@ import KnowledgeManagementView from './views/KnowledgeManagementView.vue'
 import DebugPipelineView from './views/DebugPipelineView.vue'
 import type { AppView, PipelineDebugSession } from './types'
 import { useUserLibrary } from './composables/useUserLibrary'
+import { useDebugHistory } from './composables/useDebugHistory'
 
 const activeView = ref<AppView>('agent')
 const userKey = 'demo-user'
 const preferenceRevision = ref(0)
 const debugTrace = ref<PipelineDebugSession | null>(null)
+const debugHistory = useDebugHistory(userKey)
+function updateDebug(trace: PipelineDebugSession) {
+  debugTrace.value = trace
+  debugHistory.save(trace)
+}
 const { loadLibrary } = useUserLibrary(userKey)
 
 const navigation = [
@@ -34,6 +40,7 @@ const navigation = [
 ]
 
 onMounted(() => {
+  void debugHistory.load()
   void loadLibrary().catch(() => undefined)
 })
 </script>
@@ -68,9 +75,18 @@ onMounted(() => {
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
         @open-knowledge="activeView = 'knowledge'"
-        @debug-updated="debugTrace = $event"
+        @debug-updated="updateDebug"
       />
-      <DebugPipelineView v-show="activeView === 'debug'" :trace="debugTrace" />
+      <DebugPipelineView
+        v-show="activeView === 'debug'"
+        :trace="debugHistory.selected.value ?? debugTrace"
+        :history="debugHistory.history.value"
+        :selected-id="debugHistory.selectedId.value"
+        :storage-error="debugHistory.error.value"
+        @select-history="debugHistory.select"
+        @show-current="debugHistory.showCurrent"
+        @delete-history="debugHistory.remove"
+      />
       <KnowledgeManagementView v-if="activeView === 'knowledge'" />
       <SimilarSearchView v-show="activeView === 'similarity'" />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />

@@ -262,7 +262,7 @@ def test_planner_returns_five_five_two_without_article_knowledge() -> None:
         "lower_body": 5,
         "one_piece": 2,
     }
-    assert "retrieved_observations" not in llm.payloads[0]
+    assert llm.payloads[0]["retrieved_observations"] == []
     assert len(llm.payloads[0]["user_preferences"]["outfit_memories"]) == 1
     assert result.knowledge_observation_ids == []
     assert all(not query.references for query in result.queries)

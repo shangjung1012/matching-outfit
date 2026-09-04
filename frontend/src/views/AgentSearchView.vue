@@ -17,6 +17,7 @@ import QueryReview from '../components/QueryReview.vue'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
   Audience,
+  FashionObservationTrace,
   FashionIntent,
   OutfitRecommendation,
   PipelineDebugSession,
@@ -92,6 +93,7 @@ const requirements = ref<RequirementSummary | null>(null)
 const stylingGuide = ref<StylingGuide | null>(null)
 const fashionIntent = ref<FashionIntent | null>(null)
 const planDebug = ref<QueryPlanDebug | null>(null)
+const planningKnowledge = ref<FashionObservationTrace[]>([])
 const recommendationDebug = ref<RecommendationDebug | null>(null)
 const reviewNote = ref('')
 const knowledgeNote = ref('')
@@ -123,7 +125,7 @@ const composerPlaceholder = computed(() => {
 
 type RequirementDisplayField = Exclude<
   keyof RequirementSummary,
-  'search_brief' | 'tag_translations' | 'defaulted_fields'
+  'search_brief' | 'tag_translations' | 'defaulted_fields' | 'weather'
 >
 
 const requirementLabels: Record<RequirementDisplayField, string> = {
@@ -358,6 +360,8 @@ async function requestRefinement(
       stylingGuide.value = response.styling_guide
       fashionIntent.value = response.fashion_intent
       planDebug.value = response.debug
+      requirements.value = response.debug?.requirement_summary ?? requirements.value
+      planningKnowledge.value = response.knowledge_observations ?? []
       recommendationDebug.value = null
       audience.value = response.audience ?? audience.value
       originalRequest.value = `${previousRequest} ${text}`.trim()
@@ -389,6 +393,8 @@ async function requestPlanning(
       stylingGuide.value = response.styling_guide
       fashionIntent.value = response.fashion_intent
       planDebug.value = response.debug
+      requirements.value = response.debug?.requirement_summary ?? requirements.value
+      planningKnowledge.value = response.knowledge_observations ?? []
       recommendationDebug.value = null
       audience.value = response.audience ?? audience.value
       recommendations.value = []
@@ -504,6 +510,7 @@ function startNewConversation() {
   stylingGuide.value = null
   fashionIntent.value = null
   planDebug.value = null
+  planningKnowledge.value = []
   recommendationDebug.value = null
   reviewNote.value = ''
   knowledgeNote.value = ''
@@ -762,6 +769,25 @@ onBeforeUnmount(() => cancelAgentRequest(false))
     </aside>
 
     <main class="agent-workspace">
+      <details v-if="requirements?.weather" class="debug-panel" open>
+        <summary>搭配參考天氣：{{ requirements.weather.location }}／{{ requirements.weather.target_date }}</summary>
+        <p v-if="requirements.weather.status === 'available'">
+          氣溫 {{ requirements.weather.temperature_min_c }}～{{ requirements.weather.temperature_max_c }}°C；
+          體感 {{ requirements.weather.apparent_temperature_min_c ?? '—' }}～{{ requirements.weather.apparent_temperature_max_c ?? '—' }}°C；
+          最高降雨機率 {{ requirements.weather.precipitation_probability_max ?? '—' }}%。
+        </p>
+        <p>{{ requirements.weather.note }}</p>
+        <p v-if="requirements.weather.location_assumed">未指定城市，暫用台北；可在對話補充實際地點。</p>
+        <a :href="requirements.weather.source_url" target="_blank" rel="noopener noreferrer">天氣來源：Open-Meteo</a>
+      </details>
+      <details v-if="planningKnowledge.length" class="debug-panel">
+        <summary>本次 query 規劃採用的知識（{{ planningKnowledge.length }} 條）</summary>
+        <article v-for="item in planningKnowledge" :key="item.observation_id">
+          <p>{{ item.summary }}</p>
+          <p v-if="item.evidence">依據：{{ item.evidence }}</p>
+          <a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ item.source_title || item.source_name || item.source_url }}</a>
+        </article>
+      </details>
       <button class="knowledge-source-button" @click="emit('openKnowledge')">
         <BookOpenText :size="16" />知識來源
       </button>
