@@ -36,6 +36,29 @@ const activeObservationTotal = computed(() =>
   articles.value.reduce((sum, article) => sum + article.active_observation_count, 0),
 )
 
+const groupedArticles = computed(() => {
+  const groups: { source: string; items: FashionArticleAdmin[] }[] = []
+  const indexBySource = new Map<string, number>()
+  for (const article of articles.value) {
+    const source = article.source_name || '其他來源'
+    if (!indexBySource.has(source)) {
+      indexBySource.set(source, groups.length)
+      groups.push({ source, items: [] })
+    }
+    groups[indexBySource.get(source)!].items.push(article)
+  }
+  return groups
+})
+
+const signalLabels: Record<string, string> = {
+  timeless: '長期適用',
+  current_trend: '當季流行',
+  editorial_example: '示範案例',
+}
+function signalLabel(signal: string) {
+  return signalLabels[signal] ?? signal
+}
+
 function retryFailed() {
   urlInput.value = collectResults.value
     .filter(result => result.status === 'failed' || result.status === 'unsupported')
@@ -197,50 +220,62 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     </header>
 
     <section class="knowledge-import-card">
-      <div class="knowledge-import-copy">
-        <RefreshCw :size="20" />
-        <div>
-          <strong>自動尋找最新穿搭文章</strong>
+      <details class="knowledge-import-details">
+        <summary class="knowledge-import-summary">
+          <RefreshCw :size="18" />
+          <span>
+            <strong>搜尋新文章</strong>
+            <small>從常用穿搭網站自動找出尚未收錄的文章</small>
+          </span>
+        </summary>
+
+        <div class="knowledge-import-body">
+          <div class="knowledge-source-grid">
+            <label v-for="source in sources" :key="source.key" class="knowledge-source-option">
+              <input v-model="selectedSourceKeys" type="checkbox" :value="source.key" />
+              <span><strong>{{ source.name }}</strong><small>{{ source.audience === 'women' ? '女裝' : '男裝' }}</small></span>
+            </label>
+          </div>
+
+          <details class="knowledge-advanced">
+            <summary>進階選項</summary>
+            <div class="knowledge-import-actions">
+              <label class="knowledge-limit-control">
+                檢查列表頁數
+                <select v-model.number="pageLimit">
+                  <option :value="0">自動（直到沒有新連結）</option>
+                  <option :value="1">1 頁</option>
+                  <option :value="2">2 頁</option>
+                  <option :value="3">3 頁</option>
+                  <option :value="5">5 頁</option>
+                  <option :value="10">10 頁</option>
+                </select>
+              </label>
+              <label class="knowledge-limit-control">
+                每個來源最多
+                <select v-model.number="perSourceLimit">
+                  <option :value="1">1 篇</option>
+                  <option :value="2">2 篇</option>
+                  <option :value="3">3 篇</option>
+                </select>
+              </label>
+            </div>
+          </details>
+
+          <button class="primary-button" :disabled="collecting || !sources.length" @click="autoUpdate">
+            <LoaderCircle v-if="collecting" class="spinning" :size="16" />
+            <RefreshCw v-else :size="16" />
+            {{ collecting ? '更新中…' : '檢查並抓取新文章' }}
+          </button>
+
+          <details class="manual-import">
+            <summary>手動補抓特定文章（選用）</summary>
+            <textarea v-model="urlInput" rows="3" placeholder="可貼上 Markdown 分類標題、文章連結或每行一個網址" />
+            <button class="secondary-button" :disabled="collecting" @click="collectUrls()">
+              <Plus :size="15" />抓取指定網址
+            </button>
+          </details>
         </div>
-      </div>
-      <div class="knowledge-source-grid">
-        <label v-for="source in sources" :key="source.key" class="knowledge-source-option">
-          <input v-model="selectedSourceKeys" type="checkbox" :value="source.key" />
-          <span><strong>{{ source.name }}</strong><small>{{ source.audience === 'women' ? '女裝' : '男裝' }}</small></span>
-        </label>
-      </div>
-      <div class="knowledge-import-actions">
-        <label class="knowledge-limit-control">
-          檢查列表頁數
-          <select v-model.number="pageLimit">
-            <option :value="0">自動（直到沒有新連結）</option>
-            <option :value="1">1 頁</option>
-            <option :value="2">2 頁</option>
-            <option :value="3">3 頁</option>
-            <option :value="5">5 頁</option>
-            <option :value="10">10 頁</option>
-          </select>
-        </label>
-        <label class="knowledge-limit-control">
-          每個來源最多
-          <select v-model.number="perSourceLimit">
-            <option :value="1">1 篇</option>
-            <option :value="2">2 篇</option>
-            <option :value="3">3 篇</option>
-          </select>
-        </label>
-        <button class="primary-button" :disabled="collecting || !sources.length" @click="autoUpdate">
-          <LoaderCircle v-if="collecting" class="spinning" :size="16" />
-          <RefreshCw v-else :size="16" />
-          {{ collecting ? '更新中…' : '檢查並抓取新文章' }}
-        </button>
-      </div>
-      <details class="manual-import">
-        <summary>手動補抓特定文章（選用）</summary>
-        <textarea v-model="urlInput" rows="3" placeholder="可貼上 Markdown 分類標題、文章連結或每行一個網址" />
-        <button class="secondary-button" :disabled="collecting" @click="collectUrls()">
-          <Plus :size="15" />抓取指定網址
-        </button>
       </details>
     </section>
 
@@ -278,66 +313,66 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
       <BookOpenText :size="34" />
       <h3>目前沒有符合的文章</h3>
     </div>
-    <div v-else class="knowledge-article-list">
-      <article v-for="article in articles" :key="article.id" class="knowledge-article-card">
-        <div class="knowledge-article-main">
-          <button class="knowledge-expand-button" @click="toggleExpanded(article.id)">
-            <ChevronDown :class="{ expanded: expandedIds.has(article.id) }" :size="18" />
-          </button>
-          <div class="knowledge-article-content">
-            <div class="knowledge-article-meta">
-              <span>{{ article.source_name }}</span>
-              <span>{{ formatDate(article.published_at || article.collected_at) }}</span>
-              <span>{{ article.active_observation_count }}/{{ article.observation_count }} 條啟用</span>
-            </div>
-            <h3>
-              <a class="knowledge-article-title" :href="article.source_url" target="_blank" rel="noopener noreferrer">
-                {{ article.title }} <ExternalLink :size="14" />
-              </a>
-            </h3>
-            <small v-for="category in article.extraction_notes.filter(note => note.startsWith('匯入分類：'))" :key="category">{{ category }}</small>
-            <a class="knowledge-source-url" :href="article.source_url" target="_blank" rel="noreferrer">
-              <ExternalLink :size="12" />{{ article.source_url }}
-            </a>
-            <p v-if="article.search_match_kind">
-              命中{{ article.search_match_kind === 'knowledge' ? '知識句子' : '標題／摘要' }}
-              · 語意相似度 {{ Math.round((article.search_similarity ?? 0) * 100) }}%（非適合度）
-              <br />{{ article.search_match_text }}
-            </p>
-            <p v-if="expandedIds.has(article.id)">{{ article.article_summary }}</p>
-            <div v-if="expandedIds.has(article.id)" class="knowledge-tags">
-              <span v-for="tag in tags(article)" :key="tag">{{ tag }}</span>
-            </div>
-          </div>
-          <div class="knowledge-card-actions">
-            <button class="icon-button" :disabled="collecting" title="重新抓取" @click="refreshArticle(article)"><RefreshCw :size="15" /></button>
-            <button class="icon-button danger" title="刪除文章" @click="removeArticle(article)"><Trash2 :size="15" /></button>
-          </div>
-        </div>
-
-        <div v-if="expandedIds.has(article.id)" class="knowledge-observations">
-          <div class="knowledge-observations-heading">
-            <strong>這篇文章存下的參考句子</strong>
-          </div>
-          <div v-for="(observation, index) in article.observations" :key="observation.id"
-            class="knowledge-observation" :class="{ inactive: !observation.is_active }">
-            <div class="observation-number">{{ index + 1 }}</div>
-            <div>
-              <strong>{{ observation.summary }}</strong>
-              <p>依據：{{ observation.evidence }}</p>
-              <div class="knowledge-tags compact">
-                <span>{{ observation.signal_type }}</span>
-                <span v-for="tag in observationTags(observation)" :key="tag">{{ tag }}</span>
+    <div v-else class="knowledge-article-groups">
+      <section v-for="group in groupedArticles" :key="group.source" class="knowledge-article-group">
+        <h3 class="knowledge-group-title">{{ group.source }}<small>{{ group.items.length }} 篇</small></h3>
+        <div class="knowledge-article-list">
+          <article v-for="article in group.items" :key="article.id" class="knowledge-article-card">
+            <div class="knowledge-article-main">
+              <button class="knowledge-expand-button" @click="toggleExpanded(article.id)">
+                <ChevronDown :class="{ expanded: expandedIds.has(article.id) }" :size="18" />
+              </button>
+              <div class="knowledge-article-content">
+                <div class="knowledge-article-meta">
+                  <span>{{ formatDate(article.published_at || article.collected_at) }}</span>
+                  <span>{{ article.active_observation_count }}/{{ article.observation_count }} 條啟用</span>
+                </div>
+                <h3>
+                  <a class="knowledge-article-title" :href="article.source_url" target="_blank" rel="noopener noreferrer">
+                    {{ article.title }} <ExternalLink :size="14" />
+                  </a>
+                </h3>
+                <small v-for="category in article.extraction_notes.filter(note => note.startsWith('匯入分類：'))" :key="category">{{ category }}</small>
+                <p v-if="article.search_match_kind">
+                  {{ article.search_match_kind === 'knowledge' ? '命中內容重點' : '命中標題或摘要' }}
+                  <br />{{ article.search_match_text }}
+                </p>
+                <p v-if="expandedIds.has(article.id)">{{ article.article_summary }}</p>
+                <div v-if="expandedIds.has(article.id)" class="knowledge-tags">
+                  <span v-for="tag in tags(article)" :key="tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="knowledge-card-actions">
+                <button class="icon-button" :disabled="collecting" title="重新抓取" @click="refreshArticle(article)"><RefreshCw :size="15" /></button>
+                <button class="icon-button danger" title="刪除文章" @click="removeArticle(article)"><Trash2 :size="15" /></button>
               </div>
             </div>
-            <label class="knowledge-switch">
-              <input type="checkbox" :checked="observation.is_active"
-                @change="toggleObservation(article, observation.id, ($event.target as HTMLInputElement).checked)" />
-              <span>{{ observation.is_active ? '啟用' : '停用' }}</span>
-            </label>
-          </div>
+
+            <div v-if="expandedIds.has(article.id)" class="knowledge-observations">
+              <div class="knowledge-observations-heading">
+                <strong>這篇文章存下的參考句子</strong>
+              </div>
+              <div v-for="(observation, index) in article.observations" :key="observation.id"
+                class="knowledge-observation" :class="{ inactive: !observation.is_active }">
+                <div class="observation-number">{{ index + 1 }}</div>
+                <div>
+                  <strong>{{ observation.summary }}</strong>
+                  <p>依據：{{ observation.evidence }}</p>
+                  <div class="knowledge-tags compact">
+                    <span>{{ signalLabel(observation.signal_type) }}</span>
+                    <span v-for="tag in observationTags(observation)" :key="tag">{{ tag }}</span>
+                  </div>
+                </div>
+                <label class="knowledge-switch">
+                  <input type="checkbox" :checked="observation.is_active"
+                    @change="toggleObservation(article, observation.id, ($event.target as HTMLInputElement).checked)" />
+                  <span>{{ observation.is_active ? '啟用' : '停用' }}</span>
+                </label>
+              </div>
+            </div>
+          </article>
         </div>
-      </article>
+      </section>
     </div>
   </section>
 </template>
