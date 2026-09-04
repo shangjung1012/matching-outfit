@@ -81,14 +81,6 @@ def _recommendation(
         0.0,
         min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit),
     )
-    references = list(
-        {
-            reference.url: reference
-            for item in items
-            for reference in item.references
-            if reference.url
-        }.values()
-    )
     return OutfitRecommendation(
         id=str(uuid4()),
         kind=kind,
@@ -103,7 +95,7 @@ def _recommendation(
             "FashionCLIP candidate relevance", coverage_reason,
             *context_reasons,
         ],
-        references=references,
+        references=[],
     )
 
 
@@ -120,16 +112,10 @@ def rank_outfits(
             if current is None:
                 zone_pool[item.id] = item
                 continue
-            references = list(
-                {
-                    reference.url: reference
-                    for reference in [*current.references, *item.references]
-                }.values()
-            )
             preferred = item if item.similarity > current.similarity else current
-            zone_pool[item.id] = preferred.model_copy(update={"references": references})
+            zone_pool[item.id] = preferred
     by_zone = {
-        zone: sorted(pool.values(), key=lambda item: item.similarity, reverse=True)
+        zone: sorted(pool.values(), key=lambda item: item.similarity, reverse=True)[:40]
         for zone, pool in pooled_by_zone.items()
     }
     recommendations: list[OutfitRecommendation] = []

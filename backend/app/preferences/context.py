@@ -1,28 +1,38 @@
 """Preference payloads shared by LLM-backed recommendation stages."""
 
 from app.models.user_preference import UserHardRule, UserStylePreference
+from app.schemas.workflow import RequirementSummary
 
 
-def relevant_style_preferences(
-    rows: list[UserStylePreference], user_context: str
-) -> list[UserStylePreference]:
-    """Return preference sentences whose saved context matches this request."""
-    normalized_context = user_context.strip().lower()
-    selected: list[UserStylePreference] = []
-    for row in rows:
-        scopes = [
-            *(row.context_occasions or []),
-            *(row.context_times or []),
-            *(row.context_situations or []),
-        ]
-        if not scopes or any(
-            scope.strip().lower() in normalized_context
-            or normalized_context in scope.strip().lower()
-            for scope in scopes
-            if scope.strip()
-        ):
-            selected.append(row)
-    return selected
+OUTFIT_CONTEXT_FIELDS = (
+    "occasions",
+    "seasons",
+    "times_of_day",
+    "climates",
+    "formalities",
+    "activities",
+    "styles",
+)
+
+
+def outfit_context_embedding_text(
+    requirements: RequirementSummary | None, fallback: str = ""
+) -> str:
+    """Serialize user context using the same labels as fashion observations."""
+    if requirements is None:
+        return fallback.strip()
+    lines = [
+        f"{field.replace('_', ' ')}: {', '.join(getattr(requirements, field))}"
+        for field in OUTFIT_CONTEXT_FIELDS
+        if getattr(requirements, field)
+    ]
+    if requirements.special_requirements:
+        lines.append(
+            f"special requirements: {', '.join(requirements.special_requirements)}"
+        )
+    if requirements.additional_notes:
+        lines.append(f"additional notes: {requirements.additional_notes}")
+    return "\n".join(lines) or fallback.strip()
 
 
 def build_planner_preference_context(
@@ -53,9 +63,10 @@ def build_planner_preference_context(
         payload.setdefault("outfit_memories", []).append(
             {
                 "preference_sentence": row.preference_text,
-                "occasions": row.context_occasions or [],
-                "times_or_seasons": row.context_times or [],
-                "contexts": row.context_situations or [],
+                **{
+                    field: getattr(row, field) or []
+                    for field in OUTFIT_CONTEXT_FIELDS
+                },
             }
         )
     return payload

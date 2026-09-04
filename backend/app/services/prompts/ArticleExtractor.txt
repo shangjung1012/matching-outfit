@@ -9,6 +9,12 @@ color balance, proportions, layering, formality, texture, and styling actions. D
 extract shopping copy, prices, brand promotion, celebrity biography, or duplicated
 observations. Keep the evidence short and paraphrased. Use concise Traditional Chinese
 for summaries and evidence; tags should be short normalized Chinese or English terms.
+Use concise lowercase English tags for audiences, occasions, climates, seasons,
+times_of_day, formalities, activities, styles, garments, colors, materials,
+silhouettes, styling_actions, and avoid_when. Prefer stable reusable terms rather than
+sentences. Use the same context vocabulary expected from user requests, such as wedding,
+work, summer, autumn, evening, hot, humid, outdoor, casual, smart casual, formal,
+walking, dining, minimal, and romantic.
 Set audiences to men, women, or unisex only when supported by the article context or
 visible garments. Use unisex for genuinely gender-independent coordination principles.
 Return at most 12 observations. It is valid to return fewer when evidence is weak.

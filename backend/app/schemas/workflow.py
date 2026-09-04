@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -6,7 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 GarmentZone = Literal["upper_body", "lower_body", "one_piece", "accessory", "other"]
 Audience = Literal["men", "women", "unisex"]
 RequirementField = Literal[
-    "occasion", "time", "context", "special_requirements", "additional_notes"
+    "occasions",
+    "seasons",
+    "times_of_day",
+    "climates",
+    "formalities",
+    "activities",
+    "styles",
+    "special_requirements",
+    "additional_notes",
 ]
 
 
@@ -25,24 +35,29 @@ class QueryDraft(BaseModel):
     references: list[ReferenceLink] = Field(default_factory=list)
 
 
-class PlanRequest(BaseModel):
-    user_input: str = Field(min_length=2, max_length=1000)
-    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
-    audience: Audience | None = None
-
-
 class ChatTurn(BaseModel):
     role: Literal["agent", "user"]
     text: str = Field(min_length=1, max_length=2000)
 
 
 class RequirementSummary(BaseModel):
-    occasion: str = ""
-    time: str = ""
-    context: str = ""
-    special_requirements: str = ""
+    occasions: list[str] = Field(default_factory=list)
+    seasons: list[str] = Field(default_factory=list)
+    times_of_day: list[str] = Field(default_factory=list)
+    climates: list[str] = Field(default_factory=list)
+    formalities: list[str] = Field(default_factory=list)
+    activities: list[str] = Field(default_factory=list)
+    styles: list[str] = Field(default_factory=list)
+    special_requirements: list[str] = Field(default_factory=list)
     additional_notes: str = ""
     search_brief: str = ""
+
+
+class PlanRequest(BaseModel):
+    user_input: str = Field(min_length=2, max_length=1000)
+    user_key: str = Field(default="demo-user", min_length=1, max_length=120)
+    audience: Audience | None = None
+    requirements: RequirementSummary | None = None
 
 
 class ClarificationRequest(BaseModel):
@@ -74,10 +89,11 @@ class RefineRequest(PlanRequest):
 
 class SearchRequest(BaseModel):
     queries: list[QueryDraft]
-    top_k: int = Field(default=25, ge=1, le=30)
+    top_k: int = Field(default=10, ge=1, le=30)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_input: str = Field(default="", max_length=1200)
     audience: Audience | None = None
+    requirements: RequirementSummary | None = None
     shortlist_count: int = Field(default=15, ge=5, le=30)
     final_count: int = Field(default=5, ge=1, le=10)
     use_aesthetic_review: bool = True
@@ -130,6 +146,7 @@ class AestheticReview(BaseModel):
     overall_aesthetic: int = Field(ge=0, le=100)
     fatal_issues: list[str] = Field(default_factory=list)
     reason: str
+    knowledge_observation_ids: list[str] = Field(default_factory=list)
 
 
 class OutfitRecommendation(BaseModel):
@@ -200,9 +217,13 @@ class HardRulesUpdate(HardRules):
 
 class StylePreferenceBase(BaseModel):
     preference_text: str = Field(min_length=1, max_length=500)
-    context_occasions: list[str] = Field(default_factory=list)
-    context_times: list[str] = Field(default_factory=list)
-    context_situations: list[str] = Field(default_factory=list)
+    occasions: list[str] = Field(default_factory=list)
+    seasons: list[str] = Field(default_factory=list)
+    times_of_day: list[str] = Field(default_factory=list)
+    climates: list[str] = Field(default_factory=list)
+    formalities: list[str] = Field(default_factory=list)
+    activities: list[str] = Field(default_factory=list)
+    styles: list[str] = Field(default_factory=list)
 
 
 class StylePreferenceCreate(StylePreferenceBase):
@@ -234,9 +255,7 @@ class StylePreferenceProposalRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_request: str = Field(min_length=2, max_length=1200)
     outfit_item_ids: list[list[int]] = Field(min_length=1)
-    occasion: str = Field(default="", max_length=300)
-    time: str = Field(default="", max_length=300)
-    context: str = Field(default="", max_length=500)
+    requirements: RequirementSummary | None = None
 
 
 class StylePreferenceProposal(BaseModel):
@@ -291,6 +310,7 @@ class CatalogSemanticSearchRequest(BaseModel):
     limit: int = Field(default=60, ge=1, le=100)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     audience: Audience | None = None
+    requirements: RequirementSummary | None = None
 
 
 class CatalogSemanticSearchResponse(BaseModel):

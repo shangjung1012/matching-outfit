@@ -92,9 +92,13 @@ class UserStylePreference(Base):
     preference_text: Mapped[str] = mapped_column(String(500))
     source: Mapped[str] = mapped_column(String(16), default="explicit")
     origin_item_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
-    context_occasions: Mapped[list[str]] = mapped_column(JSON, default=list)
-    context_times: Mapped[list[str]] = mapped_column(JSON, default=list)
-    context_situations: Mapped[list[str]] = mapped_column(JSON, default=list)
+    occasions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    seasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    times_of_day: Mapped[list[str]] = mapped_column(JSON, default=list)
+    climates: Mapped[list[str]] = mapped_column(JSON, default=list)
+    formalities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    activities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    styles: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     # --- lifecycle (user-managed pruning replaces time-decay) ---
     is_active: Mapped[bool] = mapped_column(default=True)

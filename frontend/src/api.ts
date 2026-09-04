@@ -43,11 +43,17 @@ function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Requ
   }
 }
 
-export function createQueryPlan(userInput: string, userKey: string, audience?: Audience) {
+export function createQueryPlan(
+  userInput: string,
+  userKey: string,
+  requirements: RequirementSummary | null,
+  audience?: Audience,
+) {
   return request<QueryPlanResponse>('/api/query-plans', json('POST', {
     user_input: userInput,
     user_key: userKey,
     audience: audience || null,
+    requirements,
   }))
 }
 
@@ -68,6 +74,7 @@ export function refineQueryPlan(
   userKey: string,
   existingQueries: QueryDraft[],
   originalInput: string,
+  requirements: RequirementSummary | null,
   audience?: Audience,
 ) {
   return request<QueryPlanResponse>('/api/query-plans/refine', json('POST', {
@@ -76,6 +83,7 @@ export function refineQueryPlan(
     existing_queries: existingQueries,
     original_input: originalInput,
     audience: audience || null,
+    requirements,
   }))
 }
 
@@ -83,14 +91,16 @@ export function getRecommendations(
   queries: QueryDraft[],
   userKey: string,
   userInput: string,
+  requirements: RequirementSummary | null,
   audience?: Audience,
 ) {
   return request<RecommendationResponse>('/api/recommendations', json('POST', {
     queries,
-    top_k: 25,
+    top_k: 10,
     user_key: userKey,
     user_input: userInput,
     audience: audience || null,
+    requirements,
     shortlist_count: 15,
     final_count: 5,
     use_aesthetic_review: true,
@@ -111,9 +121,7 @@ export function proposeSoftFromOutfit(
     user_key: userKey,
     user_request: userRequest,
     outfit_item_ids: outfitItemIds,
-    occasion: requirements?.occasion ?? '',
-    time: requirements?.time ?? '',
-    context: requirements?.context ?? '',
+    requirements,
   }))
 }
 

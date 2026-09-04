@@ -108,6 +108,7 @@ export interface OutfitRecommendation {
     overall_aesthetic: number
     fatal_issues: string[]
     reason: string
+    knowledge_observation_ids: string[]
   } | null
 }
 
@@ -120,10 +121,14 @@ export interface QueryPlanResponse {
 }
 
 export interface RequirementSummary {
-  occasion: string
-  time: string
-  context: string
-  special_requirements: string
+  occasions: string[]
+  seasons: string[]
+  times_of_day: string[]
+  climates: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
+  special_requirements: string[]
   additional_notes: string
   search_brief: string
 }
@@ -166,9 +171,13 @@ export interface StylePreferenceCreate {
   preference_text: string
   source: PreferenceSource
   origin_item_ids: string[]
-  context_occasions: string[]
-  context_times: string[]
-  context_situations: string[]
+  occasions: string[]
+  seasons: string[]
+  times_of_day: string[]
+  climates: string[]
+  formalities: string[]
+  activities: string[]
+  styles: string[]
 }
 
 export interface StylePreference extends StylePreferenceCreate {

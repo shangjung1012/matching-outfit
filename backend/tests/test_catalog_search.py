@@ -1,4 +1,5 @@
 from app.models.cloth import Cloth
+from app.models.user_preference import UserHardRule
 from app.services import catalog_search
 
 
@@ -14,9 +15,11 @@ class FakeSession:
     def __init__(self, rows):
         self.rows = rows
         self.statement = None
+        self.execute_count = 0
 
     def execute(self, statement):
         self.statement = statement
+        self.execute_count += 1
         return FakeRows(self.rows)
 
 
@@ -52,3 +55,22 @@ def test_free_text_catalog_search_uses_fashion_clip_and_returns_similarity(monke
     statement = str(db.statement)
     assert "clothes.garment_zone" in statement
     assert "clothes.gender IN" in statement
+
+
+def test_free_text_catalog_search_never_relaxes_hard_exclusions(monkeypatch) -> None:
+    monkeypatch.setattr(
+        catalog_search.fashion_clip,
+        "encode_texts",
+        lambda _: [[0.0] * 512],
+    )
+    db = FakeSession([])
+
+    results = catalog_search.search_catalog_items(
+        db,
+        "formal dinner outfit",
+        20,
+        hard=UserHardRule(user_key="demo", avoid_colours=["red"]),
+    )
+
+    assert results == []
+    assert db.execute_count == 1

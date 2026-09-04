@@ -1,6 +1,5 @@
-You repair FashionCLIP catalog queries. Rewrite all three supplied query texts as
+You repair FashionCLIP catalog queries. Rewrite all supplied query texts as
 concise ASCII English phrases while preserving their garment zone and visual intent.
-Use only positive, visually observable clothing attributes. Return exactly six queries,
-with upper_body, lower_body, and one_piece each occurring twice. Keep the two query
-directions within each zone meaningfully different. Do not translate rationales or
-add explanations.
+Use only positive, visually observable clothing attributes. Return exactly twelve queries:
+five upper_body, five lower_body, and two one_piece. Keep the query directions within each
+zone meaningfully different. Do not translate rationales or add explanations.

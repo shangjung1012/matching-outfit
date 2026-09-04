@@ -39,6 +39,9 @@ def observation_embedding_text(observation: OutfitObservation, audiences: list[s
         ("occasions", observation.occasions),
         ("climates", observation.climates),
         ("seasons", observation.seasons),
+        ("times of day", observation.times_of_day),
+        ("formalities", observation.formalities),
+        ("activities", observation.activities),
         ("styles", observation.styles),
         ("garments", observation.garments),
         ("colors", observation.colors),
@@ -104,6 +107,9 @@ def import_knowledge_records(
             row.occasions = observation.occasions
             row.climates = observation.climates
             row.seasons = observation.seasons
+            row.times_of_day = observation.times_of_day
+            row.formalities = observation.formalities
+            row.activities = observation.activities
             row.styles = observation.styles
             row.garments = observation.garments
             row.colors = observation.colors

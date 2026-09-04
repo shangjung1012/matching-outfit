@@ -8,13 +8,13 @@ from pathlib import Path
 from pydantic import Field
 
 from app.models.user_preference import UserHardRule, UserStylePreference
-from app.schemas.fashion_knowledge import OutfitObservation, StrictModel
+from app.schemas.fashion_knowledge import StrictModel
 from app.schemas.workflow import (
     ChatTurn,
     ClarificationResponse,
     PlanResponse,
     QueryDraft,
-    ReferenceLink,
+    RequirementField,
     RequirementSummary,
 )
 from app.services.integration_tools.llm import LLM
@@ -28,15 +28,22 @@ REQUIREMENT_COLLECTOR_PROMPT = (PROMPTS_DIR / "RequirementCollector.txt").read_t
     encoding="utf-8"
 ).strip()
 QUERY_ZONES = ("upper_body", "lower_body", "one_piece")
+QUERY_COUNTS = {"upper_body": 5, "lower_body": 5, "one_piece": 2}
 
 FALLBACK_QUERIES = {
     "upper_body": (
         "visually coherent versatile relaxed upper-body top",
         "visually coherent versatile structured upper-body top",
+        "visually coherent lightweight layered upper-body top",
+        "visually coherent clean minimal upper-body top",
+        "visually coherent soft draped upper-body top",
     ),
     "lower_body": (
         "visually coherent versatile relaxed lower-body trousers or skirt",
         "visually coherent versatile tailored lower-body trousers or skirt",
+        "visually coherent lightweight flowing lower-body trousers or skirt",
+        "visually coherent clean minimal lower-body trousers or skirt",
+        "visually coherent structured lower-body trousers or skirt",
     ),
     "one_piece": (
         "visually coherent versatile relaxed one-piece dress or jumpsuit",
@@ -66,31 +73,29 @@ class PlannedCatalogQuery(StrictModel):
     garment_zone: Literal["upper_body", "lower_body", "one_piece"]
     text: str = Field(min_length=3, max_length=240)
     rationale: str = Field(min_length=2, max_length=300)
-    cited_observation_ids: list[str] = Field(default_factory=list)
 
 
 class KnowledgeQueryDraft(StrictModel):
     context_restrictiveness: Literal["low", "medium", "high"]
     hard_constraints: list[str] = Field(default_factory=list)
     aesthetic_direction: list[str] = Field(default_factory=list)
-    queries: list[PlannedCatalogQuery] = Field(min_length=6, max_length=6)
-    cited_observation_ids: list[str] = Field(default_factory=list)
+    queries: list[PlannedCatalogQuery] = Field(min_length=12, max_length=12)
     planning_note: str
 
 
 class RequirementAssessment(StrictModel):
     reply: str
-    occasion: str = ""
-    time: str = ""
-    context: str = ""
-    special_requirements: str = ""
+    occasions: list[str] = Field(default_factory=list)
+    seasons: list[str] = Field(default_factory=list)
+    times_of_day: list[str] = Field(default_factory=list)
+    climates: list[str] = Field(default_factory=list)
+    formalities: list[str] = Field(default_factory=list)
+    activities: list[str] = Field(default_factory=list)
+    styles: list[str] = Field(default_factory=list)
+    special_requirements: list[str] = Field(default_factory=list)
     additional_notes: str = ""
     search_brief: str
-    missing_fields: list[
-        Literal[
-            "occasion", "time", "context", "special_requirements", "additional_notes"
-        ]
-    ] = Field(default_factory=list)
+    missing_fields: list[RequirementField] = Field(default_factory=list)
     ready_to_plan: bool = False
 
 
@@ -103,13 +108,10 @@ class RequirementCollector:
         messages: list[ChatTurn],
         *,
         audience: str | None = None,
-        hard: UserHardRule | None = None,
-        style_preferences: list[UserStylePreference] | None = None,
     ) -> ClarificationResponse:
         payload = {
             "conversation": [message.model_dump(mode="json") for message in messages],
             "audience": audience,
-            "user_preferences": build_planner_preference_context(hard, style_preferences),
         }
         result = self.llm.parse(
             stage="requirement_clarification",
@@ -120,9 +122,13 @@ class RequirementCollector:
         return ClarificationResponse(
             reply=result.reply,
             requirements=RequirementSummary(
-                occasion=result.occasion,
-                time=result.time,
-                context=result.context,
+                occasions=result.occasions,
+                seasons=result.seasons,
+                times_of_day=result.times_of_day,
+                climates=result.climates,
+                formalities=result.formalities,
+                activities=result.activities,
+                styles=result.styles,
                 special_requirements=result.special_requirements,
                 additional_notes=result.additional_notes,
                 search_brief=result.search_brief,
@@ -138,7 +144,7 @@ class RepairedCatalogQuery(StrictModel):
 
 
 class EnglishQueryRepair(StrictModel):
-    queries: list[RepairedCatalogQuery] = Field(min_length=6, max_length=6)
+    queries: list[RepairedCatalogQuery] = Field(min_length=12, max_length=12)
 
 
 @dataclass(frozen=True)
@@ -228,7 +234,7 @@ class QueryOutputNormalizer:
         cleaned = re.sub(r"\b(?:denim|jeans?)\b", " ", value, flags=re.IGNORECASE)
         return re.sub(r"\s+", " ", cleaned).strip(" ,;:-")
 
-    # Check if exactly two candidate directions are present in each garment zone, raising an error if not.
+    # Check that every garment zone has the required number of candidate directions.
     # Return a dict of the queries by zone if valid, or an empty dict if invalid.
     @staticmethod
     def validate_distribution(
@@ -238,15 +244,18 @@ class QueryOutputNormalizer:
         for query in queries:
             by_zone[query.garment_zone].append(query)
         counts = {zone: len(items) for zone, items in by_zone.items()}
-        if any(count != 2 for count in counts.values()):
+        if any(counts[zone] != QUERY_COUNTS[zone] for zone in QUERY_ZONES):
             summary = ", ".join(f"{zone}={count}" for zone, count in counts.items())
-            raise RuntimeError(f"Query planner must return two queries per zone; {summary}")
+            raise RuntimeError(
+                "Query planner must return upper_body=5, lower_body=5, "
+                f"one_piece=2; {summary}"
+            )
         return by_zone
 
     def _repair_invalid_queries(
         self, result: KnowledgeQueryDraft
     ) -> dict[str, list[RepairedCatalogQuery]]:
-        """Ask the repair stage for six English replacements, or preserve original output."""
+        """Ask the repair stage for 12 English replacements, or preserve original output."""
         repair_payload = {
             "context_restrictiveness": result.context_restrictiveness,
             "hard_constraints": result.hard_constraints,
@@ -314,7 +323,7 @@ class QueryOutputNormalizer:
 class QueryPlanner:
     """Build an LLM query plan, then delegate output safety to QueryOutputNormalizer."""
 
-    name = "knowledge-agent-v1"
+    name = "catalog-query-agent-v2"
 
     def __init__(self, llm: LLM):
         self.llm = llm
@@ -323,8 +332,8 @@ class QueryPlanner:
     def plan(
         self,
         user_input: str,
-        observations: list[OutfitObservation],
         *,
+        requirements: RequirementSummary | None = None,
         audience: str | None = None,
         hard: UserHardRule | None = None,
         style_preferences: list[UserStylePreference] | None = None,
@@ -337,18 +346,18 @@ class QueryPlanner:
         # build payload for LLM
         payload = {
             "user_request": user_input,
+            "outfit_context": (
+                requirements.model_dump(mode="json") if requirements else None
+            ),
             "audience": audience,
             "refinement": refinement,
             "existing_queries": [
                 query.model_dump(mode="json") for query in existing_queries or []
             ],
             "user_preferences": preference_payload,
-            "retrieved_observations": [
-                observation.model_dump(mode="json") for observation in observations
-            ],
         }
 
-        # Call the LLM to generate 6 queries
+        # Call the LLM to generate 12 catalog-retrieval queries.
         result = self.llm.parse(
             stage="query_planning",
             instructions=QUERY_PLANNER_SYSTEM_PROMPT,
@@ -367,57 +376,6 @@ class QueryPlanner:
             style_preferences,
         )
 
-        observations_by_id = {
-            observation.observation_id: observation for observation in observations
-        }
-
-        def query_citations(
-            query: PlannedCatalogQuery,
-        ) -> tuple[list[str], list[ReferenceLink]]:
-            identifiers = list(
-                dict.fromkeys(
-                    identifier
-                    for identifier in query.cited_observation_ids
-                    if identifier in observations_by_id
-                )
-            )
-            references_by_url: dict[str, ReferenceLink] = {}
-            for identifier in identifiers:
-                observation = observations_by_id[identifier]
-                if not observation.source_url:
-                    continue
-                references_by_url.setdefault(
-                    observation.source_url,
-                    ReferenceLink(
-                        title=(
-                            observation.source_title
-                            or observation.source_name
-                            or observation.source_url
-                        ),
-                        url=observation.source_url,
-                    ),
-                )
-            return identifiers, list(references_by_url.values())
-
-        query_citation_map = {
-            (zone, index): query_citations(by_zone[zone][index])
-            for zone in QUERY_ZONES
-            for index in range(2)
-        }
-        cited_ids = list(
-            dict.fromkeys(
-                [
-                    identifier
-                    for identifier in result.cited_observation_ids
-                    if identifier in observations_by_id
-                ]
-                + [
-                    identifier
-                    for identifiers, _ in query_citation_map.values()
-                    for identifier in identifiers
-                ]
-            )
-        )
         return PlanResponse(
             original_input=user_input,
             queries=[
@@ -426,15 +384,13 @@ class QueryPlanner:
                     text=normalized_queries.by_zone[zone][index],
                     garment_zone=zone,
                     rationale=by_zone[zone][index].rationale,
-                    knowledge_observation_ids=query_citation_map[(zone, index)][0],
-                    references=query_citation_map[(zone, index)][1],
                 )
                 for zone in QUERY_ZONES
-                for index in range(2)
+                for index in range(QUERY_COUNTS[zone])
             ],
             planner=self.name,
             audience=audience,
-            knowledge_observation_ids=cited_ids,
+            knowledge_observation_ids=[],
             planning_note=(
                 f"{result.planning_note} FashionCLIP 搜尋句已自動正規化為英文。"
                 if normalized_queries.repair_attempted

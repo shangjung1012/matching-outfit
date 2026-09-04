@@ -58,11 +58,21 @@ const composerPlaceholder = computed(() => {
 })
 
 const requirementLabels: Record<keyof Omit<RequirementSummary, 'search_brief'>, string> = {
-  occasion: '場合',
-  time: '時間／季節',
-  context: '情境',
+  occasions: '場合',
+  seasons: '季節',
+  times_of_day: '時段',
+  climates: '氣候與環境',
+  formalities: '正式程度',
+  activities: '活動',
+  styles: '風格',
   special_requirements: '特殊要求',
   additional_notes: '其他補充',
+}
+
+function requirementValue(field: keyof Omit<RequirementSummary, 'search_brief'>): string {
+  const value = requirements.value?.[field]
+  if (Array.isArray(value)) return value.length ? value.join('、') : '尚未提供'
+  return value?.trim() || '尚未提供'
 }
 
 const quickPrompts = [
@@ -118,12 +128,13 @@ async function refine(text: string) {
       props.userKey,
       queries.value,
       previousRequest,
+      requirements.value,
       audience.value || undefined,
     )
     queries.value = response.queries
     audience.value = response.audience ?? audience.value
     originalRequest.value = `${previousRequest} ${text}`.trim()
-    addMessage('agent', `已依照補充條件與 ${response.knowledge_observation_ids.length} 條搭配知識重新規劃。`)
+    addMessage('agent', `已依照補充條件重新規劃 ${response.queries.length} 個搜尋條件。`)
   })
 }
 
@@ -136,14 +147,19 @@ async function confirmRequirements() {
   const brief = requirements.value?.search_brief.trim() || fallback
   originalRequest.value = brief
   await run(async () => {
-    const response = await createQueryPlan(brief, props.userKey, audience.value || undefined)
+    const response = await createQueryPlan(
+      brief,
+      props.userKey,
+      requirements.value,
+      audience.value || undefined,
+    )
     queries.value = response.queries
     audience.value = response.audience ?? audience.value
     recommendations.value = []
     stage.value = 'review'
     addMessage(
       'agent',
-      `需求已確認。已參考 ${response.knowledge_observation_ids.length} 條搭配知識並產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+      `需求已確認，已產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
     )
   })
 }
@@ -172,6 +188,7 @@ async function searchOutfits() {
       queries.value,
       props.userKey,
       originalRequest.value,
+      requirements.value,
       audience.value || undefined,
     )
     recommendations.value = response.recommendations
@@ -313,7 +330,7 @@ async function confirmProposal() {
             :class="{ missing: missingFields.includes(field) }"
           >
             <dt>{{ label }}</dt>
-            <dd>{{ requirements?.[field] || '尚未提供' }}</dd>
+            <dd>{{ requirementValue(field) }}</dd>
           </div>
         </dl>
         <button class="primary-button requirement-confirm" :disabled="loading" @click="confirmRequirements">
