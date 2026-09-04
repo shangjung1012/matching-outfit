@@ -34,7 +34,12 @@ from app.schemas.workflow import (
     StylePreferenceView,
     StylingGuide,
 )
-from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobStatus, TryOnJobView
+from app.schemas.try_on import (
+    TryOnCapabilities,
+    TryOnJobStatus,
+    TryOnJobView,
+    TryOnReferenceType,
+)
 from app.schemas.fashion_knowledge import FashionKnowledgeStatus
 
 __all__ = [
@@ -73,7 +78,7 @@ __all__ = [
     "StylePreferenceView",
     "StylingGuide",
     "TryOnCapabilities",
-    "TryOnClothType",
+    "TryOnReferenceType",
     "TryOnJobStatus",
     "TryOnJobView",
     "FashionKnowledgeStatus",

@@ -1,6 +1,6 @@
 # Matching Outfit
 
-Matching Outfit is an outfit recommendation and virtual try-on prototype. It combines a clothing catalog, user taste preferences, fashion-article knowledge, FashionCLIP similarity search, and an optional CatVTON service to recommend coordinated outfits from local catalog images.
+Matching Outfit is an outfit recommendation and virtual try-on prototype. It combines a clothing catalog, user taste preferences, fashion-article knowledge, FashionCLIP similarity search, and an optional external TryOn service to recommend coordinated outfits from local catalog images.
 
 ## What Goes In
 
@@ -41,7 +41,7 @@ PostgreSQL + pgvector
 Optional external services:
   - OpenAI API: query planning, article extraction, aesthetic review, text embeddings
   - FashionCLIP model: image/text embedding search for catalog items
-  - CatVTON API: virtual try-on jobs
+  - TryOn API: GPU-backed virtual try-on jobs
 ```
 
 ### Frontend
@@ -60,7 +60,7 @@ The backend is a FastAPI app. It owns:
 
 - API routes for catalog listing, query planning, semantic search, recommendations, preferences, article knowledge status, and virtual try-on.
 - SQLAlchemy models and Alembic migrations.
-- Integration logic for FashionCLIP, OpenAI-backed LLM calls, text embeddings, and CatVTON.
+- Integration logic for FashionCLIP, OpenAI-backed LLM calls, text embeddings, and the TryOn API.
 
 Default API docs:
 
@@ -80,7 +80,7 @@ Main tables:
 - `fashion_articles`: article metadata and extracted summary.
 - `fashion_observations`: reusable outfit observations extracted from articles, with tags and text embeddings.
 - `fashion_rules`: curated styling rules with conditions, recommendation text, source, weight, and active flag.
-- `try_on_jobs`: local record of CatVTON virtual try-on job status.
+- `try_on_jobs`: local record of remote virtual try-on job status and selected reference types.
 - `alembic_version`: migration bookkeeping.
 
 ## Recommendation Flow
@@ -177,12 +177,12 @@ docker compose exec backend python -m scripts.build_embeddings --limit 100
 
 ## Run Locally
 
-Create `.env` in the project root when using OpenAI or CatVTON integrations:
+Copy `.env.example` to `.env` in the project root and add credentials for the integrations you use:
 
 ```text
 OPENAI_API_KEY=...
-CATVTON_API_URL=...
-CATVTON_API_KEY=...
+TRYON_API_URL=https://tryon.example.com
+TRYON_API_KEY=...
 ```
 
 Start the app stack:
@@ -211,18 +211,49 @@ Use `docker compose down -v` only when you intentionally want to delete the Post
 
 ## Virtual Try-On
 
-Virtual try-on uses an external CatVTON API. The backend stores local job metadata in `try_on_jobs`, forwards person and clothing images to CatVTON, polls job status, and proxies the final result image when available.
+Virtual try-on uses the separate GPU service in `tryon/`. The root Compose stack intentionally does not build or launch it: deploy the service on an NVIDIA Linux host, then point the backend at its authenticated URL. The backend stores local job metadata in `try_on_jobs`, submits the images, polls the remote job, and proxies the result when it is ready.
 
-Relevant settings:
+Each job requires one person image and at least one of these five independent reference slots:
 
 ```text
-CATVTON_API_URL
-CATVTON_API_KEY
+upper, lower, overall, shoe, bag
 ```
+
+Several references can be submitted together. `overall` cannot be combined with `upper` or `lower`; shoe and bag references remain compatible with either clothing arrangement. The frontend enforces these combinations, and both the backend and GPU service validate them again. JPEG, PNG, and WebP uploads are accepted up to 10 MiB and 20 megapixels per image.
+
+### Deploy the GPU service
+
+The service requires an NVIDIA CUDA GPU, a compatible driver, Docker Compose, and NVIDIA Container Toolkit/CDI support. On the GPU host:
+
+```bash
+cd tryon
+cp .env.example .env
+# Set the API key, MinIO credentials, and Cloudflare Tunnel token.
+docker compose --profile tunnel up --build -d
+docker compose logs -f tryon cloudflared
+```
+
+The TryOn API and MinIO object store are private to their Compose network;
+neither publishes a host port, including the MinIO console. In the Cloudflare
+Tunnel configuration, route the published hostname to the fixed origin
+`http://tryon:9001`. Set the root
+`TRYON_API_URL` to that hostname's HTTPS endpoint, and set root
+`TRYON_API_KEY` to the exact same secret as `TRYON_API_KEY` in `tryon/.env`.
+Leave both root values empty when the GPU service is unavailable; the rest of
+Matching Outfit continues to run and the try-on screen reports the service as
+unavailable.
+
+The first API startup downloads `zhengchong/FastFit-MR-1024` plus the DWPose, DensePose, and SCHP trees from `zhengchong/Human-Toolkit`. They are cached in the `tryon_hf_cache` Docker volume, so later container starts reuse them. Job manifests and results use the `tryon_minio_data` volume. Input deletion is attempted after every inference; transient failures retain their object keys and are retried by the periodic cleanup worker. Job results and any remaining job objects expire after 24 hours. Ordinary `docker compose down` preserves both volumes; do not add `-v` unless you intentionally want to erase the model cache and stored jobs.
+
+Inference uses a 768 x 1024 person canvas, five 384 x 512 reference slots in canonical order, 30 denoising steps, guidance scale 2.5, and seed 42. TF32 is enabled and mixed precision is fixed to `bf16` for the target GPU host.
+
+### Usage restriction
+
+The vendored FastFit model and inference materials are licensed only for non-commercial, non-production use. This prototype must remain developer-operated and must not be exposed as a production or customer-facing service. A developer must manually review every generated image for unlawful or infringing content before any display, transmission, or distribution. Read `tryon/LICENSE`, `tryon/NOTICE`, and `tryon/UPSTREAM.md` before deploying or distributing the service.
 
 ## Development Notes
 
 - `requirements.txt` contains runtime dependencies.
 - `requirements-dev.txt` contains development and test dependencies.
-- Tests live under `backend/tests/` and `catvton/tests/`; they are useful for development but are not required just to run the app.
+- Tests live under `backend/tests/` and `tryon/tests/`; they are useful for development but are not required just to run the app.
 - Alembic migrations run automatically when the backend container starts.

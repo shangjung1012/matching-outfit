@@ -19,8 +19,8 @@ services:
       KNOWLEDGE_EMBEDDING_MODEL: ${KNOWLEDGE_EMBEDDING_MODEL:-text-embedding-3-small}
       KNOWLEDGE_EMBEDDING_DIMENSIONS: ${KNOWLEDGE_EMBEDDING_DIMENSIONS:-512}
       HF_HOME: /models/huggingface
-      CATVTON_API_URL: ${CATVTON_API_URL:-}
-      CATVTON_API_KEY: ${CATVTON_API_KEY:-}
+      TRYON_API_URL: ${TRYON_API_URL:-}
+      TRYON_API_KEY: ${TRYON_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

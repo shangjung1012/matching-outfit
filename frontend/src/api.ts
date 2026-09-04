@@ -11,8 +11,8 @@ import type {
   StylePreferenceCreate,
   StylePreferenceProposal,
   TryOnCapabilities,
-  TryOnClothType,
   TryOnJob,
+  TryOnReferenceType,
   QueryPlanResponse,
   RecommendationResponse,
   FashionArticleAdmin,
@@ -196,14 +196,15 @@ export function getTryOnCapabilities() {
 
 export function createTryOnJob(
   personImage: File,
-  clothImage: File,
-  clothType: TryOnClothType,
+  references: Partial<Record<TryOnReferenceType, File>>,
   userKey: string,
 ) {
   const form = new FormData()
   form.append('person_image', personImage)
-  form.append('cloth_image', clothImage)
-  form.append('cloth_type', clothType)
+  for (const referenceType of ['upper', 'lower', 'overall', 'shoe', 'bag'] as const) {
+    const file = references[referenceType]
+    if (file) form.append(`${referenceType}_image`, file)
+  }
   form.append('user_key', userKey)
   return request<TryOnJob>('/api/try-on/jobs', { method: 'POST', body: form })
 }
