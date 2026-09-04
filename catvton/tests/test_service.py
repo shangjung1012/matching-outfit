@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import timedelta
 from io import BytesIO
 import time
@@ -6,7 +8,7 @@ import uuid
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from service import JobManifest, create_app, utcnow
+from service import CatVTONEngine, JobManifest, create_app, utcnow
 
 
 def png_bytes(color: str = "white") -> bytes:
@@ -61,6 +63,48 @@ class FakeEngine:
 class FailingEngine(FakeEngine):
     def run(self, _person: Image.Image, _cloth: Image.Image, _cloth_type: str) -> bytes:
         raise RuntimeError("GPU unavailable")
+
+
+class FakeGenerator:
+    def manual_seed(self, _seed: int) -> "FakeGenerator":
+        return self
+
+
+class FakeTorch:
+    def Generator(self, device: str) -> FakeGenerator:
+        assert device == "cuda"
+        return FakeGenerator()
+
+
+class FakeAutoMasker:
+    def __call__(self, person: Image.Image, _cloth_type: str) -> dict[str, Image.Image]:
+        return {"mask": Image.new("L", person.size, 255)}
+
+
+class FakeMaskProcessor:
+    def blur(self, mask: Image.Image, blur_factor: int) -> Image.Image:
+        assert blur_factor == 9
+        return mask
+
+
+class RecordingPipeline:
+    def __init__(self) -> None:
+        self.call: dict[str, tuple[int, int]] = {}
+
+    def __call__(
+        self,
+        image: Image.Image,
+        condition_image: Image.Image,
+        mask: Image.Image,
+        **kwargs,
+    ) -> list[Image.Image]:
+        self.call = {
+            "image": image.size,
+            "condition_image": condition_image.size,
+            "mask": mask.size,
+            "requested": (kwargs["width"], kwargs["height"]),
+        }
+        return [Image.new("RGB", (768, 1024), "green")]
 
 
 def wait_for_status(client: TestClient, job_id: str, status: str) -> dict:
@@ -145,6 +189,30 @@ def test_startup_recovers_running_job(monkeypatch) -> None:
         recovered = wait_for_status(client, str(job_id), "succeeded")
 
     assert recovered["status"] == "succeeded"
+
+
+def test_catvton_engine_returns_result_at_original_person_size() -> None:
+    pipeline = RecordingPipeline()
+    engine = object.__new__(CatVTONEngine)
+    engine.pipeline = pipeline
+    engine.automasker = FakeAutoMasker()
+    engine.mask_processor = FakeMaskProcessor()
+    engine.torch = FakeTorch()
+
+    result_content = engine.run(
+        Image.new("RGB", (640, 960), "white"),
+        Image.new("RGB", (320, 480), "beige"),
+        "upper",
+    )
+
+    with Image.open(BytesIO(result_content)) as result:
+        assert result.size == (640, 960)
+    assert pipeline.call == {
+        "image": (768, 1024),
+        "condition_image": (768, 1024),
+        "mask": (768, 1024),
+        "requested": (768, 1024),
+    }
 
 
 def test_startup_removes_expired_job(monkeypatch) -> None:

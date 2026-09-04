@@ -187,6 +187,7 @@ class CatVTONEngine:
     def run(self, person: Image.Image, cloth: Image.Image, cloth_type: str) -> bytes:
         from utils import resize_and_crop, resize_and_padding
 
+        original_size = person.size
         width, height = 768, 1024
         person = resize_and_crop(person.convert("RGB"), (width, height))
         cloth = resize_and_padding(cloth.convert("RGB"), (width, height))
@@ -204,6 +205,8 @@ class CatVTONEngine:
             width=width,
             height=height,
         )[0]
+        if result.size != original_size:
+            result = result.resize(original_size, Image.Resampling.LANCZOS)
         output = BytesIO()
         result.save(output, format="PNG")
         return output.getvalue()
