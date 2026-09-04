@@ -2,7 +2,9 @@ from app.schemas.workflow import (
     CatalogItem,
     CatalogResponse,
     ClothResult,
+    AestheticReview,
     OutfitRecommendation,
+    OutfitScoreBreakdown,
     PlanRequest,
     PlanResponse,
     PreferenceConfirmation,
@@ -19,12 +21,21 @@ from app.schemas.workflow import (
     UserPreferenceView,
 )
 from app.schemas.try_on import TryOnCapabilities, TryOnClothType, TryOnJobStatus, TryOnJobView
+from app.schemas.styling import (
+    FashionKnowledgeStatus,
+    StylingCatalogRequest,
+    StylingCatalogResponse,
+    StylingDemoRequest,
+    StylingDemoResponse,
+)
 
 __all__ = [
     "CatalogItem",
     "CatalogResponse",
     "ClothResult",
+    "AestheticReview",
     "OutfitRecommendation",
+    "OutfitScoreBreakdown",
     "PlanRequest",
     "PlanResponse",
     "PreferenceConfirmation",
@@ -43,4 +54,9 @@ __all__ = [
     "TryOnClothType",
     "TryOnJobStatus",
     "TryOnJobView",
+    "FashionKnowledgeStatus",
+    "StylingCatalogRequest",
+    "StylingCatalogResponse",
+    "StylingDemoRequest",
+    "StylingDemoResponse",
 ]

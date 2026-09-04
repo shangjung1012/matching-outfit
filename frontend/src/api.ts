@@ -1,11 +1,13 @@
 import type {
+  Audience,
   CatalogItem,
-  OutfitRecommendation,
   PreferenceProposal,
   QueryDraft,
   TryOnCapabilities,
   TryOnClothType,
   TryOnJob,
+  QueryPlanResponse,
+  RecommendationResponse,
   UserPreference,
 } from './types'
 
@@ -20,26 +22,45 @@ function json(method: 'POST' | 'PUT', body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
-export function createQueryPlan(userInput: string, userKey: string) {
-  return request<{ queries: QueryDraft[] }>('/api/query-plans', json('POST', {
+export function createQueryPlan(userInput: string, userKey: string, audience?: Audience) {
+  return request<QueryPlanResponse>('/api/query-plans', json('POST', {
     user_input: userInput,
     user_key: userKey,
+    audience: audience || null,
   }))
 }
 
-export function refineQueryPlan(userInput: string, userKey: string, existingQueries: QueryDraft[]) {
-  return request<{ queries: QueryDraft[] }>('/api/query-plans/refine', json('POST', {
+export function refineQueryPlan(
+  userInput: string,
+  userKey: string,
+  existingQueries: QueryDraft[],
+  originalInput: string,
+  audience?: Audience,
+) {
+  return request<QueryPlanResponse>('/api/query-plans/refine', json('POST', {
     user_input: userInput,
     user_key: userKey,
     existing_queries: existingQueries,
+    original_input: originalInput,
+    audience: audience || null,
   }))
 }
 
-export function getRecommendations(queries: QueryDraft[], userKey: string) {
-  return request<{ recommendations: OutfitRecommendation[] }>('/api/recommendations', json('POST', {
+export function getRecommendations(
+  queries: QueryDraft[],
+  userKey: string,
+  userInput: string,
+  audience?: Audience,
+) {
+  return request<RecommendationResponse>('/api/recommendations', json('POST', {
     queries,
-    top_k: 6,
+    top_k: 25,
     user_key: userKey,
+    user_input: userInput,
+    audience: audience || null,
+    shortlist_count: 15,
+    final_count: 5,
+    use_aesthetic_review: true,
   }))
 }
 

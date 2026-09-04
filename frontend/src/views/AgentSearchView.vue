@@ -11,7 +11,7 @@ import {
 import OutfitCard from '../components/OutfitCard.vue'
 import PreferenceProposalPanel from '../components/PreferenceProposalPanel.vue'
 import QueryReview from '../components/QueryReview.vue'
-import type { OutfitRecommendation, PreferenceProposal, QueryDraft } from '../types'
+import type { Audience, OutfitRecommendation, PreferenceProposal, QueryDraft } from '../types'
 
 const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{ preferenceUpdated: [] }>()
@@ -35,6 +35,8 @@ const preferenceUpdated = ref(false)
 const loading = ref(false)
 const error = ref('')
 const stage = ref<'start' | 'review' | 'results'>('start')
+const originalRequest = ref('')
+const audience = ref<Audience | ''>('')
 let messageId = 2
 
 const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
@@ -68,35 +70,57 @@ async function sendRequest(text = draft.value) {
   const content = text.trim()
   if (!content || loading.value) return
   draft.value = ''
+  originalRequest.value = content
   addMessage('user', content)
   await run(async () => {
-    const response = await createQueryPlan(content, props.userKey)
+    const response = await createQueryPlan(content, props.userKey, audience.value || undefined)
     queries.value = response.queries
+    audience.value = response.audience ?? audience.value
     recommendations.value = []
     stage.value = 'review'
-    addMessage('agent', `我拆成 ${response.queries.length} 個搜尋條件。確認保留哪些，再開始找衣服。`)
+    addMessage(
+      'agent',
+      `已參考 ${response.knowledge_observation_ids.length} 條搭配知識並產生 ${response.queries.length} 個搜尋條件。${response.planning_note}`,
+    )
   })
 }
 
 async function refine(text: string) {
+  const previousRequest = originalRequest.value
   addMessage('user', text)
   await run(async () => {
-    const response = await refineQueryPlan(text, props.userKey, queries.value)
+    const response = await refineQueryPlan(
+      text,
+      props.userKey,
+      queries.value,
+      previousRequest,
+      audience.value || undefined,
+    )
     queries.value = response.queries
-    addMessage('agent', '已依照你的補充更新搜尋條件。')
+    audience.value = response.audience ?? audience.value
+    originalRequest.value = `${previousRequest} ${text}`.trim()
+    addMessage('agent', `已依照補充條件與 ${response.knowledge_observation_ids.length} 條搭配知識重新規劃。`)
   })
 }
 
 async function searchOutfits() {
   await run(async () => {
-    const response = await getRecommendations(queries.value, props.userKey)
+    const response = await getRecommendations(
+      queries.value,
+      props.userKey,
+      originalRequest.value,
+      audience.value || undefined,
+    )
     recommendations.value = response.recommendations
     likedIds.value = new Set()
     proposal.value = null
     proposalDismissed.value = false
     preferenceUpdated.value = false
     stage.value = 'results'
-    addMessage('agent', `找到 ${response.recommendations.length} 組搭配，已依目前的相似度分數排序。`)
+    addMessage(
+      'agent',
+      `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.aesthetic_reviewed ? '已完成圖片美感審查。' : response.review_note}`,
+    )
   })
 }
 
@@ -165,6 +189,15 @@ async function confirmProposal() {
       </div>
 
       <div class="chat-composer">
+        <div class="audience-control">
+          <label for="outfit-audience">服裝受眾</label>
+          <select id="outfit-audience" v-model="audience">
+            <option value="">依需求判斷</option>
+            <option value="women">女裝</option>
+            <option value="men">男裝</option>
+            <option value="unisex">不限性別</option>
+          </select>
+        </div>
         <textarea v-model="draft" rows="3" placeholder="輸入穿搭需求或補充條件" @keydown.ctrl.enter="sendRequest()" />
         <button class="send-button" title="送出" :disabled="loading || !draft.trim()" @click="sendRequest()">
           <Send :size="18" />

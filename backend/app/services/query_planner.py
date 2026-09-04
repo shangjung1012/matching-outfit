@@ -1,6 +1,7 @@
 import re
 from uuid import uuid4
 
+from app.core.config import settings
 from app.models.user_preference import UserPreference
 from app.schemas import PlanResponse, QueryDraft
 
@@ -64,8 +65,11 @@ class QueryPlanner:
         lower_item = "trousers" if any(term in combined.lower() for term in ("不要裙", "no skirt")) else "trousers or skirt"
         query_specs = [
             ("upper_body", f"{details} upper-body top{suffix}"),
+            ("upper_body", f"{details} alternative upper-body blouse or shirt{suffix}"),
             ("lower_body", f"{details} {lower_item}{suffix}"),
+            ("lower_body", f"{details} alternative relaxed bottoms{suffix}"),
             ("one_piece", f"{details} one-piece dress or jumpsuit{suffix}"),
+            ("one_piece", f"{details} alternative complete dress silhouette{suffix}"),
         ]
         if zones:
             query_specs = [spec for spec in query_specs if spec[0] in zones]
@@ -89,9 +93,9 @@ class QueryPlanner:
     def _budget_text(text: str, preference: UserPreference | None) -> str:
         numbers = [int(value) for value in re.findall(r"\d+", text.replace(",", ""))]
         if numbers:
-            return f"budget under {max(numbers)} TWD"
+            return f"budget under {max(numbers)} {settings.catalog_currency}"
         if preference and preference.preferred_price_max:
-            return f"budget under {preference.preferred_price_max} TWD"
+            return f"budget under {preference.preferred_price_max} {settings.catalog_currency}"
         return ""
 
 
