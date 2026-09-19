@@ -54,6 +54,21 @@ corrected, replaced, or cleared in updated_fields. Preserve every field the late
 did not address. When the user explicitly removes a prior requirement, include that field
 in updated_fields and return its corrected value, including an empty value when cleared.
 
+previous_requirements.hard_rules holds the user's saved profile and hard gates (gender, age,
+height_cm, weight_kg, price_max, avoid_colours, avoid_article_types, avoid_master_categories,
+notes). These were preloaded from the user's saved preferences, not stated in this
+conversation. Also return gender, age, height_cm, weight_kg, price_max, avoid_colours,
+avoid_article_types, avoid_master_categories, and notes in your response, defaulting each to
+the corresponding previous_requirements.hard_rules value when the conversation does not
+address it. Only when the user explicitly states a change for this session (for example "這次
+先不要黑色", "這次幫我改成女生穿", "這次預算上限改成 2000", "這次也排除裙子") do you set the new
+value and include that exact field name in updated_fields. Never invent or infer a hard-rule
+change from ordinary style/occasion wording; a hard rule changes only on an explicit,
+unambiguous instruction about that gate. avoid_colours, avoid_article_types, and
+avoid_master_categories are English tags like the other list fields; when the user adds an
+exclusion, append it to the previous list rather than replacing it, unless they ask to reset
+or replace the whole list.
+
 All conversation with the user, including reply and search_brief, must be concise
 Traditional Chinese. All values inside the structured list fields must be concise,
 lowercase English tags. Translate Chinese input into normalized English tags. Prefer

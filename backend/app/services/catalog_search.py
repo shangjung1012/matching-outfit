@@ -12,10 +12,8 @@ from app.services.query_planner import is_skirt_outfit_request
 
 
 def _price_filters(hard: UserHardRule) -> list:
-    """Structural gates - kept even when a zone has to be relaxed."""
+    """Apply the active per-item maximum price gate."""
     conditions = []
-    if hard.price_min is not None:
-        conditions.append(Cloth.price >= hard.price_min)
     if hard.price_max is not None:
         conditions.append(Cloth.price <= hard.price_max)
     return conditions
@@ -85,7 +83,7 @@ def search_catalog(
         return []
 
     # hard preference:
-    # price_min/max => keep_filters
+    # price_max => keep_filters
     # avoid_{colours, article_types, master_categories} => exclusion filters
     keep_filters = _price_filters(hard) if hard is not None else []
     drop_filters = _exclusion_filters(hard) if hard is not None else []
@@ -108,6 +106,8 @@ def search_catalog(
         elif audience == "women":
             base.append(Cloth.gender.in_(["Women", "Unisex"]))
 
+        # Remove any items that violate hard rules (base on RequirementSummary information)
+        # Then ranking by distance and return top_k results
         def statement_for(extra: list) -> Select:
             return (
                 select(Cloth, distance)

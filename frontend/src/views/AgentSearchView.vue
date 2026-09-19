@@ -98,7 +98,23 @@ let typingTimer: ReturnType<typeof setTimeout> | null = null
 let activeController: AbortController | null = null
 let requestSequence = 0
 
-const selectedCount = computed(() => queries.value.filter((query) => query.selected).length)
+const articleTypeOptions = [
+  ['Tshirts', 'T 恤'], ['Polo shirt', 'Polo 衫'], ['Shirts', '襯衫'], ['Blouse', '女式襯衫'],
+  ['Tops', '上衣'], ['Sweaters', '毛衣'], ['Hoodie', '連帽上衣'], ['Cardigan', '開襟衫'],
+  ['Jackets', '夾克'], ['Blazers', '西裝外套'], ['Coat', '大衣'], ['Trousers', '長褲'],
+  ['Outdoor trousers', '戶外長褲'], ['Shorts', '短褲'], ['Skirts', '裙子'], ['Leggings', '內搭褲'],
+  ['Dresses', '洋裝'], ['Jumpsuit', '連身褲'], ['Dungarees', '吊帶褲'], ['Garment Set', '套裝'],
+  ['Outdoor Waistcoat', '戶外背心'], ['Tailored Waistcoat', '西裝背心'],
+] as const
+
+const selectedCount = computed(() => {
+  const groups = new Map<string, QueryDraft[]>()
+  for (const query of queries.value) {
+    const id = query.direction_id?.trim() || query.id
+    groups.set(id, [...(groups.get(id) ?? []), query])
+  }
+  return Array.from(groups.values()).filter((group) => group.every((query) => query.selected)).length
+})
 const hasUserDetails = computed(() => messages.value.some((message) => message.role === 'user'))
 const agentBusy = computed(() => agentActivity.value !== null)
 const activityLabel = computed(() => (
@@ -142,7 +158,7 @@ function requestedCatalogZones(): PlannerGarmentZone[] | null {
 
 type RequirementDisplayField = Exclude<
   keyof RequirementSummary,
-  'search_brief' | 'tag_translations' | 'defaulted_fields' | 'weather'
+  'search_brief' | 'tag_translations' | 'defaulted_fields' | 'weather' | 'hard_rules'
 >
 
 const requirementLabels: Record<RequirementDisplayField, string> = {
@@ -179,6 +195,30 @@ function requirementValue(field: RequirementDisplayField): string {
       : '尚未提供'
   }
   return typeof value === 'string' && value.trim() ? value.trim() : '尚未提供'
+}
+
+function hardRuleGenderLabel(): string {
+  const labels = {
+    female: '女性',
+    male: '男性',
+    non_binary: '非二元',
+    prefer_not_to_say: '不透露',
+  } as const
+  const gender = requirements.value?.hard_rules?.gender
+  return gender ? labels[gender] : '未設定'
+}
+
+function hardRuleColoursLabel(): string {
+  const colours = requirements.value?.hard_rules?.avoid_colours ?? []
+  return colours.length ? colours.join('、') : '未設定'
+}
+
+function hardRuleArticleTypesLabel(): string {
+  const values = new Set(requirements.value?.hard_rules?.avoid_article_types ?? [])
+  const labels = articleTypeOptions
+    .filter(([value]) => values.has(value))
+    .map(([, label]) => label)
+  return labels.length ? labels.join('、') : '未設定'
 }
 
 function prefersReducedMotion(): boolean {
@@ -548,9 +588,11 @@ async function searchOutfits() {
   )
 }
 
-function setSelected(id: string, selected: boolean) {
-  const query = queries.value.find((item) => item.id === id)
-  if (query) query.selected = selected
+function setSelected(ids: string[], selected: boolean) {
+  const selectedIds = new Set(ids)
+  for (const query of queries.value) {
+    if (selectedIds.has(query.id)) query.selected = selected
+  }
   publishDebug()
 }
 
@@ -811,6 +853,24 @@ onBeforeUnmount(() => {
           </div>
         </header>
         <dl class="requirement-summary">
+          <template v-if="requirements?.hard_rules">
+            <div>
+              <dt>性別（hard rule）</dt>
+              <dd>{{ hardRuleGenderLabel() }}</dd>
+            </div>
+            <div>
+              <dt>避免顏色（hard rule）</dt>
+              <dd>{{ hardRuleColoursLabel() }}</dd>
+            </div>
+            <div>
+              <dt>避免衣服類型（hard rule）</dt>
+              <dd>{{ hardRuleArticleTypesLabel() }}</dd>
+            </div>
+            <div>
+              <dt>單件最高價格（hard rule）</dt>
+              <dd>{{ requirements.hard_rules.price_max === null ? '未設定' : `NT$ ${requirements.hard_rules.price_max.toLocaleString('zh-TW')}` }}</dd>
+            </div>
+          </template>
           <div
             v-for="(label, field) in requirementLabels"
             :key="field"

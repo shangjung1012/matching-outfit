@@ -17,6 +17,7 @@ from app.schemas.workflow import (
     DirectionShoePlan,
     FashionIntent,
     PlanResponse,
+    ProfileGender,
     QueryDraft,
     QueryPlanDebug,
     ReferenceLink,
@@ -87,6 +88,18 @@ REQUIREMENT_VALUE_FIELDS = (
     "styles",
     "special_requirements",
     "additional_notes",
+)
+
+HARD_RULE_VALUE_FIELDS = (
+    "gender",
+    "age",
+    "height_cm",
+    "weight_kg",
+    "price_max",
+    "avoid_colours",
+    "avoid_article_types",
+    "avoid_master_categories",
+    "notes",
 )
 
 FALLBACK_QUERIES = {
@@ -227,6 +240,15 @@ class RequirementAssessment(StrictModel):
     styles: list[str] = Field(default_factory=list)
     special_requirements: list[str] = Field(default_factory=list)
     additional_notes: str = ""
+    gender: ProfileGender | None = None
+    age: int | None = Field(default=None, ge=1, le=120)
+    height_cm: float | None = Field(default=None, ge=50, le=250)
+    weight_kg: float | None = Field(default=None, ge=10, le=400)
+    price_max: int | None = Field(default=None, ge=0)
+    avoid_colours: list[str] = Field(default_factory=list)
+    avoid_article_types: list[str] = Field(default_factory=list)
+    avoid_master_categories: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=2000)
     search_brief: str
     missing_fields: list[RequirementField] = Field(default_factory=list)
     updated_fields: list[RequirementField] = Field(default_factory=list)
@@ -371,8 +393,23 @@ class RequirementCollector:
         if "seasons" in updated_fields and "target_date" in defaults:
             requirement_values["target_date"] = ""
             defaults.discard("target_date")
+        previous_hard_rules = (
+            previous_requirements.hard_rules if previous_requirements is not None else None
+        )
+        hard_rules = previous_hard_rules
+        if previous_hard_rules is not None:
+            hard_rule_values = {
+                field: (
+                    getattr(result, field)
+                    if field in updated_fields
+                    else getattr(previous_hard_rules, field)
+                )
+                for field in HARD_RULE_VALUE_FIELDS
+            }
+            hard_rules = previous_hard_rules.model_copy(update=hard_rule_values)
         summary = with_context_defaults(RequirementSummary(
             **requirement_values,
+            hard_rules=hard_rules,
             search_brief=search_brief,
             tag_translations=translations,
             defaulted_fields=sorted(defaults),

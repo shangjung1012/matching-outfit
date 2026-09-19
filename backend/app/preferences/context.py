@@ -57,7 +57,6 @@ def build_planner_preference_context(
             "avoid_article_types": hard.avoid_article_types or [],
             "avoid_master_categories": hard.avoid_master_categories or [],
             # Per single catalog item, not a total-outfit budget (see outfit_budget_max).
-            "item_price_min": hard.price_min,
             "item_price_max": hard.price_max,
         }
 

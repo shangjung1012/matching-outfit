@@ -64,7 +64,7 @@ from app.schemas import (
     StylePreferenceView,
     FashionKnowledgeStatus,
 )
-from app.schemas.workflow import GarmentZone, RequirementSummary
+from app.schemas.workflow import GarmentZone, RequirementSummary, SessionHardRules
 from app.services.catalog_search import search_catalog, search_catalog_items
 from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
@@ -194,7 +194,6 @@ HARD_RULE_SCALAR_FIELDS = (
     "age",
     "height_cm",
     "weight_kg",
-    "price_min",
     "price_max",
     "notes",
 )
@@ -212,7 +211,10 @@ def hard_rules_payload(preference: UserHardRule | None) -> dict:
             **{field: None for field in HARD_RULE_SCALAR_FIELDS},
             **{field: [] for field in HARD_RULE_LIST_FIELDS},
         }
-    return {field: getattr(preference, field) for field in HARD_RULE_FIELDS}
+    return {
+        **{field: getattr(preference, field) for field in HARD_RULE_SCALAR_FIELDS},
+        **{field: getattr(preference, field) or [] for field in HARD_RULE_LIST_FIELDS},
+    }
 
 
 def effective_audience(
@@ -603,9 +605,42 @@ async def similarity_image(
         garment_type=None if garment_type == "all" else garment_type,
     )
 
+# ========================================
+# Load Hard Rules
+# ========================================
 
+# load from DB
 def hard_rules_for(db: Session, user_key: str) -> UserHardRule | None:
     return db.scalar(select(UserHardRule).where(UserHardRule.user_key == user_key))
+
+
+def initialize_session_requirement(
+    db: Session, user_key: str, requirements: RequirementSummary | None
+) -> RequirementSummary:
+    """First turn of a session: seed hard_rules (and the derived outfit budget)
+    from the user's saved preferences. Every later turn already carries
+    hard_rules on `requirements`, so this returns it unchanged without
+    touching the database again."""
+    if requirements is not None and requirements.hard_rules is not None:
+        return requirements.model_copy(deep=True)
+
+    summary = (requirements or RequirementSummary()).model_copy(deep=True)
+    summary.hard_rules = SessionHardRules(**hard_rules_payload(hard_rules_for(db, user_key)))
+    if summary.outfit_budget_max is None and summary.hard_rules.price_max is not None:
+        summary.outfit_budget_max = summary.hard_rules.price_max * 3
+    return summary
+
+
+def effective_hard_rules(
+    user_key: str, requirements: RequirementSummary | None
+) -> UserHardRule | None:
+    """Read hard gates from the structured session requirements when present."""
+    if requirements is None or requirements.hard_rules is None:
+        return None
+    return UserHardRule(
+        user_key=user_key,
+        **requirements.hard_rules.model_dump(),
+    )
 
 
 def style_preferences_for(
@@ -876,7 +911,10 @@ def planning_context_and_knowledge(
 def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> PlanResponse:
     planning_started = perf_counter()
     planning_timings: dict[str, float] = {}
-    preference = hard_rules_for(db, payload.user_key)
+    payload = payload.model_copy(update={
+        "requirements": initialize_session_requirement(db, payload.user_key, payload.requirements),
+    })
+    preference = effective_hard_rules(payload.user_key, payload.requirements)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(payload.user_input, payload.audience, preference)
     requirements, observations, knowledge_note = planning_context_and_knowledge(
@@ -943,18 +981,30 @@ def create_query_plan(payload: PlanRequest, db: Session = Depends(get_db)) -> Pl
 def clarify_requirements(
     payload: ClarificationRequest, db: Session = Depends(get_db)
 ) -> ClarificationResponse:
+    """
+    Input: Previous ClarificationResponse -- agent reply, requirement summary(JSON), ready_to_plan(TRUE/FALSE)
+    Return: Current ClarificationResponse
+    
+    如果是初次呼叫 => 產生第一次的 Requirement Summary
+    後續呼叫 => 改進目前的 Requirement Summary
+    """
     user_text = " ".join(
         message.text for message in payload.messages if message.role == "user"
     )
-    preference = hard_rules_for(db, payload.user_key)
+    session_requirements = initialize_session_requirement(
+        db, payload.user_key, payload.previous_requirements
+    )
+    preference = effective_hard_rules(payload.user_key, session_requirements)
     audience = effective_audience(user_text, payload.audience, preference)
     try:
         result = RequirementCollector(LLM()).collect(
             payload.messages,
             audience=audience,
-            previous_requirements=payload.previous_requirements,
+            previous_requirements=session_requirements,
         )
-        return result.model_copy(update={"requirements": with_weather_context(result.requirements)})
+        return result.model_copy(
+            update={"requirements": with_weather_context(result.requirements)}
+        )
     except RuntimeError as error:
         raise HTTPException(
             status_code=503, detail=f"Requirement agent unavailable: {error}"
@@ -968,7 +1018,10 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
     selected = [query for query in payload.existing_queries if query.selected]
     original = payload.original_input.strip() or " ".join(query.text for query in selected)
     combined = f"{original} {payload.user_input}".strip()
-    preference = hard_rules_for(db, payload.user_key)
+    payload = payload.model_copy(update={
+        "requirements": initialize_session_requirement(db, payload.user_key, payload.requirements),
+    })
+    preference = effective_hard_rules(payload.user_key, payload.requirements)
     style_preferences = style_preferences_for(db, payload.user_key)
     audience = effective_audience(combined, payload.audience, preference)
     requirements, observations, knowledge_note = planning_context_and_knowledge(
@@ -1038,7 +1091,7 @@ def refine_query_plan(payload: RefineRequest, db: Session = Depends(get_db)) -> 
 @router.post("/catalog/search", response_model=SearchResponse)
 def search(payload: SearchRequest, db: Session = Depends(get_db)) -> SearchResponse:
     try:
-        hard = hard_rules_for(db, payload.user_key)
+        hard = effective_hard_rules(payload.user_key, payload.requirements)
         audience = effective_audience(payload.user_input, payload.audience, hard)
         results = search_catalog(
             db,
@@ -1107,7 +1160,7 @@ def recommendations(
             raise HTTPException(status_code=422, detail=f"沒有可用的 {counterpart_zone} 搜尋條件")
         payload = payload.model_copy(update={"queries": counterpart_queries})
     payload = payload.model_copy(update={"requirements": with_context_defaults(payload.requirements)})
-    hard = hard_rules_for(db, payload.user_key)
+    hard = effective_hard_rules(payload.user_key, payload.requirements)
     audience = effective_audience(payload.user_input, payload.audience, hard)
     try:
         groups = search_catalog(

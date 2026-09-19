@@ -58,7 +58,6 @@ function emptyHard(): HardRules {
     age: null,
     height_cm: null,
     weight_kg: null,
-    price_min: null,
     price_max: null,
     avoid_colours: [],
     avoid_article_types: [],
@@ -103,7 +102,6 @@ async function saveHard() {
       age: hard.age || null,
       height_cm: hard.height_cm || null,
       weight_kg: hard.weight_kg || null,
-      price_min: hard.price_min || null,
       price_max: hard.price_max || null,
     })
     applyHard(saved)
@@ -234,9 +232,8 @@ onMounted(load)
 
         <div class="settings-list">
           <div class="settings-row price-settings-row">
-            <div class="settings-label"><strong>單件商品價格範圍</strong></div>
+            <div class="settings-label"><strong>單件商品最高價格</strong></div>
             <div class="price-inputs">
-              <label>最低價格<input v-model.number="hard.price_min" type="number" min="0" /></label>
               <label>最高價格<input v-model.number="hard.price_max" type="number" min="0" /></label>
             </div>
           </div>

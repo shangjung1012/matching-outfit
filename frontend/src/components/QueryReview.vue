@@ -5,12 +5,33 @@ import type { QueryDraft } from '../types'
 
 const props = defineProps<{ queries: QueryDraft[]; loading: boolean }>()
 const emit = defineEmits<{
-  select: [id: string, selected: boolean]
+  select: [ids: string[], selected: boolean]
   search: []
 }>()
 
-const active = computed(() => props.queries.filter((query) => query.selected))
-const removed = computed(() => props.queries.filter((query) => !query.selected))
+type DirectionGroup = {
+  id: string
+  queries: QueryDraft[]
+  selected: boolean
+  separates: boolean
+}
+
+const directionGroups = computed<DirectionGroup[]>(() => {
+  const groups = new Map<string, { id: string; queries: QueryDraft[] }>()
+  for (const query of props.queries) {
+    const id = query.direction_id?.trim() || query.id
+    const group = groups.get(id) ?? { id, queries: [] }
+    group.queries.push(query)
+    groups.set(id, group)
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    selected: group.queries.every((query) => query.selected),
+    separates: group.queries.some((query) => query.garment_zone === 'upper_body'),
+  }))
+})
+const active = computed(() => directionGroups.value.filter((group) => group.selected))
+const removed = computed(() => directionGroups.value.filter((group) => !group.selected))
 const zoneLabels: Record<QueryDraft['garment_zone'], string> = {
   upper_body: '上半身',
   lower_body: '下半身',
@@ -27,25 +48,32 @@ const zoneLabels: Record<QueryDraft['garment_zone'], string> = {
         <span class="section-kicker">Styling directions</span>
         <h2>選擇搭配方向</h2>
       </div>
-      <span class="count-badge">已選擇 {{ active.length }} 項</span>
+      <span class="count-badge">已選擇 {{ active.length }} 組</span>
     </header>
 
     <div class="query-stack">
-      <article v-for="query in active" :key="query.id" class="query-item">
-        <span class="query-zone">{{ zoneLabels[query.garment_zone] }}</span>
-        <div class="query-copy">
-          <strong>{{ query.rationale }}</strong>
+      <article v-for="group in active" :key="group.id" class="query-group">
+        <header class="query-group-heading">
+          <strong>方向 {{ group.id }}</strong>
+          <button class="icon-button" title="移除搭配方向" :disabled="loading" @click="$emit('select', group.queries.map((query) => query.id), false)">
+            <X :size="18" />
+          </button>
+        </header>
+        <div class="query-group-rules" :class="{ separates: group.separates }">
+          <section v-for="query in group.queries" :key="query.id" class="query-group-rule">
+            <span class="query-zone">{{ zoneLabels[query.garment_zone] }}</span>
+            <div class="query-copy">
+              <strong>{{ query.rationale }}</strong>
+            </div>
+          </section>
         </div>
-        <button class="icon-button" title="移除搭配方向" :disabled="loading" @click="$emit('select', query.id, false)">
-          <X :size="18" />
-        </button>
       </article>
     </div>
 
     <div v-if="removed.length" class="removed-queries">
       <span>已移除</span>
-      <button v-for="query in removed" :key="query.id" :disabled="loading" @click="$emit('select', query.id, true)">
-        <RotateCcw :size="14" />{{ zoneLabels[query.garment_zone] }}
+      <button v-for="group in removed" :key="group.id" :disabled="loading" @click="$emit('select', group.queries.map((query) => query.id), true)">
+        <RotateCcw :size="14" />方向 {{ group.id }}
       </button>
     </div>
 

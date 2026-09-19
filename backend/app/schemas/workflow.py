@@ -23,6 +23,15 @@ RequirementField = Literal[
     "styles",
     "special_requirements",
     "additional_notes",
+    "gender",
+    "age",
+    "height_cm",
+    "weight_kg",
+    "price_max",
+    "avoid_colours",
+    "avoid_article_types",
+    "avoid_master_categories",
+    "notes",
 ]
 
 
@@ -250,6 +259,23 @@ class WeatherContext(BaseModel):
     note: str = ""
 
 
+ProfileGender = Literal["female", "male", "non_binary", "prefer_not_to_say"]
+
+
+class SessionHardRules(BaseModel):
+    """Hard rules carried by a single structured requirement summary."""
+
+    gender: ProfileGender | None = None
+    age: int | None = Field(default=None, ge=1, le=120)
+    height_cm: float | None = Field(default=None, ge=50, le=250)
+    weight_kg: float | None = Field(default=None, ge=10, le=400)
+    price_max: int | None = Field(default=None, ge=0)
+    avoid_colours: list[str] = Field(default_factory=list)
+    avoid_article_types: list[str] = Field(default_factory=list)
+    avoid_master_categories: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class RequirementSummary(BaseModel):
     weather: WeatherContext | None = None
     location: str = ""
@@ -257,6 +283,8 @@ class RequirementSummary(BaseModel):
     # A per-request cap for the combined price of one recommended outfit.
     # This is intentionally distinct from saved per-item price preferences.
     outfit_budget_max: float | None = Field(default=None, ge=0)
+    # Loaded from My Preferences when the session starts, then request-scoped.
+    hard_rules: SessionHardRules | None = None
     defaulted_fields: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     seasons: list[str] = Field(default_factory=list)
@@ -501,30 +529,8 @@ class RecommendationResponse(BaseModel):
 
 PreferenceSource = Literal["explicit", "implicit"]
 PreferenceType = Literal["prefer", "avoid"]
-ProfileGender = Literal["female", "male", "non_binary", "prefer_not_to_say"]
-
-
-class HardRules(BaseModel):
-    gender: ProfileGender | None = None
-    age: int | None = Field(default=None, ge=1, le=120)
-    height_cm: float | None = Field(default=None, ge=50, le=250)
-    weight_kg: float | None = Field(default=None, ge=10, le=400)
-    price_min: int | None = Field(default=None, ge=0)
-    price_max: int | None = Field(default=None, ge=0)
-    avoid_colours: list[str] = Field(default_factory=list)
-    avoid_article_types: list[str] = Field(default_factory=list)
-    avoid_master_categories: list[str] = Field(default_factory=list)
-    notes: str | None = Field(default=None, max_length=2000)
-
-    @model_validator(mode="after")
-    def _price_order(self) -> "HardRules":
-        if (
-            self.price_min is not None
-            and self.price_max is not None
-            and self.price_min > self.price_max
-        ):
-            raise ValueError("price_min must not exceed price_max")
-        return self
+class HardRules(SessionHardRules):
+    pass
 
 
 class HardRulesView(HardRules):

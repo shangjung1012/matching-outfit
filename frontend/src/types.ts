@@ -393,6 +393,7 @@ export interface RequirementSummary {
   location: string
   target_date: string
   outfit_budget_max: number | null
+  hard_rules: HardRules | null
   defaulted_fields: string[]
   occasions: string[]
   seasons: string[]
@@ -520,7 +521,6 @@ export interface HardRules {
   age: number | null
   height_cm: number | null
   weight_kg: number | null
-  price_min: number | null
   price_max: number | null
   avoid_colours: string[]
   avoid_article_types: string[]
