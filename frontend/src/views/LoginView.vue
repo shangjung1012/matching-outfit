@@ -25,7 +25,7 @@ function submit() {
   <div class="login-shell">
     <form class="login-card" @submit.prevent="submit">
       <div class="login-wordmark">
-        <strong>Matching Outfit</strong>
+        <strong>潮會搭</strong>
         <small>個人穿搭</small>
       </div>
       <h2>輸入使用者名稱開始使用</h2>

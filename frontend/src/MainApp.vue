@@ -162,14 +162,8 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <button class="brand" title="Matching Outfit" @click="selectView('agent')">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <rect x="3" y="3" width="13" height="13" rx="4" opacity=".55" />
-            <rect x="8" y="8" width="13" height="13" rx="4" />
-          </svg>
-        </span>
-        <div><strong>Matching Outfit</strong><small>個人穿搭</small></div>
+      <button class="brand" title="潮會搭" @click="selectView('agent')">
+        <div><strong>潮會搭</strong><small>個人穿搭</small></div>
       </button>
 
       <nav ref="navRef" class="main-navigation" aria-label="主要功能">

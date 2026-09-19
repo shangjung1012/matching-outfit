@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import {
   ArrowLeft, Check, ChevronDown, ChevronUp,
   FileSearch, ImagePlus, MessageSquare, MessageSquarePlus, Send, Shirt,
-  Sparkles, Square, X,
+  Square, X,
 } from 'lucide-vue-next'
 import {
   clarifyRequirements,
@@ -763,12 +763,12 @@ onBeforeUnmount(() => {
   <section class="agent-view">
     <aside class="chat-panel">
       <header class="chat-header">
-        <div class="agent-avatar"><Sparkles :size="18" /></div>
+        <div class="agent-avatar" aria-hidden="true">
+          <img src="/images/chaohuidai-agent.jpg" alt="" />
+        </div>
         <div class="agent-heading">
           <strong>Outfit Agent</strong>
-          <span :class="{ thinking: agentBusy }" aria-live="polite">
-            {{ agentBusy ? '正在思考' : 'Online' }}
-          </span>
+          <span v-if="agentBusy" class="thinking" aria-live="polite">正在思考</span>
         </div>
         <button
           class="new-chat-button"
@@ -791,7 +791,9 @@ onBeforeUnmount(() => {
           @scroll="handleMessageScroll"
         >
           <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
-            <span v-if="message.role === 'agent'" class="message-avatar"><Sparkles :size="13" /></span>
+            <span v-if="message.role === 'agent'" class="message-avatar" aria-hidden="true">
+              <img src="/images/chaohuidai-agent.jpg" alt="" />
+            </span>
             <p>{{ message.text }}</p>
           </div>
 
@@ -801,7 +803,9 @@ onBeforeUnmount(() => {
             role="status"
             :aria-label="activityLabel"
           >
-            <span class="message-avatar"><Sparkles :size="13" /></span>
+            <span class="message-avatar" aria-hidden="true">
+              <img src="/images/chaohuidai-agent.jpg" alt="" />
+            </span>
             <div class="typing-bubble">
               <span class="typing-label">{{ activityLabel }}</span>
               <span class="typing-dots" aria-hidden="true">

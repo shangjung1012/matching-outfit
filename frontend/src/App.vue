@@ -127,7 +127,7 @@ onMounted(async () => {
   <LoginView v-else-if="!userKey" @login="login" />
   <section v-else-if="showOnboarding" class="onboarding-shell">
     <header class="onboarding-header">
-      <div class="onboarding-wordmark"><strong>Matching Outfit</strong><small>個人穿搭</small></div>
+      <div class="onboarding-wordmark"><strong>潮會搭</strong><small>個人穿搭</small></div>
       <button type="button" class="onboarding-skip" @click="skipOnboarding">
         {{ onboardingTestComplete ? '進入主頁' : '略過測驗' }}
       </button>
