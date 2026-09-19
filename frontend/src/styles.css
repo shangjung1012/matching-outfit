@@ -1100,7 +1100,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-remove-button { gap: 4px; border-color: transparent; color: #7e5a4e; background: transparent; }
 .tryon-submit { width: 100%; margin-top: 18px; }
 .tryon-limit { margin: 8px 0 0; color: #858b85; text-align: center; font-size: .65rem; }
-.tryon-result-card { display: flex; min-height: 570px; flex-direction: column; }
+.tryon-result-card { display: flex; min-height: 570px; overflow-y: auto; flex-direction: column; }
+.tryon-history-loading { display: flex; align-items: center; justify-content: center; gap: 7px; margin: -4px -4px 16px; padding: 16px 4px; border-bottom: 1px solid #e1e4df; color: #6d776f; font-size: .68rem; }
 .tryon-history { margin: -4px -4px 16px; padding: 4px 4px 14px; border-bottom: 1px solid #e1e4df; }
 .tryon-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
 .tryon-history-heading > div { display: flex; align-items: baseline; gap: 7px; }
@@ -1109,15 +1110,26 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-history-heading button { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 4px; color: #7e6d65; background: transparent; font-size: .63rem; cursor: pointer; }
 .tryon-history-heading button:hover { color: #804838; }
 .tryon-history-list { display: flex; gap: 7px; overflow-x: auto; padding: 1px 1px 5px; scrollbar-width: thin; }
-.tryon-history-item { min-width: 108px; display: grid; gap: 3px; border: 1px solid #d9ddd7; border-radius: 5px; padding: 8px 9px; color: #545c55; background: #fafbfa; text-align: left; cursor: pointer; }
+.tryon-history-item { min-width: 132px; display: grid; gap: 4px; border: 1px solid #d9ddd7; border-radius: 5px; padding: 7px; color: #545c55; background: #fafbfa; text-align: left; cursor: pointer; }
 .tryon-history-item:hover { border-color: #aebbb2; background: #f5f8f5; }
 .tryon-history-item.active { border-color: #4d7964; box-shadow: 0 0 0 1px #4d7964; background: #f1f7f3; }
-.tryon-history-item span { width: fit-content; border-radius: 999px; padding: 2px 6px; color: #626b64; background: #ecefeb; font-size: .57rem; font-weight: 800; }
-.tryon-history-item.queued span, .tryon-history-item.running span { color: #76501e; background: #fff0d9; }
-.tryon-history-item.succeeded span { color: #276044; background: #dff1e6; }
-.tryon-history-item.failed span { color: #874d42; background: #f7e5e1; }
+.tryon-history-item .tryon-history-status { width: fit-content; border-radius: 999px; padding: 2px 6px; color: #626b64; background: #ecefeb; font-size: .57rem; font-weight: 800; }
+.tryon-history-item.queued .tryon-history-status, .tryon-history-item.running .tryon-history-status { color: #76501e; background: #fff0d9; }
+.tryon-history-item.succeeded .tryon-history-status { color: #276044; background: #dff1e6; }
+.tryon-history-item.failed .tryon-history-status { color: #874d42; background: #f7e5e1; }
 .tryon-history-item strong { font-size: .7rem; }
 .tryon-history-item small { color: #858c86; font-size: .59rem; }
+.tryon-history-images { height: 45px; overflow: hidden; display: flex; gap: 2px; border-radius: 3px; background: #e9ece8; }
+.tryon-history-images img, .tryon-history-images > span { min-width: 0; width: 100%; height: 45px; display: grid; flex: 1; place-items: center; object-fit: cover; color: #788179; background: #e7ebe7; }
+.tryon-history-detail { display: grid; gap: 10px; margin-top: 9px; padding: 10px; border: 1px solid #dfe4de; border-radius: 6px; background: #f8faf8; }
+.tryon-history-references { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.tryon-history-reference { min-width: 0; display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 7px; }
+.tryon-history-reference > img, .tryon-history-placeholder { width: 42px; height: 48px; display: grid; place-items: center; object-fit: cover; color: #788179; background: #e8ece8; }
+.tryon-history-reference > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.tryon-history-reference strong { overflow: hidden; color: #4a534c; font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.tryon-history-reference small, .tryon-history-legacy { color: #7d857e; font-size: .58rem; line-height: 1.4; }
+.tryon-history-legacy { margin: 0; }
+.tryon-reapply { min-height: 36px; justify-self: start; }
 .tryon-result-body { min-height: 0; display: grid; flex: 1; }
 .tryon-result-placeholder { min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 9px; color: #778078; background: #f4f6f3; text-align: center; }
 .tryon-result-placeholder.processing { color: #34604b; background: #f0f6f2; }
@@ -1202,9 +1214,13 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-slot-preview img { width: 100%; aspect-ratio: 4 / 5; display: block; object-fit: contain; background: #eef1ed; }
 .tryon-slot-preview > span { min-height: 37px; display: -webkit-box; overflow: hidden; padding: 7px 8px; color: #485149; font-size: .61rem; font-weight: 700; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .tryon-slot-preview button { position: absolute; top: 6px; right: 6px; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid #d6dbd6; border-radius: 50%; padding: 0; color: #6d4b44; background: rgb(255 255 255 / 92%); }
+.tryon-slot-selection { display: grid; }
+.tryon-find-similar { min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 5px; border: 0; border-top: 1px solid #d9e2db; padding: 6px; color: #285b44; background: #f7fbf8; font-size: .62rem; font-weight: 800; cursor: pointer; }
+.tryon-find-similar:hover { background: #e8f2eb; }
 .tryon-slot-empty { min-height: 142px; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 10px; color: #879088; text-align: center; font-size: .62rem; }
 .tryon-slot-empty.upload { position: relative; color: #38614d; cursor: pointer; transition: background .18s ease; }
 .tryon-slot-empty.upload:hover { background: #edf4ef; }
+.tryon-slot-empty.upload.disabled { opacity: .58; cursor: wait; }
 .tryon-candidate-list { display: grid; gap: 5px; padding: 7px; }
 .tryon-candidate-list > small { color: #805f29; font-size: .59rem; font-weight: 800; }
 .tryon-candidate-list button { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 6px; border: 1px solid #e0cfad; border-radius: 4px; padding: 4px; color: #5e513c; background: #fff; text-align: left; }
@@ -1216,7 +1232,18 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-conflict-actions { display: flex; gap: 5px; }
 .tryon-conflict button { border: 1px solid #d1b278; border-radius: 4px; padding: 6px 8px; color: #65491e; background: #fff; font-size: .62rem; font-weight: 750; }
 .tryon-unsupported { grid-template-columns: 20px minmax(0, 1fr); border-color: #d8d2c2; color: #665f50; background: #faf8f2; }
-.tryon-source-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 18px; padding: 3px; border: 1px solid #d5d9d2; border-radius: 6px; background: #e9ebe7; }
+.tryon-similar-panel { margin-top: 14px; padding: 14px; border: 1px solid #b9d0c1; border-radius: 7px; background: #f5f9f6; }
+.tryon-similar-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.tryon-similar-panel > header > div { display: grid; gap: 3px; }
+.tryon-similar-panel > header span { color: #39705b; font-size: .58rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.tryon-similar-panel h4 { margin: 0; color: #33453a; font-size: .76rem; }
+.tryon-similar-panel > header > button { width: 32px; height: 32px; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid #ccd7cf; border-radius: 50%; padding: 0; color: #53675a; background: #fff; }
+.tryon-similar-state { min-height: 112px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #68776d; font-size: .68rem; text-align: center; }
+.tryon-similar-state.error { flex-wrap: wrap; color: #8d4035; }
+.tryon-similar-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.tryon-similar-grid .product-card { min-width: 0; }
+.tryon-similar-grid .product-card .secondary-button { width: 100%; min-height: 36px; justify-content: center; margin-top: 9px; padding-inline: 6px; font-size: .61rem; }
+.tryon-source-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 18px; padding: 3px; border: 1px solid #d5d9d2; border-radius: 6px; background: #e9ebe7; }
 .tryon-source-tabs button { min-width: 0; width: 100%; height: 40px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 4px; padding: 0 12px; color: #626a63; background: transparent; font: inherit; font-size: .69rem; font-weight: 750; line-height: 1; white-space: nowrap; appearance: none; }
 .tryon-source-tabs button svg { flex: 0 0 auto; }
 .tryon-source-tabs button.active { color: #234f3b; background: #fff; box-shadow: 0 1px 3px #00000015; }
@@ -1766,8 +1793,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .person-photo-upload { grid-template-columns: 1fr; align-items: stretch; }
   .person-upload-button { width: 100%; }
   .tryon-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tryon-similar-grid { grid-template-columns: 1fr; }
+  .tryon-source-tabs { grid-template-columns: repeat(2, 1fr); }
   .tryon-source-tabs button { height: 48px; flex-direction: column; gap: 3px; padding: 6px 3px; font-size: .61rem; }
   .tryon-wardrobe-grid.outfits, .tryon-wardrobe-grid.items { grid-template-columns: 1fr; }
+  .tryon-history-references { grid-template-columns: 1fr; }
   .tryon-conflict { grid-template-columns: 20px minmax(0, 1fr); }
   .tryon-conflict-actions, .tryon-conflict > button { grid-column: 2; }
   .tryon-conflict-actions { flex-wrap: wrap; }

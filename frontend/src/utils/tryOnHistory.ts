@@ -1,13 +1,17 @@
-import type { Human3DJob, TryOnJob, TryOnJobStatus, TryOnReferenceType } from '../types'
+import type {
+  Human3DJob,
+  TryOnJob,
+  TryOnJobReference,
+  TryOnJobStatus,
+  TryOnReferenceType,
+} from '../types'
 import { TRYON_REFERENCE_TYPES } from './tryOnSelection.ts'
 
-export const TRYON_HISTORY_STORAGE_VERSION = 3 as const
 export const TRYON_HISTORY_LIMIT = 20
 
 const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
 
 export interface TryOnHistorySnapshot {
-  version: typeof TRYON_HISTORY_STORAGE_VERSION
   selectedJobId: string | null
   jobs: TryOnJob[]
   human3DJobs: Human3DJob[]
@@ -32,11 +36,26 @@ export function isTryOnJob(value: unknown): value is TryOnJob {
     && candidate.reference_types.every((type) => (
       TRYON_REFERENCE_TYPES.includes(type as TryOnReferenceType)
     ))
+    && Array.isArray(candidate.references)
+    && candidate.references.every(isTryOnJobReference)
     && (candidate.error === null || typeof candidate.error === 'string')
     && (candidate.result_url === null || typeof candidate.result_url === 'string')
     && hasValidDate(candidate.created_at)
     && hasValidDate(candidate.updated_at)
     && hasValidOptionalDate(candidate.expires_at)
+  )
+}
+
+export function isTryOnJobReference(value: unknown): value is TryOnJobReference {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    TRYON_REFERENCE_TYPES.includes(candidate.reference_type as TryOnReferenceType)
+    && (candidate.source === 'catalog' || candidate.source === 'wardrobe' || candidate.source === 'upload')
+    && typeof candidate.display_name === 'string'
+    && (candidate.image_url === null || typeof candidate.image_url === 'string')
+    && (candidate.catalog_item === null || typeof candidate.catalog_item === 'object')
+    && (candidate.wardrobe_item === null || typeof candidate.wardrobe_item === 'object')
   )
 }
 
@@ -70,12 +89,11 @@ export function normalizeTryOnHistory(
   jobs: TryOnJob[],
   human3DJobs: Human3DJob[],
   selectedJobId: string | null,
-  now = Date.now(),
 ): TryOnHistorySnapshot {
   const seenTryOnIds = new Set<string>()
   const normalizedJobs = jobs
     .filter((job) => {
-      if (seenTryOnIds.has(job.id) || jobIsExpired(job, now)) return false
+      if (seenTryOnIds.has(job.id)) return false
       seenTryOnIds.add(job.id)
       return true
     })
@@ -90,7 +108,6 @@ export function normalizeTryOnHistory(
       if (
         !retainedTryOnIds.has(job.try_on_job_id)
         || seenTryOn3DIds.has(job.try_on_job_id)
-        || jobIsExpired(job, now)
       ) return false
       seenTryOn3DIds.add(job.try_on_job_id)
       return true
@@ -101,34 +118,20 @@ export function normalizeTryOnHistory(
     : normalizedJobs[0]?.id ?? null
 
   return {
-    version: TRYON_HISTORY_STORAGE_VERSION,
     selectedJobId: normalizedSelectedId,
     jobs: normalizedJobs,
     human3DJobs: normalizedHuman3DJobs,
   }
 }
 
-export function parseTryOnHistory(
-  raw: string | null,
-  now = Date.now(),
-): TryOnHistorySnapshot | null {
-  if (!raw) return null
-  try {
-    const stored = JSON.parse(raw) as Record<string, unknown>
-    if (stored.version !== 2 && stored.version !== TRYON_HISTORY_STORAGE_VERSION) return null
-    if (!Array.isArray(stored.jobs)) return null
-    const jobs = stored.jobs.filter(isTryOnJob)
-    const human3DJobs = stored.version === TRYON_HISTORY_STORAGE_VERSION
-      && Array.isArray(stored.human3DJobs)
-      ? stored.human3DJobs.filter(isHuman3DJob)
-      : []
-    const selectedJobId = typeof stored.selectedJobId === 'string'
-      ? stored.selectedJobId
-      : null
-    return normalizeTryOnHistory(jobs, human3DJobs, selectedJobId, now)
-  } catch {
-    return null
-  }
+export function referencesForHistory(job: TryOnJob) {
+  const selections: Partial<Record<TryOnReferenceType, TryOnJobReference>> = {}
+  job.references.forEach((reference) => {
+    if (reference.catalog_item || reference.wardrobe_item) {
+      selections[reference.reference_type] = reference
+    }
+  })
+  return selections
 }
 
 export function human3DJobForTryOn(

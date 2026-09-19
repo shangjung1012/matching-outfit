@@ -224,6 +224,12 @@ upper, lower, overall, shoe, bag
 
 Several references can be submitted together. `overall` cannot be combined with `upper` or `lower`; shoe and bag references remain compatible with either clothing arrangement. The frontend enforces these combinations, and both the backend and GPU service validate them again. JPEG, PNG, and WebP uploads are accepted up to 10 MiB and 20 megapixels per image.
 
+### Wardrobe and history storage
+
+Images added to `我的衣櫃` are persistent application data. They are stored under `WARDROBE_DIR` (`/data/wardrobe` by default), which the root Compose stack bind-mounts from `./data`; their ownership and metadata live in PostgreSQL. They are not stored in the GPU stack's MinIO.
+
+Try-on history also lives in PostgreSQL and records slot, source, product name, and image URL snapshots. A direct one-time upload records only `自訂上傳` and its slot, never the original image or filename. The GPU MinIO remains limited to temporary inference inputs and results, which keep the existing expiration policy.
+
 ### Deploy the GPU stack
 
 The stack requires an NVIDIA CUDA GPU, compatible driver, Docker Compose, and NVIDIA Container Toolkit/CDI support. FastFit and Human3D use separate images because their Python/CUDA native dependencies differ, but one Compose file and gateway manage both.

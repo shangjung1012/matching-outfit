@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { CatalogItem } from '../src/types.ts'
+import type { CatalogItem, WardrobeCategory, WardrobeItem } from '../src/types.ts'
 import {
   createTryOnDraft,
   draftConflictMessages,
   referenceTypeForCatalogItem,
+  referenceTypeForWardrobeItem,
 } from '../src/utils/tryOnSelection.ts'
 
 function item(id: number, overrides: Partial<CatalogItem>): CatalogItem {
@@ -74,4 +75,18 @@ test('outfit drafts retain unsupported items and expose duplicate and mode confl
     '上身有多件商品，請選擇一件。',
     '連身服飾不可與上身或下身同時使用，請選擇一種穿搭模式。',
   ])
+})
+
+test('all wardrobe categories map to the five try-on slots', () => {
+  const mappings: Array<[WardrobeCategory, string]> = [
+    ['upper_body', 'upper'],
+    ['lower_body', 'lower'],
+    ['one_piece', 'overall'],
+    ['shoes', 'shoe'],
+    ['bags', 'bag'],
+  ]
+  mappings.forEach(([category, expected], index) => {
+    const wardrobeItem = { id: index + 1, category } as WardrobeItem
+    assert.equal(referenceTypeForWardrobeItem(wardrobeItem), expected)
+  })
 })

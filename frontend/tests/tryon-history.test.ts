@@ -1,21 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { Human3DJob, TryOnJob } from '../src/types.ts'
+import type { CatalogItem, Human3DJob, TryOnJob, WardrobeItem } from '../src/types.ts'
 import {
   human3DJobForTryOn,
   normalizeTryOnHistory,
-  parseTryOnHistory,
+  referencesForHistory,
   transitionedToTerminal,
   upsertHuman3DJob,
 } from '../src/utils/tryOnHistory.ts'
-
-const NOW = Date.parse('2026-09-19T12:00:00Z')
 
 function tryOnJob(id: string, overrides: Partial<TryOnJob> = {}): TryOnJob {
   return {
     id,
     status: 'succeeded',
     reference_types: ['upper'],
+    references: [],
     error: null,
     result_url: `/api/try-on/jobs/${id}/result`,
     created_at: '2026-09-19T10:00:00Z',
@@ -45,19 +44,17 @@ function human3DJob(
   }
 }
 
-test('v2 try-on history migrates to v3 without losing jobs or selection', () => {
-  const first = tryOnJob('tryon-1')
-  const second = tryOnJob('tryon-2', { created_at: '2026-09-19T11:00:00Z' })
-  const restored = parseTryOnHistory(JSON.stringify({
-    version: 2,
-    selectedJobId: first.id,
-    jobs: [first, second],
-  }), NOW)
+test('backend history keeps expired jobs, sorts newest first, and limits to 20', () => {
+  const jobs = Array.from({ length: 22 }, (_, index) => tryOnJob(`tryon-${index}`, {
+    created_at: new Date(Date.UTC(2026, 8, 19, 10, index)).toISOString(),
+    expires_at: index === 21 ? '2026-09-19T11:59:00Z' : '2026-09-20T10:00:00Z',
+  }))
+  const normalized = normalizeTryOnHistory(jobs, [], 'tryon-0')
 
-  assert.equal(restored?.version, 3)
-  assert.equal(restored?.selectedJobId, first.id)
-  assert.deepEqual(restored?.jobs.map((job) => job.id), [second.id, first.id])
-  assert.deepEqual(restored?.human3DJobs, [])
+  assert.equal(normalized.jobs.length, 20)
+  assert.equal(normalized.jobs[0].id, 'tryon-21')
+  assert.equal(normalized.jobs[0].expires_at, '2026-09-19T11:59:00Z')
+  assert.equal(normalized.selectedJobId, 'tryon-21')
 })
 
 test('normalization keeps the latest 3D job per retained try-on job', () => {
@@ -68,18 +65,37 @@ test('normalization keeps the latest 3D job per retained try-on job', () => {
     status: 'running',
     updated_at: '2026-09-19T11:30:00Z',
   })
-  const orphan = human3DJob('3d-orphan', expired.id)
+  const expiredResult = human3DJob('3d-expired', expired.id)
 
   const normalized = normalizeTryOnHistory(
     [retained, expired],
-    [older, latest, orphan],
+    [older, latest, expiredResult],
     retained.id,
-    NOW,
   )
 
-  assert.deepEqual(normalized.jobs.map((job) => job.id), [retained.id])
-  assert.deepEqual(normalized.human3DJobs.map((job) => job.id), [latest.id])
+  assert.deepEqual(normalized.jobs.map((job) => job.id), [retained.id, expired.id])
+  assert.deepEqual(normalized.human3DJobs.map((job) => job.id), [latest.id, expiredResult.id])
   assert.equal(human3DJobForTryOn(normalized.human3DJobs, retained.id)?.id, latest.id)
+})
+
+test('history reapply restores current catalog and wardrobe items but skips uploads and deleted items', () => {
+  const catalogItem = { id: 7 } as CatalogItem
+  const wardrobeItem = { id: 9 } as WardrobeItem
+  const job = tryOnJob('tryon-reapply', {
+    reference_types: ['upper', 'lower', 'shoe', 'bag'],
+    references: [
+      { reference_type: 'upper', source: 'catalog', display_name: '上衣', image_url: '/upper.jpg', catalog_item: catalogItem, wardrobe_item: null },
+      { reference_type: 'lower', source: 'wardrobe', display_name: '褲子', image_url: '/lower.jpg', catalog_item: null, wardrobe_item: wardrobeItem },
+      { reference_type: 'shoe', source: 'upload', display_name: '自訂上傳', image_url: null, catalog_item: null, wardrobe_item: null },
+      { reference_type: 'bag', source: 'catalog', display_name: '已刪除商品', image_url: '/bag.jpg', catalog_item: null, wardrobe_item: null },
+    ],
+  })
+
+  const references = referencesForHistory(job)
+  assert.equal(references.upper?.catalog_item?.id, 7)
+  assert.equal(references.lower?.wardrobe_item?.id, 9)
+  assert.equal(references.shoe, undefined)
+  assert.equal(references.bag, undefined)
 })
 
 test('retry replaces only the matching try-on 3D job', () => {

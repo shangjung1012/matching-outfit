@@ -32,6 +32,9 @@ import type {
   FavoriteCollection,
   FavoriteItemsMutationResponse,
   UserProfile,
+  SimilarCatalogItem,
+  TryOnHistoryResponse,
+  TryOnReferenceSelection,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -173,14 +176,34 @@ export function getRecommendations(
   return request<RecommendationResponse>('/api/recommendations', withSignal(json('POST', payload), signal))
 }
 
-export function getSimilarClothes(image: File, garmentType: GarmentZone, results = 24) {
+export function getSimilarClothes(
+  image: File,
+  garmentType: GarmentZone,
+  results = 24,
+  referenceType?: TryOnReferenceType,
+  signal?: AbortSignal,
+) {
   const form = new FormData()
   form.append('image', image)
   const params = new URLSearchParams({ type: garmentType, results: String(results) })
-  return request<ClothResult[]>(`/api/similarity_image?${params}`, {
+  if (referenceType) params.set('reference_type', referenceType)
+  return request<SimilarCatalogItem[]>(`/api/similarity_image?${params}`, {
     method: 'POST',
     body: form,
+    signal,
   })
+}
+
+export function getSimilarCatalogItems(
+  itemId: number,
+  results = 12,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ results: String(results) })
+  return request<SimilarCatalogItem[]>(
+    `/api/catalog/${encodeURIComponent(itemId)}/similar?${params}`,
+    { signal },
+  )
 }
 
 const prefBase = (userKey: string) => `/api/preferences/${encodeURIComponent(userKey)}`
@@ -317,20 +340,40 @@ export function removeWardrobeItem(userKey: string, itemId: number) {
   return request<void>(`${wardrobeBase(userKey)}/${itemId}`, { method: 'DELETE' })
 }
 
+export function getSimilarWardrobeItems(
+  userKey: string,
+  itemId: number,
+  results = 12,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ results: String(results) })
+  return request<SimilarCatalogItem[]>(
+    `${wardrobeBase(userKey)}/${itemId}/similar?${params}`,
+    { signal },
+  )
+}
+
 export function getTryOnCapabilities() {
   return request<TryOnCapabilities>('/api/try-on/capabilities')
 }
 
 export function createTryOnJob(
   personImage: File,
-  references: Partial<Record<TryOnReferenceType, File>>,
+  references: Partial<Record<TryOnReferenceType, TryOnReferenceSelection>>,
   userKey: string,
 ) {
   const form = new FormData()
   form.append('person_image', personImage)
   for (const referenceType of ['upper', 'lower', 'overall', 'shoe', 'bag'] as const) {
     const file = references[referenceType]
-    if (file) form.append(`${referenceType}_image`, file)
+    if (!file) continue
+    if (file.source === 'catalog') {
+      form.append(`${referenceType}_item_id`, String(file.item.id))
+    } else if (file.source === 'wardrobe') {
+      form.append(`${referenceType}_wardrobe_item_id`, String(file.item.id))
+    } else {
+      form.append(`${referenceType}_image`, file.file)
+    }
   }
   form.append('user_key', userKey)
   return request<TryOnJob>('/api/try-on/jobs', { method: 'POST', body: form })
@@ -338,6 +381,20 @@ export function createTryOnJob(
 
 export function getTryOnJob(jobId: string) {
   return request<TryOnJob>(`/api/try-on/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getTryOnHistory(userKey: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  return request<TryOnHistoryResponse>(
+    `/api/try-on/history/${encodeURIComponent(userKey)}?${params}`,
+  )
+}
+
+export function clearTryOnHistory(userKey: string) {
+  return request<void>(
+    `/api/try-on/history/${encodeURIComponent(userKey)}`,
+    { method: 'DELETE' },
+  )
 }
 
 export function getHuman3DCapabilities() {

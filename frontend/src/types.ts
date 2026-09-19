@@ -14,7 +14,7 @@ export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 export type Human3DJobStatus = TryOnJobStatus
 
-export type WardrobeCategory = 'upper_body' | 'lower_body' | 'shoes'
+export type WardrobeCategory = 'upper_body' | 'lower_body' | 'one_piece' | 'shoes' | 'bags'
 
 export interface WardrobeItem {
   id: number
@@ -43,11 +43,26 @@ export interface TryOnJob {
   id: string
   status: TryOnJobStatus
   reference_types: TryOnReferenceType[]
+  references: TryOnJobReference[]
   error: string | null
   result_url: string | null
   created_at: string
   updated_at: string
   expires_at: string | null
+}
+
+export interface TryOnJobReference {
+  reference_type: TryOnReferenceType
+  source: 'catalog' | 'wardrobe' | 'upload'
+  display_name: string
+  image_url: string | null
+  catalog_item: CatalogItem | null
+  wardrobe_item: WardrobeItem | null
+}
+
+export interface TryOnHistoryResponse {
+  jobs: TryOnJob[]
+  human3d_jobs: Human3DJob[]
 }
 
 export interface Human3DCapabilities {
@@ -259,8 +274,13 @@ export interface CatalogItem {
   has_embedding: boolean
 }
 
+export interface SimilarCatalogItem extends CatalogItem {
+  similarity: number
+}
+
 export type TryOnReferenceSelection =
-  | { source: 'favorite'; item: CatalogItem }
+  | { source: 'catalog'; item: CatalogItem }
+  | { source: 'wardrobe'; item: WardrobeItem }
   | { source: 'upload'; file: File; previewUrl: string }
 
 export interface TryOnDraft {

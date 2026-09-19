@@ -12,8 +12,10 @@ from app.api import human3d as human3d_api
 from app.api import try_on as try_on_api
 from app.db.session import get_db
 from app.models.base import Base
+from app.models.cloth import Cloth
 from app.models.human3d_job import Human3DJob
-from app.models.try_on_job import TryOnJob
+from app.models.try_on_job import TryOnJob, TryOnJobReference
+from app.models.user_wardrobe import UserWardrobeItem
 
 
 def now() -> datetime:
@@ -93,7 +95,13 @@ def client(monkeypatch: pytest.MonkeyPatch):
     )
     Base.metadata.create_all(
         engine,
-        tables=[TryOnJob.__table__, Human3DJob.__table__],
+        tables=[
+            Cloth.__table__,
+            UserWardrobeItem.__table__,
+            TryOnJob.__table__,
+            TryOnJobReference.__table__,
+            Human3DJob.__table__,
+        ],
     )
     test_session: sessionmaker[Session] = sessionmaker(
         bind=engine,

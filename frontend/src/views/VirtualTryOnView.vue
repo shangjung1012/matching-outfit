@@ -11,7 +11,9 @@ import {
   LoaderCircle,
   Pencil,
   RefreshCw,
+  RotateCcw,
   ScanFace,
+  Search,
   Shirt,
   Star,
   Trash2,
@@ -19,14 +21,22 @@ import {
   X,
 } from 'lucide-vue-next'
 import {
+  clearTryOnHistory,
   createHuman3DJob,
   createTryOnJob,
   getHuman3DCapabilities,
   getHuman3DJob,
+  getSimilarCatalogItems,
+  getSimilarClothes,
+  getSimilarWardrobeItems,
   getTryOnCapabilities,
+  getTryOnHistory,
   getTryOnJob,
+  getWardrobeItems,
+  uploadWardrobeItem,
 } from '../api'
 import Human3DViewer from '../components/Human3DViewer.vue'
+import ProductCard from '../components/ProductCard.vue'
 import { usePersonPhotoLibrary, PERSON_PHOTO_LIMIT, validatePersonPhoto } from '../composables/usePersonPhotoLibrary'
 import { useToast } from '../composables/useToast'
 import { useUserLibrary } from '../composables/useUserLibrary'
@@ -35,25 +45,31 @@ import type {
   Human3DCapabilities,
   Human3DJob,
   SavedPersonPhoto,
+  SimilarCatalogItem,
   TryOnCapabilities,
   TryOnDraft,
   TryOnJob,
+  TryOnJobReference,
   TryOnReferenceSelection,
   TryOnReferenceType,
+  WardrobeItem,
 } from '../types'
 import {
   createTryOnDraft,
   referenceTypeForCatalogItem,
+  referenceTypeForWardrobeItem,
   TRYON_REFERENCE_LABELS,
   TRYON_REFERENCE_TYPES,
+  TRYON_REFERENCE_ZONES,
+  TRYON_WARDROBE_CATEGORIES,
 } from '../utils/tryOnSelection'
 import { canGenerateHuman3D, human3DStatusLabel } from '../utils/human3dUi'
 import {
   human3DJobForTryOn,
+  jobIsExpired,
   normalizeTryOnHistory,
-  parseTryOnHistory,
+  referencesForHistory,
   transitionedToTerminal,
-  TRYON_HISTORY_STORAGE_VERSION,
   upsertHuman3DJob,
 } from '../utils/tryOnHistory'
 
@@ -64,9 +80,9 @@ const { showError, showSuccess } = useToast()
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 const DEFAULT_MAX_PIXELS = 20_000_000
 const JOB_TOAST_DURATION = 8000
-const WARDROBE_TABS = ['outfits', 'items', 'upload'] as const
+const WARDROBE_TABS = ['outfits', 'items', 'wardrobe', 'upload'] as const
 
-type WardrobeTab = 'outfits' | 'items' | 'upload'
+type WardrobeTab = 'outfits' | 'items' | 'wardrobe' | 'upload'
 
 const capabilities = ref<TryOnCapabilities | null>(null)
 const capabilityLoading = ref(true)
@@ -76,6 +92,9 @@ const wardrobeTab = ref<WardrobeTab>('outfits')
 const references = ref<Partial<Record<TryOnReferenceType, TryOnReferenceSelection>>>({})
 const draftCandidates = ref<Partial<Record<TryOnReferenceType, CatalogItem[]>>>({})
 const unsupportedItems = ref<CatalogItem[]>([])
+const wardrobeItems = ref<WardrobeItem[]>([])
+const wardrobeLoading = ref(true)
+const wardrobeUploadingType = ref<TryOnReferenceType | null>(null)
 const selectedPersonId = ref<string | null>(null)
 const temporaryPersonFile = ref<File | null>(null)
 const temporaryPersonPreview = ref('')
@@ -87,10 +106,18 @@ const editingPhotoId = ref<string | null>(null)
 const editingPhotoName = ref('')
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
+const historyLoading = ref(true)
+const historyNow = ref(Date.now())
 const submitting = ref(false)
 const human3DJobs = ref<Human3DJob[]>([])
 const human3DSubmitting = ref(false)
 const resultMode = ref<'2d' | '3d'>('2d')
+const similarReferenceType = ref<TryOnReferenceType | null>(null)
+const similarItems = ref<SimilarCatalogItem[]>([])
+const similarLoading = ref(false)
+const similarError = ref('')
+let similarRequestGeneration = 0
+let similarAbortController: AbortController | null = null
 let pollTimer: number | undefined
 let human3DPollTimer: number | undefined
 let cleanupTimer: number | undefined
@@ -108,11 +135,6 @@ const {
   loadFavorites,
 } = useUserLibrary(props.userKey)
 
-const historyStorageKey = computed(() => (
-  `matching-outfit.tryon-history:v${TRYON_HISTORY_STORAGE_VERSION}:${props.userKey}`
-))
-const previousHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v2:${props.userKey}`)
-const legacyHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v1:${props.userKey}`)
 const selectedSavedPerson = computed(() => (
   personLibrary.photos.value.find((photo) => photo.id === selectedPersonId.value) ?? null
 ))
@@ -176,6 +198,16 @@ const human3DIsPending = computed(() => (
   || human3DJob.value?.status === 'queued'
   || human3DJob.value?.status === 'running'
 ))
+const jobResultExpired = computed(() => Boolean(job.value && jobIsExpired(job.value, historyNow.value)))
+const jobHasAvailableResult = computed(() => Boolean(
+  job.value?.status === 'succeeded'
+  && job.value.result_url
+  && !jobResultExpired.value,
+))
+const replayableHistoryReferences = computed(() => (
+  job.value ? referencesForHistory(job.value) : {}
+))
+const canReapplyHistory = computed(() => Object.keys(replayableHistoryReferences.value).length > 0)
 
 function stopPolling() {
   if (pollTimer !== undefined) window.clearTimeout(pollTimer)
@@ -187,51 +219,31 @@ function stopHuman3DPolling() {
   human3DPollTimer = undefined
 }
 
-function persistHistory() {
-  try {
-    const previousSelectedId = job.value?.id ?? null
-    const snapshot = normalizeTryOnHistory(
-      historyJobs.value,
-      human3DJobs.value,
-      previousSelectedId,
-    )
-    historyJobs.value = snapshot.jobs
-    human3DJobs.value = snapshot.human3DJobs
-    job.value = snapshot.jobs.find((historyJob) => historyJob.id === snapshot.selectedJobId)
-      ?? null
-    if (previousSelectedId !== snapshot.selectedJobId) resultMode.value = '2d'
-    const retainedTryOnIds = new Set(snapshot.jobs.map((historyJob) => historyJob.id))
-    retryJobIds.forEach((jobId) => {
-      if (!retainedTryOnIds.has(jobId)) retryJobIds.delete(jobId)
-    })
-    const retainedHuman3DIds = new Set(snapshot.human3DJobs.map((humanJob) => humanJob.id))
-    human3DRetryJobIds.forEach((jobId) => {
-      if (!retainedHuman3DIds.has(jobId)) human3DRetryJobIds.delete(jobId)
-    })
-    if (!snapshot.jobs.length) {
-      window.localStorage.removeItem(historyStorageKey.value)
-      return
-    }
-    window.localStorage.setItem(historyStorageKey.value, JSON.stringify(snapshot))
-  } catch {
-    showError('瀏覽器無法保存最近試穿紀錄。')
-  }
-}
-
-function discardStoredHistory() {
-  try {
-    window.localStorage.removeItem(historyStorageKey.value)
-    window.localStorage.removeItem(previousHistoryStorageKey.value)
-    window.localStorage.removeItem(legacyHistoryStorageKey.value)
-  } catch {
-    // The in-memory history still works when browser storage is unavailable.
-  }
+function normalizeHistoryState() {
+  const previousSelectedId = job.value?.id ?? null
+  const snapshot = normalizeTryOnHistory(
+    historyJobs.value,
+    human3DJobs.value,
+    previousSelectedId,
+  )
+  historyJobs.value = snapshot.jobs
+  human3DJobs.value = snapshot.human3DJobs
+  job.value = snapshot.jobs.find((historyJob) => historyJob.id === snapshot.selectedJobId)
+    ?? null
+  if (previousSelectedId !== snapshot.selectedJobId) resultMode.value = '2d'
+  const retainedTryOnIds = new Set(snapshot.jobs.map((historyJob) => historyJob.id))
+  retryJobIds.forEach((jobId) => {
+    if (!retainedTryOnIds.has(jobId)) retryJobIds.delete(jobId)
+  })
+  const retainedHuman3DIds = new Set(snapshot.human3DJobs.map((humanJob) => humanJob.id))
+  human3DRetryJobIds.forEach((jobId) => {
+    if (!retainedHuman3DIds.has(jobId)) human3DRetryJobIds.delete(jobId)
+  })
 }
 
 function selectHistoryJob(historyJob: TryOnJob, mode: '2d' | '3d' = '2d') {
   job.value = historyJob
   resultMode.value = mode
-  persistHistory()
 }
 
 function replaceHistory(nextJob: TryOnJob, select = false) {
@@ -244,31 +256,24 @@ function replaceHistory(nextJob: TryOnJob, select = false) {
     if (select) resultMode.value = '2d'
   }
   if (!job.value && historyJobs.value.length) job.value = historyJobs.value[0]
-  persistHistory()
+  normalizeHistoryState()
 }
 
 function cleanExpiredHistory() {
-  persistHistory()
+  historyNow.value = Date.now()
 }
 
-function loadHistory() {
+async function loadHistory() {
+  historyLoading.value = true
   try {
-    window.localStorage.removeItem(legacyHistoryStorageKey.value)
-    const currentRaw = window.localStorage.getItem(historyStorageKey.value)
-    const previousRaw = window.localStorage.getItem(previousHistoryStorageKey.value)
-    const stored = parseTryOnHistory(currentRaw) ?? parseTryOnHistory(previousRaw)
-    if (!stored) {
-      if (currentRaw || previousRaw) discardStoredHistory()
-      return
-    }
-    historyJobs.value = stored.jobs
-    human3DJobs.value = stored.human3DJobs
-    job.value = stored.jobs.find((historyJob) => historyJob.id === stored.selectedJobId)
-      ?? null
-    persistHistory()
-    window.localStorage.removeItem(previousHistoryStorageKey.value)
-  } catch {
-    discardStoredHistory()
+    const history = await getTryOnHistory(props.userKey)
+    historyJobs.value = history.jobs
+    human3DJobs.value = history.human3d_jobs
+    normalizeHistoryState()
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法載入最近試穿紀錄')
+  } finally {
+    historyLoading.value = false
   }
 }
 
@@ -315,28 +320,34 @@ function notifyHuman3DTransition(previous: Human3DJob | null, next: Human3DJob) 
   }
 }
 
-function clearHistory() {
-  if (!window.confirm('清除這個瀏覽器中的最近試穿紀錄？遠端工作不會刪除，但之後將無法從此列表找回。')) return
+async function clearHistory() {
+  if (!window.confirm('清除這個帳號的最近試穿紀錄？試穿工作與遠端成果不會刪除，但之後不會再出現在列表中。')) return
   stopPolling()
   stopHuman3DPolling()
-  historyGeneration += 1
-  human3DHistoryGeneration += 1
-  retryJobIds.clear()
-  human3DRetryJobIds.clear()
-  historyJobs.value = []
-  human3DJobs.value = []
-  job.value = null
-  human3DSubmitting.value = false
-  resultMode.value = '2d'
-  discardStoredHistory()
+  try {
+    await clearTryOnHistory(props.userKey)
+    historyGeneration += 1
+    human3DHistoryGeneration += 1
+    retryJobIds.clear()
+    human3DRetryJobIds.clear()
+    historyJobs.value = []
+    human3DJobs.value = []
+    job.value = null
+    human3DSubmitting.value = false
+    resultMode.value = '2d'
+    showSuccess('最近試穿紀錄已清除。')
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法清除最近試穿紀錄')
+  }
 }
 
 function referenceTypesLabel(types: TryOnReferenceType[]) {
   return types.map((type) => TRYON_REFERENCE_LABELS[type]).join('、')
 }
 
-function historyStatusLabel(status: TryOnJob['status']) {
-  return { queued: '排隊中', running: '處理中', succeeded: '已完成', failed: '失敗' }[status]
+function historyStatusLabel(historyJob: TryOnJob) {
+  if (historyJob.status === 'succeeded' && jobIsExpired(historyJob, historyNow.value)) return '成果已過期'
+  return { queued: '排隊中', running: '處理中', succeeded: '已完成', failed: '失敗' }[historyJob.status]
 }
 
 function formatHistoryTime(value: string) {
@@ -451,13 +462,14 @@ async function deletePersonPhoto(photo: SavedPersonPhoto) {
 function referencePreview(referenceType: TryOnReferenceType) {
   const selection = references.value[referenceType]
   if (!selection) return ''
-  return selection.source === 'favorite' ? selection.item.image_url : selection.previewUrl
+  return selection.source === 'upload' ? selection.previewUrl : selection.item.image_url
 }
 
 function referenceName(referenceType: TryOnReferenceType) {
   const selection = references.value[referenceType]
   if (!selection) return ''
-  return selection.source === 'favorite' ? selection.item.product_display_name : selection.file.name
+  if (selection.source === 'catalog') return selection.item.product_display_name
+  return selection.source === 'wardrobe' ? selection.item.name : selection.file.name
 }
 
 function removeReference(referenceType: TryOnReferenceType) {
@@ -469,6 +481,7 @@ function removeReference(referenceType: TryOnReferenceType) {
   const nextCandidates = { ...draftCandidates.value }
   delete nextCandidates[referenceType]
   draftCandidates.value = nextCandidates
+  if (similarReferenceType.value === referenceType) closeSimilarPanel()
 }
 
 function clearReferences() {
@@ -478,6 +491,7 @@ function clearReferences() {
   references.value = {}
   draftCandidates.value = {}
   unsupportedItems.value = []
+  closeSimilarPanel()
 }
 
 function setFavoriteReference(item: CatalogItem) {
@@ -487,19 +501,20 @@ function setFavoriteReference(item: CatalogItem) {
   if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
   references.value = {
     ...references.value,
-    [referenceType]: { source: 'favorite', item },
+    [referenceType]: { source: 'catalog', item },
   }
   draftCandidates.value = {
     ...draftCandidates.value,
     [referenceType]: [item],
   }
+  if (similarReferenceType.value === referenceType) closeSimilarPanel()
 }
 
 function favoriteItemSelected(item: CatalogItem) {
   const referenceType = referenceTypeForCatalogItem(item)
   if (!referenceType) return false
   const selection = references.value[referenceType]
-  return selection?.source === 'favorite' && selection.item.id === item.id
+  return selection?.source === 'catalog' && selection.item.id === item.id
 }
 
 function favoriteReferenceTypeLabel(item: CatalogItem) {
@@ -507,29 +522,63 @@ function favoriteReferenceTypeLabel(item: CatalogItem) {
   return referenceType ? TRYON_REFERENCE_LABELS[referenceType] : '目前不支援'
 }
 
-function chooseCandidate(referenceType: TryOnReferenceType, item: CatalogItem) {
-  references.value = {
-    ...references.value,
-    [referenceType]: { source: 'favorite', item },
-  }
+function wardrobeReferenceTypeLabel(item: WardrobeItem) {
+  return TRYON_REFERENCE_LABELS[referenceTypeForWardrobeItem(item)]
 }
 
-function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] ?? null
-  input.value = ''
-  if (!file) return
+function historyReferenceSourceLabel(reference: TryOnJobReference) {
+  if (reference.source === 'catalog') return reference.catalog_item ? '目錄商品' : '商品已失效'
+  if (reference.source === 'wardrobe') return reference.wardrobe_item ? '我的衣櫃' : '衣櫃單品已移除'
+  return '自訂上傳（未保存原圖）'
+}
+
+function setWardrobeReference(item: WardrobeItem) {
+  const referenceType = referenceTypeForWardrobeItem(item)
   const current = references.value[referenceType]
   if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
   references.value = {
     ...references.value,
-    [referenceType]: {
-      source: 'upload',
-      file,
-      previewUrl: URL.createObjectURL(file),
-    },
+    [referenceType]: { source: 'wardrobe', item },
   }
   draftCandidates.value = { ...draftCandidates.value, [referenceType]: [] }
+  if (similarReferenceType.value === referenceType) closeSimilarPanel()
+}
+
+function wardrobeItemSelected(item: WardrobeItem) {
+  const referenceType = referenceTypeForWardrobeItem(item)
+  const selection = references.value[referenceType]
+  return selection?.source === 'wardrobe' && selection.item.id === item.id
+}
+
+function chooseCandidate(referenceType: TryOnReferenceType, item: CatalogItem) {
+  references.value = {
+    ...references.value,
+    [referenceType]: { source: 'catalog', item },
+  }
+  if (similarReferenceType.value === referenceType) closeSimilarPanel()
+}
+
+async function chooseReferenceImage(event: Event, referenceType: TryOnReferenceType) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (!file || wardrobeUploadingType.value) return
+  wardrobeUploadingType.value = referenceType
+  try {
+    const saved = await uploadWardrobeItem(
+      props.userKey,
+      TRYON_WARDROBE_CATEGORIES[referenceType],
+      file,
+    )
+    wardrobeItems.value = [saved, ...wardrobeItems.value]
+    setWardrobeReference(saved)
+    wardrobeTab.value = 'wardrobe'
+    showSuccess(`「${saved.name}」已加入我的衣櫃並選取。`)
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法將單品加入我的衣櫃')
+  } finally {
+    wardrobeUploadingType.value = null
+  }
 }
 
 function chooseClothingMode(mode: 'overall' | 'separates') {
@@ -539,6 +588,93 @@ function chooseClothingMode(mode: 'overall' | 'separates') {
   } else {
     removeReference('overall')
   }
+}
+
+function closeSimilarPanel() {
+  similarRequestGeneration += 1
+  similarAbortController?.abort()
+  similarAbortController = null
+  similarReferenceType.value = null
+  similarItems.value = []
+  similarLoading.value = false
+  similarError.value = ''
+}
+
+async function searchSimilar(referenceType: TryOnReferenceType) {
+  const selection = references.value[referenceType]
+  if (!selection) return
+  similarRequestGeneration += 1
+  const generation = similarRequestGeneration
+  similarAbortController?.abort()
+  const controller = new AbortController()
+  similarAbortController = controller
+  similarReferenceType.value = referenceType
+  similarItems.value = []
+  similarError.value = ''
+  similarLoading.value = true
+  try {
+    let items: SimilarCatalogItem[]
+    if (selection.source === 'catalog') {
+      items = await getSimilarCatalogItems(selection.item.id, 12, controller.signal)
+    } else if (selection.source === 'wardrobe') {
+      items = await getSimilarWardrobeItems(
+        props.userKey,
+        selection.item.id,
+        12,
+        controller.signal,
+      )
+    } else {
+      items = await getSimilarClothes(
+        selection.file,
+        TRYON_REFERENCE_ZONES[referenceType],
+        12,
+        referenceType,
+        controller.signal,
+      )
+    }
+    if (generation !== similarRequestGeneration) return
+    similarItems.value = items
+  } catch (reason) {
+    if (generation !== similarRequestGeneration || controller.signal.aborted) return
+    similarError.value = reason instanceof Error ? reason.message : '無法搜尋相似商品'
+  } finally {
+    if (generation === similarRequestGeneration) {
+      similarLoading.value = false
+      similarAbortController = null
+    }
+  }
+}
+
+function replaceWithSimilar(referenceType: TryOnReferenceType, item: SimilarCatalogItem) {
+  const current = references.value[referenceType]
+  if (current?.source === 'upload') URL.revokeObjectURL(current.previewUrl)
+  references.value = {
+    ...references.value,
+    [referenceType]: { source: 'catalog', item },
+  }
+  draftCandidates.value = { ...draftCandidates.value, [referenceType]: [item] }
+  closeSimilarPanel()
+  showSuccess(`${TRYON_REFERENCE_LABELS[referenceType]}已替換為「${item.product_display_name}」。`)
+}
+
+function reapplySelectedHistory() {
+  if (!job.value || !canReapplyHistory.value) return
+  const historyJob = job.value
+  const storedReferences = referencesForHistory(historyJob)
+  clearReferences()
+  TRYON_REFERENCE_TYPES.forEach((referenceType) => {
+    const reference = storedReferences[referenceType]
+    if (reference?.catalog_item) setFavoriteReference(reference.catalog_item)
+    if (reference?.wardrobe_item) setWardrobeReference(reference.wardrobe_item)
+  })
+  const skipped = historyJob.references.filter(
+    (reference) => !reference.catalog_item && !reference.wardrobe_item,
+  ).length
+  showSuccess(
+    skipped
+      ? `已套用可用商品；另有 ${skipped} 個自訂上傳或失效商品無法還原。`
+      : '已將這套歷史穿搭套用到選擇區。',
+  )
 }
 
 function handleWardrobeTabKeydown(event: KeyboardEvent, currentTab: WardrobeTab) {
@@ -590,7 +726,7 @@ function selectFavoriteOutfit(outfit: { id: number; items: CatalogItem[] }) {
 
 function outfitSelected(outfit: { items: CatalogItem[] }) {
   const selectedIds = new Set(Object.values(references.value)
-    .filter((selection): selection is Extract<TryOnReferenceSelection, { source: 'favorite' }> => selection?.source === 'favorite')
+    .filter((selection): selection is Extract<TryOnReferenceSelection, { source: 'catalog' }> => selection?.source === 'catalog')
     .map((selection) => selection.item.id))
   const supportedIds = outfit.items
     .filter((item) => referenceTypeForCatalogItem(item))
@@ -635,6 +771,17 @@ async function loadHuman3DCapabilities() {
   }
 }
 
+async function loadWardrobe() {
+  wardrobeLoading.value = true
+  try {
+    wardrobeItems.value = await getWardrobeItems(props.userKey)
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法載入我的衣櫃')
+  } finally {
+    wardrobeLoading.value = false
+  }
+}
+
 async function reloadCapabilities() {
   await Promise.allSettled([loadCapabilities(), loadHuman3DCapabilities()])
 }
@@ -672,7 +819,7 @@ async function synchronizeHuman3DHistory(refreshAll = false) {
       failedRequests += 1
     }
   })
-  persistHistory()
+  normalizeHistoryState()
   if (failedRequests) {
     showError(`有 ${failedRequests} 筆 3D 工作暫時無法更新，將自動重試。`)
   }
@@ -695,7 +842,7 @@ async function generateHuman3D() {
   try {
     const created = await createHuman3DJob(tryOnJobId, props.userKey)
     human3DJobs.value = upsertHuman3DJob(human3DJobs.value, created)
-    persistHistory()
+    normalizeHistoryState()
     notifyHuman3DTransition(null, created)
     if (created.status === 'queued' || created.status === 'running') {
       human3DPollTimer = window.setTimeout(synchronizeHuman3DHistory, 1200)
@@ -746,7 +893,7 @@ async function synchronizeHistory(refreshAll = false) {
       failedRequests += 1
     }
   })
-  persistHistory()
+  normalizeHistoryState()
   if (failedRequests) {
     showError(`有 ${failedRequests} 筆紀錄暫時無法更新，將自動重試。`)
   }
@@ -762,32 +909,6 @@ function extensionForType(contentType: string) {
   if (contentType === 'image/png') return 'png'
   if (contentType === 'image/webp') return 'webp'
   return 'jpg'
-}
-
-async function catalogItemFile(item: CatalogItem, referenceType: TryOnReferenceType): Promise<File> {
-  const response = await fetch(item.image_url)
-  if (!response.ok) throw new Error(`${TRYON_REFERENCE_LABELS[referenceType]}商品圖片讀取失敗，請重新選擇`)
-  const blob = await response.blob()
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) {
-    throw new Error(`${TRYON_REFERENCE_LABELS[referenceType]}商品圖片格式不支援`)
-  }
-  return new File(
-    [blob],
-    `favorite-${item.id}.${extensionForType(blob.type)}`,
-    { type: blob.type },
-  )
-}
-
-async function materializeReferences() {
-  const entries = await Promise.all(selectedReferenceTypes.value.map(async (referenceType) => {
-    const selection = references.value[referenceType]
-    if (!selection) throw new Error(`請重新選擇${TRYON_REFERENCE_LABELS[referenceType]}`)
-    const file = selection.source === 'upload'
-      ? selection.file
-      : await catalogItemFile(selection.item, referenceType)
-    return [referenceType, file] as const
-  }))
-  return Object.fromEntries(entries) as Partial<Record<TryOnReferenceType, File>>
 }
 
 function selectedPersonFile(): File | null {
@@ -807,8 +928,7 @@ async function submit() {
   stopPolling()
   submitting.value = true
   try {
-    const referenceFiles = await materializeReferences()
-    const createdJob = await createTryOnJob(person, referenceFiles, props.userKey)
+    const createdJob = await createTryOnJob(person, references.value, props.userKey)
     replaceHistory(createdJob, true)
     notifyTryOnTransition(null, createdJob)
     pollTimer = window.setTimeout(synchronizeHistory, 2000)
@@ -840,12 +960,13 @@ watch(personLibrary.photos, () => {
 
 onMounted(async () => {
   componentActive = true
-  loadHistory()
   await Promise.allSettled([
+    loadHistory(),
     loadCapabilities(),
     loadHuman3DCapabilities(),
     personLibrary.load(),
     loadFavorites(),
+    loadWardrobe(),
   ])
   syncPersonPreviewUrls()
   if (!selectedPersonId.value) selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
@@ -858,6 +979,7 @@ onBeforeUnmount(() => {
   componentActive = false
   stopPolling()
   stopHuman3DPolling()
+  closeSimilarPanel()
   if (cleanupTimer !== undefined) window.clearInterval(cleanupTimer)
   temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, null)
   Object.values(personPreviewUrls.value).forEach((preview) => URL.revokeObjectURL(preview))
@@ -973,10 +1095,23 @@ onBeforeUnmount(() => {
                 <strong>{{ TRYON_REFERENCE_LABELS[referenceType] }}</strong>
                 <span v-if="references[referenceType]" class="tryon-slot-status"><Check :size="13" />已選取</span>
               </header>
-              <div v-if="references[referenceType]" class="tryon-slot-preview">
-                <img :src="referencePreview(referenceType)" :alt="referenceName(referenceType)" />
-                <span>{{ referenceName(referenceType) }}</span>
-                <button type="button" :aria-label="`移除${TRYON_REFERENCE_LABELS[referenceType]}`" @click="removeReference(referenceType)"><X :size="15" /></button>
+              <div v-if="references[referenceType]" class="tryon-slot-selection">
+                <div class="tryon-slot-preview">
+                  <img :src="referencePreview(referenceType)" :alt="referenceName(referenceType)" />
+                  <span>{{ referenceName(referenceType) }}</span>
+                  <button type="button" :aria-label="`移除${TRYON_REFERENCE_LABELS[referenceType]}`" @click="removeReference(referenceType)"><X :size="15" /></button>
+                </div>
+                <button
+                  type="button"
+                  class="tryon-find-similar"
+                  :aria-expanded="similarReferenceType === referenceType"
+                  aria-controls="tryon-similar-panel"
+                  @click="searchSimilar(referenceType)"
+                >
+                  <LoaderCircle v-if="similarReferenceType === referenceType && similarLoading" :size="14" class="spinning" />
+                  <Search v-else :size="14" />
+                  找相似
+                </button>
               </div>
               <div v-else-if="(draftCandidates[referenceType]?.length ?? 0) > 1" class="tryon-candidate-list">
                 <small>請選擇一件</small>
@@ -990,20 +1125,55 @@ onBeforeUnmount(() => {
                   <span>{{ candidate.product_display_name }}</span>
                 </button>
               </div>
-              <label v-else-if="wardrobeTab === 'upload'" class="tryon-slot-empty upload">
-                <Upload :size="20" /><span>上傳{{ TRYON_REFERENCE_LABELS[referenceType] }}</span>
+              <label v-else-if="wardrobeTab === 'upload'" class="tryon-slot-empty upload" :class="{ disabled: wardrobeUploadingType }">
+                <LoaderCircle v-if="wardrobeUploadingType === referenceType" :size="20" class="spinning" />
+                <Upload v-else :size="20" />
+                <span>{{ wardrobeUploadingType === referenceType ? '正在加入衣櫃…' : `上傳${TRYON_REFERENCE_LABELS[referenceType]}` }}</span>
                 <input
                   class="tryon-file-input"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  :disabled="isReferenceDisabled(referenceType)"
-                  :aria-label="`上傳${TRYON_REFERENCE_LABELS[referenceType]}圖片`"
+                  :disabled="isReferenceDisabled(referenceType) || Boolean(wardrobeUploadingType)"
+                  :aria-label="`上傳${TRYON_REFERENCE_LABELS[referenceType]}圖片並加入我的衣櫃`"
                   @change="chooseReferenceImage($event, referenceType)"
                 />
               </label>
               <div v-else class="tryon-slot-empty"><Shirt :size="20" /><span>尚未選擇</span></div>
             </article>
           </div>
+
+          <section
+            v-if="similarReferenceType"
+            id="tryon-similar-panel"
+            class="tryon-similar-panel"
+            aria-labelledby="tryon-similar-heading"
+          >
+            <header>
+              <div>
+                <span>Similar items</span>
+                <h4 id="tryon-similar-heading">與「{{ referenceName(similarReferenceType) }}」相似的{{ TRYON_REFERENCE_LABELS[similarReferenceType] }}</h4>
+              </div>
+              <button type="button" aria-label="關閉相似商品" @click="closeSimilarPanel"><X :size="17" /></button>
+            </header>
+            <div v-if="similarLoading" class="tryon-similar-state" role="status">
+              <LoaderCircle :size="22" class="spinning" />正在搜尋相似商品…
+            </div>
+            <div v-else-if="similarError" class="tryon-similar-state error" role="alert">
+              <AlertCircle :size="20" />
+              <span>{{ similarError }}</span>
+              <button type="button" class="secondary-button" @click="searchSimilar(similarReferenceType)">重試</button>
+            </div>
+            <div v-else-if="!similarItems.length" class="tryon-similar-state" role="status">
+              <Search :size="22" />目前沒有符合這個槽位的相似商品。
+            </div>
+            <div v-else class="tryon-similar-grid" aria-live="polite">
+              <ProductCard v-for="item in similarItems" :key="item.id" :item="item" show-similarity>
+                <button type="button" class="secondary-button" @click="replaceWithSimilar(similarReferenceType, item)">
+                  <RotateCcw :size="14" />替換{{ TRYON_REFERENCE_LABELS[similarReferenceType] }}
+                </button>
+              </ProductCard>
+            </div>
+          </section>
 
           <div v-if="hasModeConflict" class="tryon-conflict" role="alert">
             <AlertCircle :size="18" />
@@ -1047,6 +1217,19 @@ onBeforeUnmount(() => {
               <Shirt :size="16" />收藏單品
             </button>
             <button
+              id="tryon-source-tab-wardrobe"
+              type="button"
+              role="tab"
+              :tabindex="wardrobeTab === 'wardrobe' ? 0 : -1"
+              :aria-selected="wardrobeTab === 'wardrobe'"
+              aria-controls="tryon-source-panel-wardrobe"
+              :class="{ active: wardrobeTab === 'wardrobe' }"
+              @click="wardrobeTab = 'wardrobe'"
+              @keydown="handleWardrobeTabKeydown($event, 'wardrobe')"
+            >
+              <Images :size="16" />我的衣櫃
+            </button>
+            <button
               id="tryon-source-tab-upload"
               type="button"
               role="tab"
@@ -1066,7 +1249,7 @@ onBeforeUnmount(() => {
             role="tabpanel"
             :aria-labelledby="`tryon-source-tab-${wardrobeTab}`"
           >
-            <div v-if="favoritesLoading" class="loading-state">正在載入收藏…</div>
+            <div v-if="(wardrobeTab === 'outfits' || wardrobeTab === 'items') && favoritesLoading" class="loading-state">正在載入收藏…</div>
             <div v-else-if="wardrobeTab === 'outfits'" class="tryon-wardrobe-grid outfits">
               <button
                 v-for="outfit in favoriteOutfits"
@@ -1105,9 +1288,31 @@ onBeforeUnmount(() => {
               </button>
               <div v-if="!supportedFavoriteItems.length" class="tryon-empty-source"><Shirt :size="27" /><p>還沒有可試穿的收藏單品。</p></div>
             </div>
+            <div v-else-if="wardrobeTab === 'wardrobe' && wardrobeLoading" class="loading-state">正在載入我的衣櫃…</div>
+            <div v-else-if="wardrobeTab === 'wardrobe'" class="tryon-wardrobe-grid items personal">
+              <button
+                v-for="wardrobeItem in wardrobeItems"
+                :key="wardrobeItem.id"
+                type="button"
+                class="tryon-wardrobe-item"
+                :class="{ selected: wardrobeItemSelected(wardrobeItem) }"
+                @click="setWardrobeReference(wardrobeItem)"
+              >
+                <img :src="wardrobeItem.image_url" :alt="wardrobeItem.name" />
+                <span>
+                  <strong>{{ wardrobeItem.name }}</strong>
+                  <small>{{ wardrobeReferenceTypeLabel(wardrobeItem) }}{{ wardrobeItemSelected(wardrobeItem) ? ' · 已選取' : '' }}</small>
+                </span>
+                <Check v-if="wardrobeItemSelected(wardrobeItem)" :size="16" />
+              </button>
+              <div v-if="!wardrobeItems.length" class="tryon-empty-source">
+                <Images :size="27" />
+                <p>衣櫃目前是空的，可從「自行上傳」新增單品。</p>
+              </div>
+            </div>
             <div v-else class="tryon-upload-guidance">
               <Upload :size="24" />
-              <div><strong>從上方槽位上傳商品照</strong><p>每個槽位只能選一張；連身服飾不能與上身或下身同時使用。</p></div>
+              <div><strong>從上方槽位上傳商品照</strong><p>上傳成功會保存到「我的衣櫃」，之後可重複選用與找相似商品。</p></div>
             </div>
           </div>
 
@@ -1128,11 +1333,14 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="tryon-result-card">
-        <div v-if="historyJobs.length" class="tryon-history">
+        <div v-if="historyLoading" class="tryon-history-loading" role="status">
+          <LoaderCircle :size="17" class="spinning" />正在載入最近試穿…
+        </div>
+        <div v-else-if="historyJobs.length" class="tryon-history">
           <div class="tryon-history-heading">
-            <div><strong>最近試穿</strong></div>
-            <button type="button" title="只清除本機紀錄，不會刪除遠端工作" @click="clearHistory">
-              <Trash2 :size="14" />清除本機紀錄
+            <div><strong>最近試穿</strong><small>最新 20 筆</small></div>
+            <button type="button" title="隱藏歷史紀錄，不會刪除工作或遠端成果" @click="clearHistory">
+              <Trash2 :size="14" />清除紀錄
             </button>
           </div>
           <div class="tryon-history-list" role="list" aria-label="最近試穿紀錄">
@@ -1145,19 +1353,41 @@ onBeforeUnmount(() => {
               :class="['tryon-history-item', historyJob.status, { active: job?.id === historyJob.id }]"
               @click="selectHistoryJob(historyJob)"
             >
-              <span>{{ historyStatusLabel(historyJob.status) }}</span>
+              <span v-if="historyJob.references.length" class="tryon-history-images" aria-hidden="true">
+                <template v-for="reference in historyJob.references" :key="reference.reference_type">
+                  <img v-if="reference.image_url" :src="reference.image_url" alt="" />
+                  <span v-else><Shirt :size="14" /></span>
+                </template>
+              </span>
+              <span class="tryon-history-status">{{ historyStatusLabel(historyJob) }}</span>
               <strong>{{ referenceTypesLabel(historyJob.reference_types) }}</strong>
               <small>{{ formatHistoryTime(historyJob.created_at) }}</small>
             </button>
           </div>
+          <div v-if="job" class="tryon-history-detail">
+            <div v-if="job.references.length" class="tryon-history-references">
+              <div v-for="reference in job.references" :key="reference.reference_type" class="tryon-history-reference">
+                <img v-if="reference.image_url" :src="reference.image_url" :alt="reference.display_name" />
+                <span v-else class="tryon-history-placeholder"><Shirt :size="20" /></span>
+                <span>
+                  <strong>{{ TRYON_REFERENCE_LABELS[reference.reference_type] }} · {{ reference.display_name }}</strong>
+                  <small>{{ historyReferenceSourceLabel(reference) }}</small>
+                </span>
+              </div>
+            </div>
+            <p v-else class="tryon-history-legacy">這是舊版紀錄，只保留槽位資料，無法還原當時商品。</p>
+            <button type="button" class="secondary-button tryon-reapply" :disabled="!canReapplyHistory" @click="reapplySelectedHistory">
+              <RotateCcw :size="15" />再次套用可用商品
+            </button>
+          </div>
         </div>
         <div class="tryon-result-body" aria-live="polite">
-          <div v-if="job?.status === 'succeeded' && job.result_url" class="tryon-result">
+          <div v-if="jobHasAvailableResult" class="tryon-result">
             <Human3DViewer
               v-if="resultMode === '3d' && human3DJob?.status === 'succeeded' && human3DJob.result_url"
               :src="human3DJob.result_url"
             />
-            <img v-else :src="job.result_url" alt="虛擬試穿結果" />
+            <img v-else :src="job?.result_url || ''" alt="虛擬試穿結果" />
             <div class="tryon-result-status"><CheckCircle2 :size="17" /><strong>{{ resultMode === '3d' ? '3D View 已完成' : statusLabel }}</strong></div>
             <div class="human3d-actions">
               <button
@@ -1203,11 +1433,13 @@ onBeforeUnmount(() => {
           </div>
           <div v-else class="tryon-result-placeholder" :class="{ processing: job?.status === 'queued' || job?.status === 'running' }">
             <LoaderCircle v-if="job?.status === 'queued' || job?.status === 'running'" :size="36" class="spinning" />
+            <AlertCircle v-else-if="jobResultExpired" :size="42" />
             <ScanFace v-else :size="42" />
-            <h3>{{ statusLabel || '試穿結果會顯示在這裡' }}</h3>
+            <h3>{{ jobResultExpired ? '成果已過期' : statusLabel || '試穿結果會顯示在這裡' }}</h3>
             <p v-if="job?.status === 'queued'">正在等待處理。</p>
             <p v-else-if="job?.status === 'running'">正在生成試穿結果。</p>
             <p v-else-if="job?.status === 'failed'">{{ job.error || '這次試穿未能完成，請重新送出。' }}</p>
+            <p v-else-if="jobResultExpired">2D／3D 成果已超過保存期限，但上方仍保留當時的穿搭明細。</p>
             <p v-else>選好人物與穿搭並送出後，結果會保留在這裡方便比較。</p>
           </div>
         </div>

@@ -1,4 +1,11 @@
-import type { CatalogItem, TryOnDraft, TryOnReferenceType } from '../types'
+import type {
+  CatalogItem,
+  GarmentZone,
+  TryOnDraft,
+  TryOnReferenceType,
+  WardrobeCategory,
+  WardrobeItem,
+} from '../types'
 
 const SHOE_WORDS = /\b(shoe|shoes|boot|boots|sneaker|sneakers|sandal|sandals|pump|pumps|ballerina|ballerinas|slipper|slippers|heel|heels|footwear|wedge|wedges|bootie|booties|flip flop|flip flops)\b/i
 const BAG_WORDS = /\b(bag|bags|handbag|handbags|backpack|backpacks|purse|purses|tote|totes|clutch|clutches)\b/i
@@ -17,6 +24,32 @@ export const TRYON_REFERENCE_LABELS: Record<TryOnReferenceType, string> = {
   overall: '洋裝／連身',
   shoe: '鞋子',
   bag: '包包',
+}
+
+export const TRYON_REFERENCE_ZONES: Record<TryOnReferenceType, GarmentZone> = {
+  upper: 'upper_body',
+  lower: 'lower_body',
+  overall: 'one_piece',
+  shoe: 'accessory',
+  bag: 'accessory',
+}
+
+export const TRYON_WARDROBE_CATEGORIES: Record<TryOnReferenceType, WardrobeCategory> = {
+  upper: 'upper_body',
+  lower: 'lower_body',
+  overall: 'one_piece',
+  shoe: 'shoes',
+  bag: 'bags',
+}
+
+export function referenceTypeForWardrobeItem(item: WardrobeItem): TryOnReferenceType {
+  return {
+    upper_body: 'upper',
+    lower_body: 'lower',
+    one_piece: 'overall',
+    shoes: 'shoe',
+    bags: 'bag',
+  }[item.category] as TryOnReferenceType
 }
 
 export function referenceTypeForCatalogItem(item: CatalogItem): TryOnReferenceType | null {

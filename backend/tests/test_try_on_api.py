@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 import uuid
 
 from fastapi import FastAPI
@@ -13,7 +14,10 @@ from sqlalchemy.pool import StaticPool
 from app.api import try_on as try_on_api
 from app.db.session import get_db
 from app.models.base import Base
-from app.models.try_on_job import TryOnJob
+from app.models.cloth import Cloth
+from app.models.human3d_job import Human3DJob
+from app.models.try_on_job import TryOnJob, TryOnJobReference
+from app.models.user_wardrobe import UserWardrobeItem
 from app.services.image_inputs import validation as image_validation
 from app.services.tryon_client import TryOnError
 
@@ -70,13 +74,22 @@ class FakeTryOnClient:
 
 
 @pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch):
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(engine, tables=[TryOnJob.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            Cloth.__table__,
+            UserWardrobeItem.__table__,
+            TryOnJob.__table__,
+            TryOnJobReference.__table__,
+            Human3DJob.__table__,
+        ],
+    )
     test_session: sessionmaker[Session] = sessionmaker(
         bind=engine,
         autoflush=False,
@@ -92,6 +105,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
 
     fake_tryon = FakeTryOnClient()
     monkeypatch.setattr(try_on_api, "tryon_client", fake_tryon, raising=False)
+    monkeypatch.setattr(try_on_api.settings, "wardrobe_dir", str(tmp_path / "wardrobe"))
     app = FastAPI()
     app.include_router(try_on_api.router, prefix="/api")
     app.dependency_overrides[get_db] = override_db
@@ -103,6 +117,20 @@ def png_bytes(color: str = "white") -> bytes:
     output = BytesIO()
     Image.new("RGB", (32, 48), color).save(output, format="PNG")
     return output.getvalue()
+
+
+def catalog_cloth(image_path: Path, *, garment_zone: str = "upper_body") -> Cloth:
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(png_bytes("red"))
+    return Cloth(
+        source_item_id=None,
+        product_display_name="測試目錄商品",
+        garment_zone=garment_zone,
+        image_path=str(image_path),
+        image_url="/media/catalog.png",
+        price=100,
+        currency="TWD",
+    )
 
 
 def test_capabilities_reports_reference_contract(client) -> None:
@@ -150,6 +178,86 @@ def test_create_job_forwards_canonical_references_and_persists_types(client) -> 
         assert job is not None
         assert job.remote_job_id == fake_tryon.remote_job_id
         assert job.reference_types == ["upper", "shoe", "bag"]
+        assert [(row.reference_type, row.source) for row in job.references] == [
+            ("upper", "upload"),
+            ("shoe", "upload"),
+            ("bag", "upload"),
+        ]
+
+
+def test_create_job_supports_mixed_catalog_wardrobe_and_upload_sources(client) -> None:
+    test_client, test_session, fake_tryon = client
+    wardrobe_dir = Path(try_on_api.settings.wardrobe_dir)
+    wardrobe_dir.mkdir(parents=True, exist_ok=True)
+    (wardrobe_dir / "pants.png").write_bytes(png_bytes("blue"))
+    with test_session() as db:
+        cloth = catalog_cloth(wardrobe_dir.parent / "catalog" / "shirt.png")
+        wardrobe_item = UserWardrobeItem(
+            user_key="alice",
+            name="藍色長褲",
+            category="lower_body",
+            stored_filename="pants.png",
+            original_filename="藍色長褲.png",
+        )
+        db.add_all([cloth, wardrobe_item])
+        db.commit()
+        cloth_id = cloth.id
+        wardrobe_item_id = wardrobe_item.id
+
+    response = test_client.post(
+        "/api/try-on/jobs",
+        data={
+            "user_key": "alice",
+            "upper_item_id": str(cloth_id),
+            "lower_wardrobe_item_id": str(wardrobe_item_id),
+        },
+        files={
+            "person_image": ("person.png", png_bytes(), "image/png"),
+            "bag_image": ("bag.png", png_bytes("yellow"), "image/png"),
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["reference_types"] == ["upper", "lower", "bag"]
+    assert [row["source"] for row in payload["references"]] == [
+        "catalog",
+        "wardrobe",
+        "upload",
+    ]
+    assert payload["references"][0]["catalog_item"]["id"] == cloth_id
+    assert payload["references"][1]["wardrobe_item"]["id"] == wardrobe_item_id
+    assert payload["references"][2]["image_url"] is None
+    assert list(fake_tryon.create_calls[0][2]) == ["upper", "lower", "bag"]
+
+
+def test_create_job_rejects_duplicate_or_wrong_slot_sources_before_remote_call(client) -> None:
+    test_client, test_session, fake_tryon = client
+    image_path = Path(try_on_api.settings.wardrobe_dir).parent / "catalog" / "pants.png"
+    with test_session() as db:
+        cloth = catalog_cloth(image_path, garment_zone="lower_body")
+        db.add(cloth)
+        db.commit()
+        cloth_id = cloth.id
+
+    duplicate = test_client.post(
+        "/api/try-on/jobs",
+        data={"upper_item_id": str(cloth_id)},
+        files={
+            "person_image": ("person.png", png_bytes(), "image/png"),
+            "upper_image": ("upper.png", png_bytes("red"), "image/png"),
+        },
+    )
+    wrong_slot = test_client.post(
+        "/api/try-on/jobs",
+        data={"upper_item_id": str(cloth_id)},
+        files={"person_image": ("person.png", png_bytes(), "image/png")},
+    )
+
+    assert duplicate.status_code == 422
+    assert wrong_slot.status_code == 422
+    assert "不適用於上身槽位" in wrong_slot.json()["detail"]
+    assert fake_tryon.create_calls == []
 
 
 def test_create_job_requires_at_least_one_reference_before_remote_call(client) -> None:
@@ -293,6 +401,112 @@ def test_transient_remote_failure_does_not_change_job(client, monkeypatch) -> No
         job = db.get(TryOnJob, local_job_id)
         assert job.status == "running"
         assert job.reference_types == ["upper", "bag"]
+
+
+def test_history_is_user_scoped_limited_and_preserves_expired_references(client) -> None:
+    test_client, test_session, _ = client
+    base_time = datetime(2026, 9, 19, 8, tzinfo=timezone.utc)
+    alice_jobs: list[TryOnJob] = []
+    with test_session() as db:
+        for index in range(22):
+            job = TryOnJob(
+                user_key="alice",
+                reference_types=["upper"],
+                status="succeeded",
+                remote_job_id=uuid.uuid4(),
+                created_at=base_time + timedelta(minutes=index),
+                updated_at=base_time + timedelta(minutes=index),
+                expires_at=(
+                    base_time - timedelta(minutes=1)
+                    if index == 21
+                    else base_time + timedelta(days=1)
+                ),
+                references=[
+                    TryOnJobReference(
+                        reference_type="upper",
+                        source="upload",
+                        display_name="自訂上傳",
+                        image_url=None,
+                    )
+                ],
+            )
+            db.add(job)
+            alice_jobs.append(job)
+        bob_job = TryOnJob(
+            user_key="bob",
+            reference_types=["lower"],
+            status="failed",
+            error_message="test",
+        )
+        db.add(bob_job)
+        db.commit()
+        newest_id = alice_jobs[-1].id
+        oldest_retained_id = alice_jobs[2].id
+        omitted_id = alice_jobs[1].id
+        bob_id = bob_job.id
+
+        older_3d = Human3DJob(
+            user_key="alice",
+            try_on_job_id=newest_id,
+            remote_job_id=uuid.uuid4(),
+            status="failed",
+            updated_at=base_time,
+        )
+        latest_3d = Human3DJob(
+            user_key="alice",
+            try_on_job_id=newest_id,
+            remote_job_id=uuid.uuid4(),
+            status="succeeded",
+            artifact_format="ply",
+            updated_at=base_time + timedelta(hours=1),
+            expires_at=base_time - timedelta(minutes=1),
+        )
+        db.add_all([older_3d, latest_3d])
+        db.commit()
+        latest_3d_id = latest_3d.id
+
+    response = test_client.get("/api/try-on/history/alice")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["jobs"]) == 20
+    assert payload["jobs"][0]["id"] == str(newest_id)
+    assert payload["jobs"][-1]["id"] == str(oldest_retained_id)
+    assert str(omitted_id) not in {row["id"] for row in payload["jobs"]}
+    assert payload["jobs"][0]["result_url"] is None
+    assert payload["jobs"][0]["references"][0]["display_name"] == "自訂上傳"
+    assert len(payload["human3d_jobs"]) == 1
+    assert payload["human3d_jobs"][0]["id"] == str(latest_3d_id)
+    assert payload["human3d_jobs"][0]["result_url"] is None
+    assert test_client.get("/api/try-on/history/bob").json()["jobs"][0]["id"] == str(bob_id)
+
+
+def test_clearing_history_only_hides_that_users_existing_jobs(client) -> None:
+    test_client, test_session, _ = client
+    with test_session() as db:
+        alice_job = TryOnJob(
+            user_key="alice",
+            reference_types=["upper"],
+            status="failed",
+        )
+        bob_job = TryOnJob(
+            user_key="bob",
+            reference_types=["lower"],
+            status="failed",
+        )
+        db.add_all([alice_job, bob_job])
+        db.commit()
+        alice_id = alice_job.id
+
+    response = test_client.delete("/api/try-on/history/alice")
+
+    assert response.status_code == 204
+    assert test_client.get("/api/try-on/history/alice").json()["jobs"] == []
+    assert len(test_client.get("/api/try-on/history/bob").json()["jobs"]) == 1
+    with test_session() as db:
+        hidden_job = db.get(TryOnJob, alice_id)
+        assert hidden_job is not None
+        assert hidden_job.history_hidden_at is not None
 
 
 def test_db_failure_deletes_remote_job(client, monkeypatch: pytest.MonkeyPatch) -> None:

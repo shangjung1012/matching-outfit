@@ -11,7 +11,7 @@ class UserWardrobeItem(Base):
     __tablename__ = "user_wardrobe_items"
     __table_args__ = (
         CheckConstraint(
-            "category IN ('upper_body', 'lower_body', 'shoes')",
+            "category IN ('upper_body', 'lower_body', 'one_piece', 'shoes', 'bags')",
             name="ck_user_wardrobe_items_category",
         ),
         Index("ix_user_wardrobe_items_user_created", "user_key", "created_at"),
@@ -30,4 +30,3 @@ class UserWardrobeItem(Base):
     created_at = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-

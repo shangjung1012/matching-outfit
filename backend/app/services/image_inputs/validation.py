@@ -32,8 +32,24 @@ async def validate_image(
 ) -> ValidatedImage:
     """Read and validate JPEG, PNG, or WebP input without persisting it."""
     content = await upload.read(max_bytes + 1)
+    return validate_image_bytes(
+        content,
+        filename=upload.filename or "圖片",
+        max_bytes=max_bytes,
+        max_pixels=max_pixels,
+    )
+
+
+def validate_image_bytes(
+    content: bytes,
+    *,
+    filename: str = "圖片",
+    max_bytes: int,
+    max_pixels: int,
+) -> ValidatedImage:
+    """Validate in-memory image content from trusted catalog files or uploads."""
     if len(content) > max_bytes:
-        raise HTTPException(status_code=413, detail=f"{upload.filename or '圖片'} 超過大小限制")
+        raise HTTPException(status_code=413, detail=f"{filename} 超過大小限制")
     if not content:
         raise HTTPException(status_code=422, detail="請上傳圖片")
     try:
@@ -49,7 +65,7 @@ async def validate_image(
     ) as error:
         raise HTTPException(
             status_code=422,
-            detail=f"{upload.filename or '檔案'} 不是有效圖片",
+            detail=f"{filename or '檔案'} 不是有效圖片",
         ) from error
     if image_format not in IMAGE_TYPES:
         raise HTTPException(status_code=422, detail="只支援 JPEG、PNG 或 WebP 圖片")

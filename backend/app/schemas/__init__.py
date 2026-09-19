@@ -3,6 +3,7 @@ from app.schemas.workflow import (
     CatalogResponse,
     CatalogSemanticSearchRequest,
     CatalogSemanticSearchResponse,
+    SimilarCatalogItem,
     FavoriteCollection,
     FavoriteItem,
     FavoriteOutfit,
@@ -58,7 +59,9 @@ from app.schemas.workflow import (
 )
 from app.schemas.try_on import (
     TryOnCapabilities,
+    TryOnHistoryView,
     TryOnJobStatus,
+    TryOnJobReferenceView,
     TryOnJobView,
     TryOnReferenceType,
 )
@@ -70,6 +73,7 @@ __all__ = [
     "CatalogResponse",
     "CatalogSemanticSearchRequest",
     "CatalogSemanticSearchResponse",
+    "SimilarCatalogItem",
     "FavoriteCollection",
     "FavoriteItem",
     "FavoriteOutfit",
@@ -123,8 +127,10 @@ __all__ = [
     "UserProfileUpdate",
     "UserProfileView",
     "TryOnCapabilities",
+    "TryOnHistoryView",
     "TryOnReferenceType",
     "TryOnJobStatus",
+    "TryOnJobReferenceView",
     "TryOnJobView",
     "Human3DCapabilities",
     "Human3DJobStatus",

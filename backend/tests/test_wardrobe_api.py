@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.wardrobe import router
+from app.api import wardrobe as wardrobe_api
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.base import Base
@@ -35,7 +35,7 @@ def test_wardrobe_upload_uses_filename_and_keeps_favorites_private(tmp_path, mon
             yield db
 
     app = FastAPI()
-    app.include_router(router, prefix="/api")
+    app.include_router(wardrobe_api.router, prefix="/api")
     app.dependency_overrides[get_db] = override_db
 
     with TestClient(app) as client:
@@ -60,8 +60,23 @@ def test_wardrobe_upload_uses_filename_and_keeps_favorites_private(tmp_path, mon
         assert len(client.get("/api/wardrobe/alice?favorites_only=true").json()) == 1
         assert client.get("/api/wardrobe/bob").json() == []
 
+        similarity_call = {}
+
+        def fake_similarity(db, image_bytes, **kwargs):
+            similarity_call["image_bytes"] = image_bytes
+            similarity_call.update(kwargs)
+            return []
+
+        monkeypatch.setattr(wardrobe_api, "find_similar_by_image", fake_similarity)
+        similar = client.get(f"/api/wardrobe/alice/{item['id']}/similar")
+        assert similar.status_code == 200
+        assert similar.json() == []
+        assert similarity_call["image_bytes"] == png_bytes()
+        assert similarity_call["reference_type"] == "upper"
+        assert similarity_call["limit"] == 12
+        assert client.get(f"/api/wardrobe/bob/{item['id']}/similar").status_code == 404
+
         removed = client.delete(f"/api/wardrobe/alice/{item['id']}")
         assert removed.status_code == 204
         assert client.get("/api/wardrobe/alice").json() == []
         assert list(tmp_path.iterdir()) == []
-

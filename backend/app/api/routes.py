@@ -35,6 +35,7 @@ from app.schemas import (
     CatalogResponse,
     CatalogSemanticSearchRequest,
     CatalogSemanticSearchResponse,
+    SimilarCatalogItem,
     FavoriteCollection,
     FavoriteItem,
     FavoriteOutfit,
@@ -55,6 +56,7 @@ from app.schemas import (
     SearchRequest,
     StylePreferenceAddRequest,
     SearchResponse,
+    TryOnReferenceType,
     StylePreferenceConfirmRequest,
     StylePreferenceCreate,
     StylePreferenceMutationResponse,
@@ -70,7 +72,7 @@ from app.schemas import (
 )
 from app.schemas.workflow import GarmentZone, RequirementSummary, SessionHardRules
 from app.services.catalog_search import search_catalog, search_catalog_items
-from app.services.clothes_similarity import find_similar_by_image
+from app.services.clothes_similarity import find_similar_by_catalog_item, find_similar_by_image
 from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
 from app.services.post_review_shoes import attach_post_review_shoes
@@ -361,6 +363,21 @@ def semantic_catalog_search(
     )
 
 
+@router.get("/catalog/{item_id}/similar", response_model=list[SimilarCatalogItem])
+def similar_catalog_items(
+    item_id: int,
+    results: int = Query(default=12, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> list[SimilarCatalogItem]:
+    item = db.get(Cloth, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="找不到目錄商品")
+    try:
+        return find_similar_by_catalog_item(db, item, limit=results)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 def favorite_outfit_signature(item_ids: list[int]) -> str:
     return ",".join(str(item_id) for item_id in sorted(set(item_ids)))
 
@@ -615,15 +632,16 @@ def update_favorite_outfit(
     return favorite_collection_for(db, user_key)
 
 
-@router.post("/similarity_image", response_model=list[ClothResult])
+@router.post("/similarity_image", response_model=list[SimilarCatalogItem])
 async def similarity_image(
     image: UploadFile = File(...),
     # the number of results to return, between 1 and 50
     results: int = Query(default=12, ge=1, le=50),
     # type: upper_body, lower_body, one_piece, shoes, all
     garment_type: GarmentZone | Literal["all"] = Query(default="all", alias="type"),
+    reference_type: TryOnReferenceType | None = Query(default=None),
     db: Session = Depends(get_db),
-) -> list[ClothResult]:
+) -> list[SimilarCatalogItem]:
     """Find similar garments, optionally within one catalog garment type."""
     # validate image size
     uploaded = await validate_image(
@@ -637,6 +655,7 @@ async def similarity_image(
         uploaded.content,
         limit=results,
         garment_type=None if garment_type == "all" else garment_type,
+        reference_type=reference_type,
     )
 
 # ========================================

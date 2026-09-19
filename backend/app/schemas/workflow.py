@@ -662,6 +662,10 @@ class CatalogItem(BaseModel):
     has_embedding: bool
 
 
+class SimilarCatalogItem(CatalogItem):
+    similarity: float = Field(ge=0, le=1)
+
+
 class FavoriteItem(BaseModel):
     item: CatalogItem
     favorited_at: datetime

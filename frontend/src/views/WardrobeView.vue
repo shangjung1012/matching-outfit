@@ -26,7 +26,9 @@ const actionItemId = ref<number | null>(null)
 const categories: Array<{ value: WardrobeCategory; label: string }> = [
   { value: 'upper_body', label: '上裝' },
   { value: 'lower_body', label: '下裝' },
+  { value: 'one_piece', label: '連身' },
   { value: 'shoes', label: '鞋子' },
+  { value: 'bags', label: '包包' },
 ]
 
 const visibleItems = computed(() => items.value.filter((item) => (
@@ -169,7 +171,7 @@ onMounted(() => void loadItems())
     <div v-else class="empty-view wardrobe-empty">
       <Shirt :size="34" />
       <h3>{{ collectionFilter === 'favorites' ? '還沒有衣櫃收藏' : '衣櫃目前是空的' }}</h3>
-      <p>{{ collectionFilter === 'favorites' ? '點單品右上角的愛心，就會收藏在這裡。' : '上傳自己的上裝、下裝或鞋子開始整理。' }}</p>
+      <p>{{ collectionFilter === 'favorites' ? '點單品右上角的愛心，就會收藏在這裡。' : '上傳自己的上裝、下裝、連身、鞋子或包包開始整理。' }}</p>
       <button v-if="collectionFilter === 'all'" class="primary-button" @click="uploadOpen = true"><ImagePlus :size="17" />上傳單品</button>
     </div>
 

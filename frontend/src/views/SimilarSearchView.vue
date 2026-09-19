@@ -4,23 +4,25 @@ import { Upload } from 'lucide-vue-next'
 import { getSimilarClothes } from '../api'
 import ProductCard from '../components/ProductCard.vue'
 import { useToast } from '../composables/useToast'
-import type { ClothResult, GarmentZone } from '../types'
+import type { GarmentZone, SimilarCatalogItem, TryOnReferenceType } from '../types'
 
 const { showError } = useToast()
-const similarItems = ref<ClothResult[]>([])
+const similarItems = ref<SimilarCatalogItem[]>([])
 const loading = ref(false)
 const activeType = ref<GarmentZone | null>(null)
 const uploadedNames = ref<Partial<Record<GarmentZone, string>>>({})
 
-const uploadOptions: Array<{ type: GarmentZone; label: string }> = [
-  { type: 'upper_body', label: '上衣' },
-  { type: 'lower_body', label: '下身' },
-  { type: 'one_piece', label: '連身' },
-  // Shoes are currently imported into the catalog's `other` garment zone.
-  { type: 'other', label: '鞋子' },
+const uploadOptions: Array<{ type: GarmentZone; referenceType: TryOnReferenceType; label: string }> = [
+  { type: 'upper_body', referenceType: 'upper', label: '上衣' },
+  { type: 'lower_body', referenceType: 'lower', label: '下身' },
+  { type: 'one_piece', referenceType: 'overall', label: '連身' },
+  { type: 'accessory', referenceType: 'shoe', label: '鞋子' },
 ]
 
-async function searchSimilar(event: Event, option: { type: GarmentZone; label: string }) {
+async function searchSimilar(
+  event: Event,
+  option: { type: GarmentZone; referenceType: TryOnReferenceType; label: string },
+) {
   const input = event.target as HTMLInputElement
   const image = input.files?.[0]
   if (!image || loading.value) return
@@ -28,7 +30,7 @@ async function searchSimilar(event: Event, option: { type: GarmentZone; label: s
   activeType.value = option.type
   uploadedNames.value = { ...uploadedNames.value, [option.type]: image.name }
   try {
-    similarItems.value = await getSimilarClothes(image, option.type)
+    similarItems.value = await getSimilarClothes(image, option.type, 24, option.referenceType)
   } catch (reason) {
     showError(reason instanceof Error ? reason.message : '無法搜尋相似商品')
     similarItems.value = []

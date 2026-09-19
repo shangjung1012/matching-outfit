@@ -1,7 +1,7 @@
 """add user profile login state
 
-Revision ID: 202609190003
-Revises: 202609190002
+Revision ID: 202609190004
+Revises: 202609190003
 Create Date: 2026-09-19 13:00:00
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "202609190003"
-down_revision = "202609190002"
+revision = "202609190004"
+down_revision = "202609190003"
 branch_labels = None
 depends_on = None
 

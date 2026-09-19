@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
-WardrobeCategory = Literal["upper_body", "lower_body", "shoes"]
+WardrobeCategory = Literal["upper_body", "lower_body", "one_piece", "shoes", "bags"]
 
 
 class WardrobeItemView(BaseModel):
@@ -21,4 +21,3 @@ class WardrobeItemView(BaseModel):
 
 class WardrobeFavoriteUpdate(BaseModel):
     is_favorite: bool
-

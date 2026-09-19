@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,11 +10,20 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user_wardrobe import UserWardrobeItem
 from app.schemas.wardrobe import WardrobeFavoriteUpdate, WardrobeItemView
+from app.schemas.workflow import SimilarCatalogItem
+from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import IMAGE_TYPES, validate_image
 
 
 router = APIRouter(prefix="/wardrobe", tags=["wardrobe"])
-WARDROBE_CATEGORIES = {"upper_body", "lower_body", "shoes"}
+WARDROBE_CATEGORIES = {"upper_body", "lower_body", "one_piece", "shoes", "bags"}
+WARDROBE_REFERENCE_TYPES = {
+    "upper_body": "upper",
+    "lower_body": "lower",
+    "one_piece": "overall",
+    "shoes": "shoe",
+    "bags": "bag",
+}
 
 
 def item_view(item: UserWardrobeItem) -> WardrobeItemView:
@@ -56,7 +66,7 @@ async def upload_wardrobe_item(
     db: Session = Depends(get_db),
 ) -> WardrobeItemView:
     if category not in WARDROBE_CATEGORIES:
-        raise HTTPException(status_code=422, detail="分類必須是上裝、下裝或鞋子")
+        raise HTTPException(status_code=422, detail="分類必須是上裝、下裝、連身、鞋子或包包")
     validated = await validate_image(
         image,
         max_bytes=settings.image_max_upload_bytes,
@@ -89,6 +99,32 @@ async def upload_wardrobe_item(
     return item_view(row)
 
 
+@router.get(
+    "/{user_key}/{item_id}/similar",
+    response_model=list[SimilarCatalogItem],
+)
+async def similar_wardrobe_items(
+    user_key: str,
+    item_id: int,
+    results: int = Query(default=12, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> list[SimilarCatalogItem]:
+    row = db.get(UserWardrobeItem, item_id)
+    if row is None or row.user_key != user_key:
+        raise HTTPException(status_code=404, detail="找不到衣櫃單品")
+    try:
+        image_bytes = (Path(settings.wardrobe_dir) / row.stored_filename).read_bytes()
+    except OSError as error:
+        raise HTTPException(status_code=409, detail="衣櫃圖片目前無法讀取") from error
+    return await run_in_threadpool(
+        find_similar_by_image,
+        db,
+        image_bytes,
+        limit=results,
+        reference_type=WARDROBE_REFERENCE_TYPES[row.category],
+    )
+
+
 @router.patch("/{user_key}/{item_id}/favorite", response_model=WardrobeItemView)
 def update_wardrobe_favorite(
     user_key: str,
@@ -116,4 +152,3 @@ def delete_wardrobe_item(
     db.delete(row)
     db.commit()
     (Path(settings.wardrobe_dir) / stored_filename).unlink(missing_ok=True)
-
