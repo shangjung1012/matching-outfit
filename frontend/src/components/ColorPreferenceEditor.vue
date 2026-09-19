@@ -10,13 +10,16 @@ const colors = [
   { name: 'Black', value: '#202020' },
   { name: 'White', value: '#f5f5f2' },
   { name: 'Grey', value: '#969b9b' },
-  { name: 'Blue', value: '#3f6fa5' },
-  { name: 'Navy Blue', value: '#243852' },
-  { name: 'Red', value: '#ad4643' },
-  { name: 'Green', value: '#52785b' },
-  { name: 'Pink', value: '#d590a2' },
   { name: 'Beige', value: '#d8c8a6' },
-  { name: 'Brown', value: '#795b48' },
+  { name: 'Blue', value: '#3f6fa5' },
+  { name: 'Green', value: '#52785b' },
+  { name: 'Red', value: '#ad4643' },
+  { name: 'Pink', value: '#d590a2' },
+  { name: 'Purple', value: '#8162a7' },
+  { name: 'Orange', value: '#d77a35' },
+  { name: 'Yellow', value: '#d2ac3a' },
+  { name: 'Turquoise', value: '#37a5a1' },
+  { name: 'Metallic', value: '#b09b65' },
 ]
 
 function toggle(name: string) {
