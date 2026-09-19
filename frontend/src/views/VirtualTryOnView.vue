@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   Box,
@@ -47,22 +48,23 @@ import {
   TRYON_REFERENCE_TYPES,
 } from '../utils/tryOnSelection'
 import { canGenerateHuman3D, human3DStatusLabel } from '../utils/human3dUi'
+import {
+  human3DJobForTryOn,
+  normalizeTryOnHistory,
+  parseTryOnHistory,
+  transitionedToTerminal,
+  TRYON_HISTORY_STORAGE_VERSION,
+  upsertHuman3DJob,
+} from '../utils/tryOnHistory'
 
 const props = defineProps<{ userKey: string; draft: TryOnDraft | null }>()
-const { showError } = useToast()
+const router = useRouter()
+const { showError, showSuccess } = useToast()
 
-const HISTORY_STORAGE_VERSION = 2
-const HISTORY_LIMIT = 20
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 const DEFAULT_MAX_PIXELS = 20_000_000
-const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const
+const JOB_TOAST_DURATION = 8000
 const WARDROBE_TABS = ['outfits', 'items', 'upload'] as const
-
-interface StoredTryOnHistory {
-  version: typeof HISTORY_STORAGE_VERSION
-  selectedJobId: string | null
-  jobs: TryOnJob[]
-}
 
 type WardrobeTab = 'outfits' | 'items' | 'upload'
 
@@ -86,7 +88,7 @@ const editingPhotoName = ref('')
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
 const submitting = ref(false)
-const human3DJob = ref<Human3DJob | null>(null)
+const human3DJobs = ref<Human3DJob[]>([])
 const human3DSubmitting = ref(false)
 const resultMode = ref<'2d' | '3d'>('2d')
 let pollTimer: number | undefined
@@ -94,7 +96,9 @@ let human3DPollTimer: number | undefined
 let cleanupTimer: number | undefined
 let componentActive = false
 let historyGeneration = 0
+let human3DHistoryGeneration = 0
 const retryJobIds = new Set<string>()
+const human3DRetryJobIds = new Set<string>()
 
 const personLibrary = usePersonPhotoLibrary(props.userKey)
 const {
@@ -104,7 +108,10 @@ const {
   loadFavorites,
 } = useUserLibrary(props.userKey)
 
-const historyStorageKey = computed(() => `matching-outfit.tryon-history:v2:${props.userKey}`)
+const historyStorageKey = computed(() => (
+  `matching-outfit.tryon-history:v${TRYON_HISTORY_STORAGE_VERSION}:${props.userKey}`
+))
+const previousHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v2:${props.userKey}`)
 const legacyHistoryStorageKey = computed(() => `matching-outfit.tryon-history:v1:${props.userKey}`)
 const selectedSavedPerson = computed(() => (
   personLibrary.photos.value.find((photo) => photo.id === selectedPersonId.value) ?? null
@@ -157,6 +164,7 @@ const statusLabel = computed(() => {
     failed: '試穿失敗',
   }[job.value.status]
 })
+const human3DJob = computed(() => human3DJobForTryOn(human3DJobs.value, job.value?.id))
 const canGenerate3D = computed(() => canGenerateHuman3D(
   job.value,
   human3DCapabilities.value,
@@ -179,61 +187,32 @@ function stopHuman3DPolling() {
   human3DPollTimer = undefined
 }
 
-function resetHuman3D() {
-  stopHuman3DPolling()
-  human3DJob.value = null
-  human3DSubmitting.value = false
-  resultMode.value = '2d'
-}
-
-function isTryOnJob(value: unknown): value is TryOnJob {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.id === 'string'
-    && JOB_STATUSES.includes(candidate.status as TryOnJob['status'])
-    && Array.isArray(candidate.reference_types)
-    && candidate.reference_types.length > 0
-    && candidate.reference_types.every((type) => TRYON_REFERENCE_TYPES.includes(type as TryOnReferenceType))
-    && (candidate.error === null || typeof candidate.error === 'string')
-    && (candidate.result_url === null || typeof candidate.result_url === 'string')
-    && typeof candidate.created_at === 'string'
-    && typeof candidate.updated_at === 'string'
-    && (candidate.expires_at === null || typeof candidate.expires_at === 'string')
-    && Number.isFinite(Date.parse(candidate.created_at))
-    && Number.isFinite(Date.parse(candidate.updated_at))
-    && (candidate.expires_at === null || Number.isFinite(Date.parse(candidate.expires_at)))
-  )
-}
-
-function isExpired(historyJob: TryOnJob) {
-  if (!historyJob.expires_at) return false
-  const expiresAt = Date.parse(historyJob.expires_at)
-  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
-}
-
-function sortAndLimitHistory(jobs: TryOnJob[]) {
-  const uniqueJobs = jobs.filter((historyJob, index) => (
-    jobs.findIndex((candidate) => candidate.id === historyJob.id) === index
-  ))
-  return uniqueJobs
-    .filter((historyJob) => !isExpired(historyJob))
-    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
-    .slice(0, HISTORY_LIMIT)
-}
-
 function persistHistory() {
   try {
-    if (!historyJobs.value.length) {
+    const previousSelectedId = job.value?.id ?? null
+    const snapshot = normalizeTryOnHistory(
+      historyJobs.value,
+      human3DJobs.value,
+      previousSelectedId,
+    )
+    historyJobs.value = snapshot.jobs
+    human3DJobs.value = snapshot.human3DJobs
+    job.value = snapshot.jobs.find((historyJob) => historyJob.id === snapshot.selectedJobId)
+      ?? null
+    if (previousSelectedId !== snapshot.selectedJobId) resultMode.value = '2d'
+    const retainedTryOnIds = new Set(snapshot.jobs.map((historyJob) => historyJob.id))
+    retryJobIds.forEach((jobId) => {
+      if (!retainedTryOnIds.has(jobId)) retryJobIds.delete(jobId)
+    })
+    const retainedHuman3DIds = new Set(snapshot.human3DJobs.map((humanJob) => humanJob.id))
+    human3DRetryJobIds.forEach((jobId) => {
+      if (!retainedHuman3DIds.has(jobId)) human3DRetryJobIds.delete(jobId)
+    })
+    if (!snapshot.jobs.length) {
       window.localStorage.removeItem(historyStorageKey.value)
       return
     }
-    const payload: StoredTryOnHistory = {
-      version: HISTORY_STORAGE_VERSION,
-      selectedJobId: job.value?.id ?? null,
-      jobs: historyJobs.value,
-    }
-    window.localStorage.setItem(historyStorageKey.value, JSON.stringify(payload))
+    window.localStorage.setItem(historyStorageKey.value, JSON.stringify(snapshot))
   } catch {
     showError('瀏覽器無法保存最近試穿紀錄。')
   }
@@ -242,67 +221,113 @@ function persistHistory() {
 function discardStoredHistory() {
   try {
     window.localStorage.removeItem(historyStorageKey.value)
+    window.localStorage.removeItem(previousHistoryStorageKey.value)
+    window.localStorage.removeItem(legacyHistoryStorageKey.value)
   } catch {
     // The in-memory history still works when browser storage is unavailable.
   }
 }
 
-function selectHistoryJob(historyJob: TryOnJob) {
-  if (job.value?.id !== historyJob.id) resetHuman3D()
+function selectHistoryJob(historyJob: TryOnJob, mode: '2d' | '3d' = '2d') {
   job.value = historyJob
+  resultMode.value = mode
   persistHistory()
 }
 
 function replaceHistory(nextJob: TryOnJob, select = false) {
-  if (select && job.value?.id !== nextJob.id) resetHuman3D()
-  historyJobs.value = sortAndLimitHistory([
+  historyJobs.value = [
     nextJob,
     ...historyJobs.value.filter((historyJob) => historyJob.id !== nextJob.id),
-  ])
-  if (select || job.value?.id === nextJob.id) job.value = nextJob
+  ]
+  if (select || job.value?.id === nextJob.id) {
+    job.value = nextJob
+    if (select) resultMode.value = '2d'
+  }
   if (!job.value && historyJobs.value.length) job.value = historyJobs.value[0]
   persistHistory()
 }
 
 function cleanExpiredHistory() {
-  const currentIds = historyJobs.value.map((historyJob) => historyJob.id)
-  historyJobs.value = sortAndLimitHistory(historyJobs.value)
-  const changed = historyJobs.value.length !== currentIds.length
-    || historyJobs.value.some((historyJob, index) => historyJob.id !== currentIds[index])
-  if (job.value && !historyJobs.value.some((historyJob) => historyJob.id === job.value?.id)) {
-    job.value = historyJobs.value[0] ?? null
-  }
-  if (changed) persistHistory()
+  persistHistory()
 }
 
 function loadHistory() {
   try {
     window.localStorage.removeItem(legacyHistoryStorageKey.value)
-    const raw = window.localStorage.getItem(historyStorageKey.value)
-    if (!raw) return
-    const stored = JSON.parse(raw) as Partial<StoredTryOnHistory>
-    if (stored.version !== HISTORY_STORAGE_VERSION || !Array.isArray(stored.jobs)) {
-      discardStoredHistory()
+    const currentRaw = window.localStorage.getItem(historyStorageKey.value)
+    const previousRaw = window.localStorage.getItem(previousHistoryStorageKey.value)
+    const stored = parseTryOnHistory(currentRaw) ?? parseTryOnHistory(previousRaw)
+    if (!stored) {
+      if (currentRaw || previousRaw) discardStoredHistory()
       return
     }
-    historyJobs.value = sortAndLimitHistory(stored.jobs.filter(isTryOnJob))
-    job.value = historyJobs.value.find((historyJob) => historyJob.id === stored.selectedJobId)
-      ?? historyJobs.value[0]
+    historyJobs.value = stored.jobs
+    human3DJobs.value = stored.human3DJobs
+    job.value = stored.jobs.find((historyJob) => historyJob.id === stored.selectedJobId)
       ?? null
     persistHistory()
+    window.localStorage.removeItem(previousHistoryStorageKey.value)
   } catch {
     discardStoredHistory()
+  }
+}
+
+function openStoredJob(tryOnJobId: string, mode: '2d' | '3d') {
+  const historyJob = historyJobs.value.find((candidate) => candidate.id === tryOnJobId)
+  if (!historyJob) return
+  selectHistoryJob(historyJob, mode)
+  if (router.currentRoute.value.name !== 'tryon') void router.push({ name: 'tryon' })
+}
+
+function notifyTryOnTransition(previous: TryOnJob | null, next: TryOnJob) {
+  if (!transitionedToTerminal(previous?.status, next.status)) return
+  const jobDescription = `${referenceTypesLabel(next.reference_types)}試穿（${formatHistoryTime(next.created_at)}）`
+  const options = {
+    duration: JOB_TOAST_DURATION,
+    action: { label: '查看', onClick: () => openStoredJob(next.id, '2d') },
+  }
+  if (next.status === 'succeeded') {
+    showSuccess(`${jobDescription}已完成。`, options)
+  } else {
+    showError(`${jobDescription}失敗：${next.error || '請重新送出。'}`, options)
+  }
+}
+
+function notifyHuman3DTransition(previous: Human3DJob | null, next: Human3DJob) {
+  if (!transitionedToTerminal(previous?.status, next.status)) return
+  const parent = historyJobs.value.find((historyJob) => historyJob.id === next.try_on_job_id)
+  const jobDescription = parent
+    ? `3D View（${formatHistoryTime(parent.created_at)} 的試穿）`
+    : '3D View'
+  const mode = next.status === 'succeeded' ? '3d' : '2d'
+  const options = {
+    duration: JOB_TOAST_DURATION,
+    action: { label: '查看', onClick: () => openStoredJob(next.try_on_job_id, mode) },
+  }
+  if (next.status === 'succeeded') {
+    if (
+      job.value?.id === next.try_on_job_id
+      && router.currentRoute.value.name === 'tryon'
+    ) resultMode.value = '3d'
+    showSuccess(`${jobDescription}已完成。`, options)
+  } else {
+    showError(`${jobDescription}建立失敗：${next.error || '請重新嘗試。'}`, options)
   }
 }
 
 function clearHistory() {
   if (!window.confirm('清除這個瀏覽器中的最近試穿紀錄？遠端工作不會刪除，但之後將無法從此列表找回。')) return
   stopPolling()
+  stopHuman3DPolling()
   historyGeneration += 1
+  human3DHistoryGeneration += 1
   retryJobIds.clear()
+  human3DRetryJobIds.clear()
   historyJobs.value = []
+  human3DJobs.value = []
   job.value = null
-  resetHuman3D()
+  human3DSubmitting.value = false
+  resultMode.value = '2d'
   discardStoredHistory()
 }
 
@@ -614,23 +639,51 @@ async function reloadCapabilities() {
   await Promise.allSettled([loadCapabilities(), loadHuman3DCapabilities()])
 }
 
-async function pollHuman3DJob() {
+async function synchronizeHuman3DHistory(refreshAll = false) {
   stopHuman3DPolling()
-  const current = human3DJob.value
-  if (!current || !componentActive) return
-  try {
-    const updated = await getHuman3DJob(current.id)
-    if (human3DJob.value?.id !== current.id || job.value?.id !== current.try_on_job_id) return
-    human3DJob.value = updated
-    if (human3DJob.value.status === 'succeeded') {
-      resultMode.value = '3d'
-      return
+  cleanExpiredHistory()
+  if (!human3DJobs.value.length || !componentActive) return
+  const generation = human3DHistoryGeneration
+  const jobsToSynchronize = human3DJobs.value.filter((humanJob) => (
+    refreshAll
+    || humanJob.status === 'queued'
+    || humanJob.status === 'running'
+    || human3DRetryJobIds.has(humanJob.id)
+  ))
+  if (!jobsToSynchronize.length) return
+  const results = await Promise.allSettled(
+    jobsToSynchronize.map((humanJob) => getHuman3DJob(humanJob.id)),
+  )
+  if (!componentActive || generation !== human3DHistoryGeneration) return
+  let failedRequests = 0
+  results.forEach((result, resultIndex) => {
+    const requestedJob = jobsToSynchronize[resultIndex]
+    const current = human3DJobForTryOn(
+      human3DJobs.value,
+      requestedJob.try_on_job_id,
+    )
+    if (current?.id !== requestedJob.id) return
+    if (result.status === 'fulfilled') {
+      human3DRetryJobIds.delete(requestedJob.id)
+      human3DJobs.value = upsertHuman3DJob(human3DJobs.value, result.value)
+      notifyHuman3DTransition(current, result.value)
+    } else {
+      human3DRetryJobIds.add(requestedJob.id)
+      failedRequests += 1
     }
-    if (human3DJob.value.status === 'failed') return
-    human3DPollTimer = window.setTimeout(pollHuman3DJob, 2000)
-  } catch (reason) {
-    showError(reason instanceof Error ? reason.message : '無法更新 3D 工作狀態')
-    human3DPollTimer = window.setTimeout(pollHuman3DJob, 5000)
+  })
+  persistHistory()
+  if (failedRequests) {
+    showError(`有 ${failedRequests} 筆 3D 工作暫時無法更新，將自動重試。`)
+  }
+  const hasPendingJobs = human3DJobs.value.some((humanJob) => (
+    humanJob.status === 'queued' || humanJob.status === 'running'
+  ))
+  if (hasPendingJobs || failedRequests) {
+    human3DPollTimer = window.setTimeout(
+      synchronizeHuman3DHistory,
+      failedRequests ? 5000 : 2000,
+    )
   }
 }
 
@@ -641,14 +694,24 @@ async function generateHuman3D() {
   human3DSubmitting.value = true
   try {
     const created = await createHuman3DJob(tryOnJobId, props.userKey)
-    if (job.value?.id !== tryOnJobId) return
-    human3DJob.value = created
-    human3DPollTimer = window.setTimeout(pollHuman3DJob, 1200)
+    human3DJobs.value = upsertHuman3DJob(human3DJobs.value, created)
+    persistHistory()
+    notifyHuman3DTransition(null, created)
+    if (created.status === 'queued' || created.status === 'running') {
+      human3DPollTimer = window.setTimeout(synchronizeHuman3DHistory, 1200)
+    }
   } catch (reason) {
     showError(reason instanceof Error ? reason.message : '無法建立 3D 工作')
     await loadHuman3DCapabilities()
   } finally {
     human3DSubmitting.value = false
+    const hasPendingJobs = human3DJobs.value.some((humanJob) => (
+      humanJob.status === 'queued' || humanJob.status === 'running'
+    ))
+    if (
+      human3DPollTimer === undefined
+      && (hasPendingJobs || human3DRetryJobIds.size)
+    ) human3DPollTimer = window.setTimeout(synchronizeHuman3DHistory, 2000)
   }
 }
 
@@ -674,17 +737,15 @@ async function synchronizeHistory(refreshAll = false) {
     if (result.status === 'fulfilled') {
       retryJobIds.delete(synchronizedJobId)
       const index = historyJobs.value.findIndex((historyJob) => historyJob.id === result.value.id)
+      const previous = index >= 0 ? historyJobs.value[index] : null
       if (index >= 0) historyJobs.value[index] = result.value
       if (job.value?.id === result.value.id) job.value = result.value
+      notifyTryOnTransition(previous, result.value)
     } else {
       retryJobIds.add(synchronizedJobId)
       failedRequests += 1
     }
   })
-  historyJobs.value = sortAndLimitHistory(historyJobs.value)
-  if (job.value && !historyJobs.value.some((historyJob) => historyJob.id === job.value?.id)) {
-    job.value = historyJobs.value[0] ?? null
-  }
   persistHistory()
   if (failedRequests) {
     showError(`有 ${failedRequests} 筆紀錄暫時無法更新，將自動重試。`)
@@ -749,6 +810,7 @@ async function submit() {
     const referenceFiles = await materializeReferences()
     const createdJob = await createTryOnJob(person, referenceFiles, props.userKey)
     replaceHistory(createdJob, true)
+    notifyTryOnTransition(null, createdJob)
     pollTimer = window.setTimeout(synchronizeHistory, 2000)
   } catch (reason) {
     const submitError = reason instanceof Error ? reason.message : '無法建立試穿工作'
@@ -788,6 +850,7 @@ onMounted(async () => {
   syncPersonPreviewUrls()
   if (!selectedPersonId.value) selectedPersonId.value = personLibrary.defaultPhoto.value?.id ?? null
   void synchronizeHistory(true)
+  void synchronizeHuman3DHistory(true)
   cleanupTimer = window.setInterval(cleanExpiredHistory, 60_000)
 })
 

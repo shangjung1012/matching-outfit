@@ -42,8 +42,8 @@ function trace() {
   return {
     updated_at: new Date().toISOString(), messages: [{ role: 'user', text: '女團舞' }],
     original_input: '女團舞', requirements: null, fashion_intent: null, queries: [],
-    styling_guide: null, plan_debug: null, recommendation_debug: null,
-    recommendations: [], discarded_recommendations: [], review_note: '', knowledge_note: '',
+    styling_guide: null, plan_debug: null, recommendation_debug: {},
+    recommendations: [{}], discarded_recommendations: [], review_note: '', knowledge_note: '',
   } as any
 }
 
