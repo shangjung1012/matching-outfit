@@ -4,14 +4,55 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 import gc
 import importlib.util
+import logging
 import os
 from pathlib import Path
 import sys
 from threading import RLock
+from time import monotonic
 from typing import Any, Iterator
 
 import numpy as np
 from PIL import Image
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
+class XFormersVarlenAttention:
+    """flash-attn-compatible inference adapter backed by xFormers CUTLASS."""
+
+    def __init__(self, attention: Any, fmha: Any) -> None:
+        self._attention = attention
+        self._fmha = fmha
+
+    def flash_attn_varlen_qkvpacked_func(
+        self,
+        qkv: Any,
+        cu_seqlens: Any,
+        *,
+        max_seqlen: int,
+        dropout_p: float = 0.0,
+        softmax_scale: float | None = None,
+        **_: Any,
+    ) -> Any:
+        del max_seqlen
+        offsets = cu_seqlens.detach().cpu().tolist()
+        seqlens = [end - start for start, end in zip(offsets, offsets[1:])]
+        if not seqlens or offsets[-1] != qkv.shape[0]:
+            raise ValueError("Invalid variable-length attention offsets")
+        bias = self._fmha.BlockDiagonalMask.from_seqlens(seqlens)
+        query, key, value = qkv.unbind(dim=1)
+        output = self._attention(
+            query.unsqueeze(0),
+            key.unsqueeze(0),
+            value.unsqueeze(0),
+            attn_bias=bias,
+            p=dropout_p,
+            scale=softmax_scale,
+            op=(self._fmha.cutlass.FwOp, None),
+        )
+        return output.squeeze(0)
 
 
 @dataclass(frozen=True)
@@ -81,6 +122,7 @@ class LHMEngine:
         self._lock = RLock()
         self.peak_gpu_memory_bytes = 0
         self.model_gpu_memory_bytes = 0
+        self._attention_backend_configured = False
 
     @property
     def model_loaded(self) -> bool:
@@ -119,11 +161,75 @@ class LHMEngine:
                 "Required Human3D dependencies are unavailable: " + ", ".join(missing)
             )
 
+    def _configure_attention_backend(self) -> None:
+        if self._attention_backend_configured:
+            return
+        backend = os.getenv("HUMAN3D_XFORMERS_BACKEND", "auto").lower()
+        if backend != "cutlass":
+            self._attention_backend_configured = True
+            return
+
+        import xformers.ops as xops
+        from xformers.ops import fmha
+
+        patched_attention = xops.memory_efficient_attention
+        original_attention = getattr(
+            patched_attention,
+            "_matching_outfit_original",
+            patched_attention,
+        )
+
+        if not hasattr(patched_attention, "_matching_outfit_original"):
+
+            def cutlass_attention(
+                query: Any,
+                key: Any,
+                value: Any,
+                attn_bias: Any = None,
+                p: float = 0.0,
+                scale: float | None = None,
+                *,
+                op: Any = None,
+                output_dtype: Any = None,
+            ) -> Any:
+                return original_attention(
+                    query,
+                    key,
+                    value,
+                    attn_bias=attn_bias,
+                    p=p,
+                    scale=scale,
+                    op=op or (fmha.cutlass.FwOp, None),
+                    output_dtype=output_dtype,
+                )
+
+            cutlass_attention._matching_outfit_original = (  # type: ignore[attr-defined]
+                original_attention
+            )
+
+            # DINO imports this symbol while the LHM++ model is being constructed.
+            # Force CUTLASS because xFormers' automatic dispatcher selects an
+            # incompatible FA3/Hopper kernel on the consumer Blackwell sm_120 GPU.
+            xops.memory_efficient_attention = cutlass_attention
+
+        # Sonata expects flash-attn's packed variable-length API. Its dense
+        # fallback allocates a ~6 GiB attention matrix, so provide the same
+        # inference operation with the already verified CUTLASS backend.
+        root = str(self.upstream_root)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from core.models.encoders.sonata import model as sonata_model
+
+        sonata_model.flash_attn = XFormersVarlenAttention(original_attention, fmha)
+        self._attention_backend_configured = True
+        logger.info("Human3D attention backend: xFormers CUTLASS")
+
     def load(self) -> None:
         with self._lock:
             if self._model is not None:
                 return
             self._check_dependencies()
+            self._configure_attention_backend()
             upstream = self._import_upstream_export()
             os.environ.update(
                 {
@@ -209,18 +315,35 @@ class LHMEngine:
         canvas.alpha_composite(resized, offset)
         return canvas.convert("RGB")
 
-    def run(self, images: list[Image.Image], output_dir: Path) -> ReconstructionResult:
+    def prepare(self, images: list[Image.Image]) -> list[np.ndarray]:
         if not images:
             raise ValueError("At least one image is required")
         if len(images) > 8:
             raise ValueError("At most eight input views are supported")
+        started_at = monotonic()
+        logger.info("Human3D CPU preprocessing started for %d image(s)", len(images))
+        prepared = [np.asarray(self._segment_and_frame(image)) for image in images]
+        logger.info(
+            "Human3D CPU preprocessing completed in %.2fs",
+            monotonic() - started_at,
+        )
+        return prepared
+
+    def run_prepared(
+        self,
+        prepared: list[np.ndarray],
+        output_dir: Path,
+    ) -> ReconstructionResult:
+        if not prepared:
+            raise ValueError("At least one prepared input view is required")
+        if len(prepared) > 8:
+            raise ValueError("At most eight prepared input views are supported")
         with self._lock:
             self.load()
             assert self._model is not None and self._cfg is not None
             output_dir.mkdir(parents=True, exist_ok=True)
             artifact_path = output_dir / "result.ply"
             artifact_path.unlink(missing_ok=True)
-            prepared = [np.asarray(self._segment_and_frame(image)) for image in images]
             ref_tensor = (
                 self.torch.from_numpy(np.stack(prepared) / 255.0)
                 .permute(0, 3, 1, 2)
@@ -238,6 +361,8 @@ class LHMEngine:
                 if precision == "bf16"
                 else nullcontext()
             )
+            started_at = monotonic()
+            logger.info("LHM++ GPU reconstruction started")
             try:
                 with self.torch.inference_mode(), autocast, working_directory(
                     self.upstream_root
@@ -259,8 +384,16 @@ class LHMEngine:
                 raise RuntimeError("LHM++ did not produce a Gaussian Splat PLY")
             peak = int(self.torch.cuda.max_memory_allocated(0))
             self.peak_gpu_memory_bytes = max(self.peak_gpu_memory_bytes, peak)
+            logger.info(
+                "LHM++ GPU reconstruction completed in %.2fs (peak %.2f GiB)",
+                monotonic() - started_at,
+                peak / 1024**3,
+            )
             return ReconstructionResult(
                 artifact_path=artifact_path,
                 artifact_format="ply",
                 peak_gpu_memory_bytes=peak,
             )
+
+    def run(self, images: list[Image.Image], output_dir: Path) -> ReconstructionResult:
+        return self.run_prepared(self.prepare(images), output_dir)
