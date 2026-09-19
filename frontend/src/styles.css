@@ -314,8 +314,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .analysis-knowledge-list article > svg { color: #47705d; }
 .analysis-knowledge-list strong { color: #354139; font-size: .74rem; line-height: 1.5; }
 .analysis-knowledge-list p { margin: 5px 0; color: #687169; font-size: .67rem; line-height: 1.5; }
+.analysis-knowledge-evidence { color: #4e5d53; }
+.analysis-knowledge-usage { color: #315f49; font-weight: 700; }
 .analysis-knowledge-list a { color: #33664e; font-size: .63rem; }
 .analysis-result-grid .debug-reviewed-card { min-height: 280px; }
+.analysis-result-meta { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e6e9e5; }
+.analysis-result-meta strong { display: block; color: #354139; font-size: .67rem; }
+.analysis-result-meta ul { margin: 7px 0 0; padding-left: 18px; color: #5e675f; font-size: .66rem; line-height: 1.5; }
+.analysis-result-meta a { color: #33664e; }
 .analysis-timing-table { border: 1px solid #dce1dc; background: #fff; }
 .analysis-timing-table > div { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 16px; padding: 10px 14px; border-bottom: 1px solid #e5e8e4; color: #505a52; font-size: .7rem; }
 .analysis-timing-table > div:last-child { border-bottom: 0; }

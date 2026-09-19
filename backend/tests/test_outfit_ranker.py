@@ -31,6 +31,7 @@ def group(
     clothes: list[ClothResult],
     references: list[ReferenceLink] | None = None,
     direction_id: str | None = None,
+    preference_references: list[str] | None = None,
 ) -> QuerySearchResult:
     return QuerySearchResult(
         query=QueryDraft(
@@ -40,9 +41,13 @@ def group(
             rationale="test",
             direction_id=direction_id,
             references=references or [],
+            preference_references=preference_references or [],
         ),
         clothes=[
-            item.model_copy(update={"references": references or []}) for item in clothes
+            item.model_copy(update={
+                "references": references or [],
+                "preference_references": preference_references or [],
+            }) for item in clothes
         ],
     )
 
@@ -193,13 +198,14 @@ def test_explicit_request_overrides_profile_gender_audience() -> None:
     assert effective_audience("想找正式西裝", "unisex", profile) == "unisex"
 
 
-def test_ranker_does_not_attach_query_stage_references() -> None:
+def test_ranker_attaches_query_stage_references_and_preferences() -> None:
     recommendations = rank_outfits(
         [
             group(
                 "upper_body",
                 [cloth(50, "upper_body", "White", 0.9)],
                 [ReferenceLink(title="舊 Query 來源", url="https://example.com/old")],
+                preference_references=["我偏好簡潔的黑白配色。"],
             ),
             group(
                 "lower_body",
@@ -209,7 +215,10 @@ def test_ranker_does_not_attach_query_stage_references() -> None:
         limit=1,
     )
 
-    assert recommendations[0].references == []
+    assert [reference.url for reference in recommendations[0].references] == [
+        "https://example.com/old"
+    ]
+    assert recommendations[0].preference_references == ["我偏好簡潔的黑白配色。"]
 
 
 def test_ranker_ignores_accessory_query_results() -> None:

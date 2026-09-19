@@ -466,7 +466,7 @@ async function requestRecommendations(
       stage.value = 'results'
       addMessage(
         'agent',
-        `找到 ${response.recommendations.length} 組搭配，使用 ${response.knowledge_observation_count} 條文章知識。${response.review_note}`,
+        `找到 ${response.recommendations.length} 組搭配。${response.review_note}`,
       )
       publishDebug()
     },
@@ -734,13 +734,6 @@ onBeforeUnmount(() => {
           <FileSearch :size="16" />詳細搭配分析歷史報告
         </button>
       </div>
-      <details v-if="planningKnowledge.length" class="agent-context-details">
-        <summary>搭配參考（{{ planningKnowledge.length }}）</summary>
-        <article v-for="item in planningKnowledge" :key="item.observation_id">
-          <p>{{ item.summary }}</p>
-          <a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ item.source_title || item.source_name || item.source_url }}</a>
-        </article>
-      </details>
 
       <section v-if="showQuerySkeleton" class="agent-workspace-loading query-loading" aria-hidden="true">
         <header class="view-heading compact-heading">
@@ -861,6 +854,7 @@ onBeforeUnmount(() => {
             :user-request="originalRequest"
             :styling-guide="stylingGuide"
             :queries="queries"
+            :observations="planningKnowledge"
             :reference-preview-url="referencePreviewUrl"
             @react="reactToOutfit(outfit, $event)"
             @toggle-favorite="toggleFavorite(outfit)"
@@ -893,6 +887,7 @@ onBeforeUnmount(() => {
               :user-request="originalRequest"
               :styling-guide="stylingGuide"
               :queries="queries"
+              :observations="planningKnowledge"
               :reference-preview-url="referencePreviewUrl"
               :preference-type="outfitPreferenceType(outfit)"
               :favorited="outfitIsFavorited(outfit)"

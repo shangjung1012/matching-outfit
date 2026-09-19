@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bookmark, ChevronDown, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-vue-next'
-import type { OutfitRecommendation, PreferenceType, QueryDraft, StylingGuide } from '../types'
+import type { FashionObservationTrace, OutfitRecommendation, PreferenceType, QueryDraft, StylingGuide } from '../types'
 import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
@@ -12,6 +12,7 @@ const props = defineProps<{
   userRequest?: string
   stylingGuide?: StylingGuide | null
   queries?: QueryDraft[]
+  observations?: FashionObservationTrace[]
   referencePreviewUrl?: string
 }>()
 
@@ -26,17 +27,39 @@ const zoneLabels = {
 } as const
 
 const planningReasons = computed(() => {
-  const zones = new Set(props.outfit.items.map((item) => item.garment_zone))
   return Array.from(new Set(
-    (props.queries || [])
-      .filter((query) => (
-        query.selected
-        && zones.has(query.garment_zone)
-        && query.direction_id === props.outfit.direction_id
-      ))
+    matchedQueries.value
       .map((query) => query.rationale.trim())
       .filter(Boolean),
   )).slice(0, props.outfit.kind === 'separates' ? 2 : 1)
+})
+
+const matchedQueries = computed(() => {
+  const zones = new Set(props.outfit.items.map((item) => item.garment_zone))
+  return (props.queries || []).filter((query) => (
+    query.selected
+    && zones.has(query.garment_zone)
+    && query.direction_id === props.outfit.direction_id
+  ))
+})
+
+const explanationPreferenceReferences = computed(() => Array.from(new Set(
+  matchedQueries.value.flatMap((query) => query.preference_references || []),
+)))
+
+const explanationObservationDetails = computed(() => {
+  const observationsById = new Map((props.observations || []).map((item) => [item.observation_id, item]))
+  const rows = matchedQueries.value.flatMap((query) => query.knowledge_observation_ids
+    .map((observationId) => observationsById.get(observationId))
+    .filter((item): item is FashionObservationTrace => Boolean(item))
+    .map((item) => ({
+      id: `${query.id}:${item.observation_id}`,
+      title: item.source_title || item.source_name || item.source_url,
+      url: item.source_url,
+      summary: item.summary,
+      evidence: item.evidence,
+    })))
+  return Array.from(new Map(rows.map((row) => [`${row.url}::${row.evidence || row.summary}`, row])).values())
 })
 
 function itemSelectionReason(item: OutfitRecommendation['items'][number]): string {
@@ -98,6 +121,25 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
             <p v-if="stylingGuide?.concept">{{ stylingGuide.concept }}</p>
             <ul v-if="planningReasons.length">
               <li v-for="reason in planningReasons" :key="reason">{{ reason }}</li>
+            </ul>
+          </section>
+          <section v-if="explanationPreferenceReferences.length">
+            <strong>參考你的偏好</strong>
+            <ul>
+              <li v-for="preference in explanationPreferenceReferences" :key="preference">
+                {{ preference }}
+              </li>
+            </ul>
+          </section>
+          <section v-if="explanationObservationDetails.length">
+            <strong>參考文章</strong>
+            <ul>
+              <li v-for="reference in explanationObservationDetails" :key="reference.id">
+                <a :href="reference.url" target="_blank" rel="noopener noreferrer">
+                  {{ reference.title }}
+                </a>
+                ：{{ reference.evidence || reference.summary }}
+              </li>
             </ul>
           </section>
           <section>
@@ -165,19 +207,6 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
           </button>
         </div>
       </div>
-    </div>
-    <div v-if="outfit.references.length" class="recommendation-references">
-      <div class="recommendation-reference-title">
-        <ExternalLink :size="14" />
-        <strong>參考來源</strong>
-      </div>
-      <ul>
-        <li v-for="reference in outfit.references" :key="reference.url">
-          <a :href="reference.url" target="_blank" rel="noopener noreferrer">
-            {{ reference.title }}
-          </a>
-        </li>
-      </ul>
     </div>
   </article>
 </template>

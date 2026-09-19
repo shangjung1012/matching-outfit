@@ -2,7 +2,15 @@
 import { computed } from 'vue'
 import { ArrowLeft, BookOpenText, CheckCircle2, ChevronDown, History, Search, Trash2 } from 'lucide-vue-next'
 import type { DebugHistoryItem } from '../composables/useDebugHistory'
-import type { GarmentZone, OutfitRecommendation, PipelineDebugSession, QueryDraft } from '../types'
+import type {
+  FashionObservationTrace,
+  GarmentZone,
+  OutfitRecommendation,
+  PipelineDebugSession,
+  QueryDraft,
+  QuerySearchResult,
+  GeneratedQueryTrace,
+} from '../types'
 
 const props = defineProps<{
   trace: PipelineDebugSession | null
@@ -36,12 +44,26 @@ const requirementRows = computed(() => {
 })
 
 const searchResults = computed(() => props.trace?.recommendation_debug?.search_results ?? [])
-const searchedItemCount = computed(() => searchResults.value.reduce((total, group) => total + group.clothes.length, 0))
-const knowledge = computed(() => (
-  props.trace?.recommendation_debug?.knowledge_observations
-  ?? props.trace?.plan_debug?.knowledge_observations
-  ?? []
+const searchedItemCount = computed(() => searchResults.value.reduce(
+  (total: number, group: QuerySearchResult) => total + group.clothes.length,
+  0,
 ))
+const knowledge = computed(() => {
+  const recommendationKnowledge = props.trace?.recommendation_debug?.knowledge_observations ?? []
+  if (recommendationKnowledge.length) return recommendationKnowledge
+  return props.trace?.plan_debug?.knowledge_observations ?? []
+})
+const knowledgeUsage = computed(() => {
+  const usage = new Map<string, QueryDraft[]>()
+  for (const query of props.trace?.queries ?? []) {
+    for (const observationId of query.knowledge_observation_ids) {
+      const related = usage.get(observationId) ?? []
+      related.push(query)
+      usage.set(observationId, related)
+    }
+  }
+  return usage
+})
 
 const timingLabels: Record<string, string> = {
   context_and_knowledge: '需求與文章知識整理',
@@ -68,6 +90,48 @@ const timingRows = computed(() => {
 function zoneLabel(zone: GarmentZone) {
   return { upper_body: '上身', lower_body: '下身', one_piece: '連身單品', accessory: '配件', other: '其他' }[zone]
 }
+function queryLabel(query: QueryDraft): string {
+  return `${zoneLabel(query.garment_zone)}｜${query.rationale}`
+}
+function matchedQueriesForOutfit(outfit: OutfitRecommendation): QueryDraft[] {
+  const zones = new Set(outfit.items.map((item) => item.garment_zone))
+  return (props.trace?.queries ?? []).filter((query: QueryDraft) => (
+    query.selected
+    && query.direction_id === outfit.direction_id
+    && zones.has(query.garment_zone)
+  ))
+}
+function outfitPreferenceReferences(outfit: OutfitRecommendation): string[] {
+  return Array.from(new Set(
+    matchedQueriesForOutfit(outfit).flatMap((query) => query.preference_references || []),
+  ))
+}
+function outfitObservationDetails(outfit: OutfitRecommendation): Array<{
+  id: string
+  title: string
+  url: string
+  summary: string
+  evidence: string
+}> {
+  const observationsById = new Map((knowledge.value as FashionObservationTrace[]).map((item) => [item.observation_id, item]))
+  const rows = matchedQueriesForOutfit(outfit).flatMap((query) => query.knowledge_observation_ids
+    .map((observationId) => observationsById.get(observationId))
+    .filter((item): item is FashionObservationTrace => Boolean(item))
+    .map((item) => ({
+      id: `${query.id}:${item.observation_id}`,
+      title: item.source_title || item.source_name || item.source_url,
+      url: item.source_url,
+      summary: item.summary,
+      evidence: item.evidence,
+    })))
+  return Array.from(new Map(rows.map((row) => [`${row.url}::${row.evidence || row.summary}`, row])).values())
+}
+function knowledgeSummaries(query: QueryDraft): string {
+  return query.knowledge_observation_ids
+    .map((id) => knowledge.value.find((item: FashionObservationTrace) => item.observation_id === id)?.summary)
+    .filter((summary): summary is string => Boolean(summary))
+    .join('；')
+}
 function outfitName(outfit: OutfitRecommendation): string {
   return outfit.items.map(item => item.product_display_name).join(' + ')
 }
@@ -75,7 +139,7 @@ function percent(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
 }
 function originalQuery(query: QueryDraft): string {
-  return props.trace?.plan_debug?.generated_queries_before_normalization.find(item => (
+  return props.trace?.plan_debug?.generated_queries_before_normalization.find((item: GeneratedQueryTrace) => (
     item.direction_id === query.direction_id && item.garment_zone === query.garment_zone
   ))?.text ?? query.text
 }
@@ -135,13 +199,36 @@ function deleteHistory(id: string) {
       </section>
 
       <section class="debug-section analysis-section">
-        <header><span>2</span><div><h3>形成搭配方向</h3><p>將你的場合與風格需求轉換成可搜尋的服裝方向。</p></div></header>
+        <header><span>2</span><div><h3>參考穿搭文章</h3><p>先列出這次採用的文章依據，以及哪一句話影響了哪一個搭配方向。</p></div></header>
+        <div v-if="knowledge.length" class="analysis-knowledge-list">
+          <article v-for="item in knowledge" :key="item.observation_id">
+            <BookOpenText :size="17" />
+            <div>
+              <strong>{{ item.summary }}</strong>
+              <p class="analysis-knowledge-evidence">引用句子：{{ item.evidence }}</p>
+              <p v-if="knowledgeUsage.get(item.observation_id)?.length" class="analysis-knowledge-usage">
+                對應搭配方向：{{ knowledgeUsage.get(item.observation_id)?.map(queryLabel).join('；') }}
+              </p>
+              <p v-else class="analysis-knowledge-usage">對應搭配方向：此篇文章作為整體風格背景參考。</p>
+              <a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noreferrer">{{ item.source_title || item.source_name }}</a>
+            </div>
+          </article>
+        </div>
+        <div v-else class="debug-panel debug-muted">{{ trace.knowledge_note || '這次沒有使用文章參考。' }}</div>
+      </section>
+
+      <section class="debug-section analysis-section">
+        <header><span>3</span><div><h3>形成搭配方向</h3><p>將你的場合與風格需求轉換成可搜尋的服裝方向。</p></div></header>
         <div v-if="trace.queries.length" class="analysis-direction-grid">
           <article v-for="query in trace.queries" :key="`${query.direction_id}-${query.garment_zone}`">
             <span>{{ zoneLabel(query.garment_zone) }}</span>
             <div>
               <strong>{{ query.rationale }}</strong>
               <dl class="analysis-query-values">
+                <div v-if="query.knowledge_observation_ids.length">
+                  <dt>參考文章</dt>
+                  <dd>{{ knowledgeSummaries(query) }}</dd>
+                </div>
                 <div><dt>原始 Query</dt><dd>{{ originalQuery(query) }}</dd></div>
               </dl>
             </div>
@@ -151,7 +238,7 @@ function deleteHistory(id: string) {
       </section>
 
       <section class="debug-section analysis-section">
-        <header><span>3</span><div><h3>搜尋合適商品</h3><p>依照每個搭配方向找出外觀與條件相符的商品。</p></div></header>
+        <header><span>4</span><div><h3>搜尋合適商品</h3><p>依照每個搭配方向找出外觀與條件相符的商品。</p></div></header>
         <div v-if="searchResults.length" class="debug-details-stack analysis-search-groups">
           <details v-for="group in searchResults" :key="`${group.query.direction_id}-${group.query.garment_zone}`">
             <summary><span>{{ zoneLabel(group.query.garment_zone) }}</span><strong>{{ group.query.rationale }}</strong><small>{{ group.clothes.length }} 件候選</small></summary>
@@ -164,17 +251,6 @@ function deleteHistory(id: string) {
           </details>
         </div>
         <div v-else class="debug-panel debug-muted">這次沒有保留商品搜尋紀錄。</div>
-      </section>
-
-      <section class="debug-section analysis-section">
-        <header><span>4</span><div><h3>參考穿搭文章</h3><p>用文章中的搭配原則協助判斷場合、比例與風格。</p></div></header>
-        <div v-if="knowledge.length" class="analysis-knowledge-list">
-          <article v-for="item in knowledge" :key="item.observation_id">
-            <BookOpenText :size="17" />
-            <div><strong>{{ item.summary }}</strong><p>{{ item.evidence }}</p><a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noreferrer">{{ item.source_title || item.source_name }}</a></div>
-          </article>
-        </div>
-        <div v-else class="debug-panel debug-muted">{{ trace.knowledge_note || '這次沒有使用文章參考。' }}</div>
       </section>
 
       <section class="debug-section analysis-section">
@@ -193,6 +269,21 @@ function deleteHistory(id: string) {
                 <span>整體 <b>{{ outfit.aesthetic_review.overall_aesthetic }}</b></span>
               </div>
               <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
+              <div v-if="outfitPreferenceReferences(outfit).length" class="analysis-result-meta">
+                <strong>參考你的偏好</strong>
+                <ul>
+                  <li v-for="preference in outfitPreferenceReferences(outfit)" :key="preference">{{ preference }}</li>
+                </ul>
+              </div>
+              <div v-if="outfitObservationDetails(outfit).length" class="analysis-result-meta">
+                <strong>參考文章</strong>
+                <ul>
+                  <li v-for="reference in outfitObservationDetails(outfit)" :key="reference.id">
+                    <a :href="reference.url" target="_blank" rel="noreferrer">{{ reference.title }}</a>
+                    ：{{ reference.evidence || reference.summary }}
+                  </li>
+                </ul>
+              </div>
             </div>
           </article>
         </div>

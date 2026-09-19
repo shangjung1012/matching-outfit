@@ -115,6 +115,10 @@ def _recommendation(
         0.0,
         min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit),
     )
+    references = list({reference.url: reference for item in items for reference in item.references}.values())
+    preference_references = list(dict.fromkeys(
+        sentence for item in items for sentence in item.preference_references
+    ))
     return OutfitRecommendation(
         id=str(uuid4()),
         kind=kind,
@@ -130,7 +134,8 @@ def _recommendation(
             "FashionCLIP candidate relevance", coverage_reason,
             *context_reasons,
         ],
-        references=[],
+        references=references,
+        preference_references=preference_references,
     )
 
 

@@ -3,6 +3,7 @@ from collections import Counter
 
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.preferences.context import build_planner_preference_context
+from app.schemas.fashion_knowledge import OutfitObservation
 from app.schemas import (
     ChatTurn,
     DirectionShoePlan,

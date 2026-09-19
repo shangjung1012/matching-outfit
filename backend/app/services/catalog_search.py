@@ -39,7 +39,10 @@ def _exclusion_filters(hard: UserHardRule) -> list:
 
 
 def _rows_to_results(
-    db: Session, statement: Select, references: list[ReferenceLink] | None = None
+    db: Session,
+    statement: Select,
+    references: list[ReferenceLink] | None = None,
+    preference_references: list[str] | None = None,
 ) -> list[ClothResult]:
     return [
         ClothResult(
@@ -60,6 +63,7 @@ def _rows_to_results(
             article_type=cloth.article_type,
             similarity=round(1.0 - float(value), 4),
             references=references or [],
+            preference_references=preference_references or [],
             image_path=cloth.image_path,
         )
         for cloth, value in db.execute(statement).all()
@@ -112,7 +116,9 @@ def search_catalog(
                 .limit(top_k)
             )
 
-        clothes = _rows_to_results(db, statement_for(drop_filters), query.references)
+        clothes = _rows_to_results(
+            db, statement_for(drop_filters), query.references, query.preference_references
+        )
         output.append(QuerySearchResult(query=query, clothes=clothes, relaxed=False))
     return output
 

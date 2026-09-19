@@ -60,6 +60,7 @@ export interface QueryDraft {
   selected: boolean
   knowledge_observation_ids: string[]
   references: ReferenceLink[]
+  preference_references?: string[]
 }
 
 export interface PairingDirection {
@@ -194,6 +195,7 @@ export interface ClothResult {
   similarity: number
   is_reference?: boolean
   references: ReferenceLink[]
+  preference_references?: string[]
 }
 
 export interface CatalogItem {
@@ -270,6 +272,7 @@ export interface OutfitRecommendation {
   score: number
   reasons: string[]
   references: ReferenceLink[]
+  preference_references?: string[]
   score_breakdown: {
     fashion_clip: number
     compatibility: number

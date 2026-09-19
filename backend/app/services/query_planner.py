@@ -19,12 +19,13 @@ from app.schemas.workflow import (
     PlanResponse,
     QueryDraft,
     QueryPlanDebug,
+    ReferenceLink,
     RequirementField,
     RequirementSummary,
     StylingGuide,
 )
 from app.services.integration_tools.llm import LLM
-from app.preferences.context import build_planner_preference_context
+from app.preferences.context import OUTFIT_CONTEXT_FIELDS, build_planner_preference_context
 from app.services.requirement_context import current_taiwan_context, with_context_defaults
 
 # get system and general prompts for QueryPlanner
@@ -158,6 +159,8 @@ class PlannedCatalogQuery(StrictModel):
     direction_id: str = Field(min_length=1, max_length=24)
     text: str = Field(min_length=3, max_length=240)
     rationale: str = Field(min_length=2, max_length=300)
+    knowledge_observation_ids: list[str] = Field(default_factory=list)
+    preference_references: list[str] = Field(default_factory=list)
 
 
 class KnowledgeQueryDraft(StrictModel):
@@ -990,7 +993,13 @@ class QueryPlanner:
                 "CURRENT REQUEST OVERRIDE: return queries only for the requested catalog "
                 f"zones, with exactly {requested_distribution}. Do not return any other zone. "
                 "OUTPUT MINIMIZATION: for each query include one concise Traditional Chinese "
-                "rationale describing the styling direction. Do not generate styling_guide, "
+                "rationale describing the styling direction. For each query, include only the "
+                "knowledge_observation_ids and exact preference_references that materially shaped "
+                "that direction; use empty lists when neither was used. When retrieved article "
+                "observations genuinely help shape the plan, try to anchor at least two distinct "
+                "directions in knowledge_observation_ids across the whole response; if fewer than "
+                "two directions truly benefit from article evidence, leave the rest empty. Never invent an ID or "
+                "preference sentence. Do not generate styling_guide, "
                 "planning_note, knowledge commentary, pairing directions, or reviewer checklist. "
                 "Also return exactly one shoe_plans entry for every distinct direction_id in the "
                 "requested queries (A-G for a full plan). Each entry must contain one short English "
@@ -1040,17 +1049,50 @@ class QueryPlanner:
             if direction_id in shoe_plan_by_direction
         ]
 
-        queries = [
-            QueryDraft(
-                id=str(uuid4()),
-                text=normalized_queries.by_zone[zone][index],
-                garment_zone=zone,
-                rationale=by_zone[zone][index].rationale,
-                direction_id=direction_ids[zone][index],
-            )
-            for zone in query_counts
-            for index in range(query_counts[zone])
+        observations_by_id = {
+            item.observation_id: item for item in observations or []
+        }
+        active_preference_rows = [
+            row for row in style_preferences or []
+            if row.is_active and row.preference_text.strip()
         ]
+        active_preference_texts = {
+            row.preference_text
+            for row in active_preference_rows
+        }
+
+        queries: list[QueryDraft] = []
+        for zone in query_counts:
+            for index in range(query_counts[zone]):
+                planned_query = by_zone[zone][index]
+                observation_ids = [
+                    identifier
+                    for identifier in planned_query.knowledge_observation_ids
+                    if identifier in observations_by_id
+                ]
+                preference_references = [
+                    sentence
+                    for sentence in planned_query.preference_references
+                    if sentence in active_preference_texts
+                ]
+                queries.append(QueryDraft(
+                    id=str(uuid4()),
+                    text=normalized_queries.by_zone[zone][index],
+                    garment_zone=zone,
+                    rationale=planned_query.rationale,
+                    direction_id=direction_ids[zone][index],
+                    knowledge_observation_ids=observation_ids,
+                    references=[
+                        ReferenceLink(
+                            title=(observation.source_title or observation.source_name or observation.source_url),
+                            url=observation.source_url,
+                        )
+                        for identifier in observation_ids
+                        if (observation := observations_by_id.get(identifier)) is not None
+                        and observation.source_url
+                    ],
+                    preference_references=preference_references,
+                ))
         # Intent is authoritative.  The planner no longer generates a duplicate
         # guide; retain a compact fallback only when Intent is unavailable.
         local_guide = StylingGuide(
@@ -1063,7 +1105,15 @@ class QueryPlanner:
         )
         styling_guide = self._guide_with_intent(local_guide, fashion_intent)
         used_ids = list(dict.fromkeys(
-            identifier for identifier in result.cited_observation_ids
+            identifier
+            for identifier in [
+                *result.cited_observation_ids,
+                *(
+                    cited
+                    for query in queries
+                    for cited in query.knowledge_observation_ids
+                ),
+            ]
             if identifier in {item.observation_id for item in observations or []}
         ))
         used_observations = [item for item in observations or [] if item.observation_id in used_ids]

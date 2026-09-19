@@ -210,6 +210,7 @@ class QueryDraft(BaseModel):
     selected: bool = True
     knowledge_observation_ids: list[str] = Field(default_factory=list)
     references: list[ReferenceLink] = Field(default_factory=list)
+    preference_references: list[str] = Field(default_factory=list)
 
 
 class ShoeSpec(BaseModel):
@@ -390,6 +391,7 @@ class ClothResult(BaseModel):
     # A request-scoped image supplied by the user, rather than a row in `clothes`.
     is_reference: bool = False
     references: list[ReferenceLink] = Field(default_factory=list)
+    preference_references: list[str] = Field(default_factory=list)
     image_path: str | None = Field(default=None, exclude=True, repr=False)
 
 
@@ -458,6 +460,7 @@ class OutfitRecommendation(BaseModel):
     score: float
     reasons: list[str]
     references: list[ReferenceLink] = Field(default_factory=list)
+    preference_references: list[str] = Field(default_factory=list)
     score_breakdown: OutfitScoreBreakdown | None = None
     aesthetic_review: AestheticReview | None = None
     shoe_suggestion: ShoeSuggestion | None = None

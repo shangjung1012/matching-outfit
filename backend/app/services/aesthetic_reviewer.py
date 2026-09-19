@@ -319,8 +319,8 @@ def apply_aesthetic_reviews(
         breakdown = recommendation.score_breakdown
         if breakdown is not None:
             breakdown = breakdown.model_copy(update={"aesthetic": round(aesthetic_score, 4)})
-        references = []
-        seen_urls: set[str] = set()
+        references = list(recommendation.references)
+        seen_urls = {reference.url for reference in references}
         for identifier in review.knowledge_observation_ids:
             observation = observations_by_id.get(identifier)
             if observation is None or not observation.source_url:

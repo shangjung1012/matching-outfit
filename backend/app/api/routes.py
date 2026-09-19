@@ -126,7 +126,7 @@ async def recommendation_input(request: Request) -> RecommendationInput:
         return RecommendationInput(payload=SearchRequest.model_validate(await request.json()))
     except ValidationError as error:
         raise HTTPException(status_code=422, detail=json.loads(error.json())) from error
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise HTTPException(status_code=422, detail="payload 必須是有效 JSON") from error
 
 

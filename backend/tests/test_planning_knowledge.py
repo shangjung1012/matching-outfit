@@ -15,8 +15,16 @@ def observation():
 class KnowledgeLLM(FakeLLM):
     def parse(self, **kwargs):
         draft = super().parse(**kwargs)
-        return draft.model_copy(update={"cited_observation_ids": ["known", "invented", "known"],
-                                        "knowledge_gaps": [], "knowledge_note": "採用比例原則"})
+        queries = list(draft.queries)
+        queries[0] = queries[0].model_copy(update={
+            "knowledge_observation_ids": ["known", "invented"],
+        })
+        return draft.model_copy(update={
+            "queries": queries,
+            "cited_observation_ids": ["known", "invented", "known"],
+            "knowledge_gaps": [],
+            "knowledge_note": "採用比例原則",
+        })
 
 
 def test_planner_uses_only_supplied_knowledge_and_exposes_trace():
@@ -25,6 +33,8 @@ def test_planner_uses_only_supplied_knowledge_and_exposes_trace():
     assert llm.payloads[0]["retrieved_observations"][0]["observation_id"] == "known"
     assert result.knowledge_observation_ids == ["known"]
     assert result.knowledge_observations == [observation()]
+    assert result.queries[0].knowledge_observation_ids == ["known"]
+    assert result.queries[0].references[0].url == "https://www.elle.com/example"
     assert result.knowledge_gaps == []
     assert result.debug.knowledge_used_ids == ["known"]
 
