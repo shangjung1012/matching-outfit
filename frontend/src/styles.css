@@ -1052,8 +1052,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .memory-list li.inactive { background: #f7f8f6; }
 .memory-list li.inactive .memory-content { opacity: .55; }
 .memory-content { min-width: 0; flex: 1; }
-.memory-content p { margin: 0; color: #353c36; font-size: .78rem; line-height: 1.6; }
-.memory-content textarea { min-height: 82px; }
+.memory-content p { margin: 0; color: #353c36; font-size: .85rem; line-height: 1.6; }
+.memory-content textarea { min-height: 82px; font-size: .85rem; }
 .memory-contexts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .memory-contexts span { padding: 3px 7px; color: #58675e; background: #eef1ed; font-size: .63rem; }
 .memory-actions, .memory-edit-actions { display: flex; align-items: center; gap: 6px; }
@@ -1069,8 +1069,6 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .memory-create > label, .memory-context-inputs label { display: grid; gap: 6px; color: #555e57; font-size: .7rem; font-weight: 700; }
 .memory-context-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .memory-create .secondary-button { justify-self: end; }
-.summary-save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.summary-updated-hint { color: #8a938c; font-size: .72rem; }
 .proposal-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
 .proposal-rows li { display: flex; align-items: flex-start; gap: 7px; font-size: .73rem; line-height: 1.55; }
 

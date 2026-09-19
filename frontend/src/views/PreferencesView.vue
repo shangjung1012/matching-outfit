@@ -75,6 +75,8 @@ const editingText = ref('')
 const loading = ref(false)
 const savingHard = ref(false)
 const summaryText = ref('')
+const summaryDraft = ref('')
+const editingSummary = ref(false)
 const savingSummary = ref(false)
 
 function applyHard(source: Partial<HardRules> | null | undefined): void {
@@ -99,11 +101,17 @@ async function load() {
   }
 }
 
+function beginSummaryEdit() {
+  summaryDraft.value = summaryText.value
+  editingSummary.value = true
+}
+
 async function saveSummarySection() {
   savingSummary.value = true
   try {
-    const updated = await saveUserSummary(summaryText.value)
+    const updated = await saveUserSummary(summaryDraft.value)
     summaryText.value = updated.summary_text
+    editingSummary.value = false
     showSuccess('個人摘要已儲存')
   } catch (reason) {
     showError(reason instanceof Error ? reason.message : '儲存摘要失敗')
@@ -288,6 +296,36 @@ onMounted(load)
 
       <section class="settings-section">
         <header class="settings-section-heading">
+          <NotebookText :size="20" />
+          <h3>個人摘要</h3>
+        </header>
+
+        <ul class="memory-list">
+          <li>
+            <div class="memory-content">
+              <template v-if="editingSummary">
+                <textarea v-model="summaryDraft" rows="5" />
+                <div class="memory-edit-actions">
+                  <button class="icon-button" title="取消編輯" @click="editingSummary = false"><X :size="15" /></button>
+                  <button class="icon-button dark" title="儲存摘要" :disabled="savingSummary" @click="saveSummarySection"><Check :size="15" /></button>
+                </div>
+              </template>
+              <template v-else>
+                <p>{{ summaryText || '系統會在每次找搭配完成後自動整理這裡的內容，你也可以按右側編輯。' }}</p>
+                <div v-if="summary?.updated_at" class="memory-contexts">
+                  <span>最後更新於 {{ formatSummaryUpdatedAt(summary.updated_at) }}</span>
+                </div>
+              </template>
+            </div>
+            <div v-if="!editingSummary" class="memory-actions">
+              <button class="icon-button" title="編輯" @click="beginSummaryEdit"><Pencil :size="15" /></button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="settings-section">
+        <header class="settings-section-heading">
           <Brain :size="20" />
           <h3>穿搭記憶</h3>
         </header>
@@ -330,27 +368,6 @@ onMounted(load)
           <button class="secondary-button" :disabled="!newPreference.text.trim()" @click="addSoft">
             <Plus :size="16" />新增偏好
           </button>
-        </div>
-      </section>
-
-      <section class="settings-section">
-        <header class="settings-section-heading">
-          <NotebookText :size="20" />
-          <h3>個人摘要</h3>
-        </header>
-
-        <div class="memory-create">
-          <label>系統會在每次找搭配完成後自動整理這裡的內容，你也可以直接編輯。
-            <textarea v-model="summaryText" rows="5" />
-          </label>
-          <div class="summary-save-row">
-            <span v-if="summary?.updated_at" class="summary-updated-hint">
-              最後更新於 {{ formatSummaryUpdatedAt(summary.updated_at) }}
-            </span>
-            <button class="secondary-button" :disabled="savingSummary" @click="saveSummarySection">
-              <Save :size="16" />{{ savingSummary ? '儲存中' : '儲存摘要' }}
-            </button>
-          </div>
         </div>
       </section>
 
