@@ -54,8 +54,9 @@ async function load() {
       cameraUp: [0, 1, 0],
       initialCameraPosition: [0, 0.2, 3.2],
       initialCameraLookAt: [0, 0.15, 0],
+      // GPU sorting requires SharedArrayBuffer/COOP+COEP; keep both disabled.
       sharedMemoryForWorkers: false,
-      gpuAcceleratedSort: true,
+      gpuAcceleratedSort: false,
       halfPrecisionCovariancesOnGPU: true,
       freeIntermediateSplatData: true,
       renderMode: GaussianSplats3D.RenderMode.OnChange,
