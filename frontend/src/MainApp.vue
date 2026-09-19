@@ -119,8 +119,10 @@ function selectView(id: AppView) {
   if (route.name !== id) void router.push({ name: id })
   openGroupId.value = null
 }
-function openAnalysis() {
-  debugHistory.showCurrent()
+async function openAnalysis() {
+  const latest = debugHistory.history.value[0]
+  if (latest) await debugHistory.select(latest.id)
+  else debugHistory.showCurrent()
   analysisOpen.value = true
 }
 function startTryOn(draft: TryOnDraft) {

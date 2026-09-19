@@ -473,7 +473,6 @@ class RecommendationDebug(BaseModel):
     aesthetic_review_error: str = ""
     aesthetic_review_diagnostics: dict = Field(default_factory=dict)
     stage_timings_ms: dict[str, float] = Field(default_factory=dict)
-    compatibility_note: str = ""
     shoe_retrievals: list[ShoeRetrievalDebug] = Field(default_factory=list)
 
 
@@ -588,6 +587,7 @@ class StylePreferenceAddRequest(BaseModel):
 
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_request: str | None = Field(default=None, max_length=1200)
+    review_summary: str | None = Field(default=None, max_length=600)
     outfit_item_ids: list[int] = Field(min_length=1)
     preference_type: PreferenceType
     requirements: RequirementSummary | None = None

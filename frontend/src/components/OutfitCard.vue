@@ -39,18 +39,6 @@ const planningReasons = computed(() => {
   )).slice(0, props.outfit.kind === 'separates' ? 2 : 1)
 })
 
-const upperItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'upper_body'))
-const lowerItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'lower_body'))
-const onePieceItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'one_piece'))
-const shoeItem = computed(() => props.outfit.items.find((item) => item.garment_zone === 'accessory'))
-
-function visibleItemDescription(item: OutfitRecommendation['items'][number]): string {
-  const traits = [item.base_colour, item.article_type]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .join(' ')
-  return `「${item.product_display_name}」${traits ? `（${traits}）` : ''}`
-}
-
 function itemSelectionReason(item: OutfitRecommendation['items'][number]): string {
   const identity = [item.base_colour, item.article_type]
     .filter((value): value is string => Boolean(value?.trim()))
@@ -83,11 +71,7 @@ function itemSelectionReason(item: OutfitRecommendation['items'][number]): strin
       </div>
       <h3>{{ outfit.items.map((item) => item.product_display_name).join(' + ') }}</h3>
       <div v-if="outfit.aesthetic_review" class="outfit-review-summary">
-        <p v-if="upperItem"><strong>上衣：</strong>{{ visibleItemDescription(upperItem) }}</p>
-        <p v-if="lowerItem"><strong>下身：</strong>{{ visibleItemDescription(lowerItem) }}</p>
-        <p v-if="onePieceItem"><strong>洋裝／連身：</strong>{{ visibleItemDescription(onePieceItem) }}</p>
-        <p v-if="shoeItem"><strong>鞋子：</strong>{{ visibleItemDescription(shoeItem) }}</p>
-        <p><strong>搭配與整體：</strong>{{ outfit.aesthetic_review.reason }}</p>
+        <p>{{ outfit.aesthetic_review.reason }}</p>
       </div>
       <aside v-if="outfit.aesthetic_review?.inner_layer_suggestion" class="outfit-inner-layer">
         <strong>內搭建議</strong>

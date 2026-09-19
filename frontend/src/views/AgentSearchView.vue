@@ -586,6 +586,7 @@ async function reactToOutfit(
         originalRequest.value,
         requirements.value,
         preferenceType,
+        outfit.aesthetic_review?.reason ?? '',
       )
     }
     emit('preferenceUpdated')
@@ -601,6 +602,16 @@ async function toggleFavorite(outfit: OutfitRecommendation) {
       await setFavoriteItems(itemIds, favorited)
     } else {
       await setFavoriteOutfit(itemIds, favorited)
+    }
+    if (favorited && outfit.aesthetic_review?.reason) {
+      await addOutfitReaction(
+        itemIds,
+        originalRequest.value,
+        requirements.value,
+        'prefer',
+        outfit.aesthetic_review.reason,
+      )
+      emit('preferenceUpdated')
     }
   })
 }

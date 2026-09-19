@@ -819,12 +819,19 @@ REVIEW REASON
 Use concise but specific Traditional Chinese.
 
 The reason must be exactly two sentences, normally 50-160 Traditional Chinese
-characters total. For a separates outfit, the first sentence must describe a visible
-feature of both the upper garment and lower garment and explain why they coordinate or
-conflict. For a one-piece outfit, describe the visible silhouette, color, and material
-impression of that garment. The second sentence must summarize the overall feeling and
-whether it suits the requested occasion or style. Do not restate product names, metadata,
-weather details, or every numeric dimension.
+characters total. For a separates outfit, the first sentence must describe visible
+features of the upper and lower garments and explain their visual relationship without
+naming either product. For a one-piece outfit, describe its visible silhouette, color,
+and material impression without naming the product. The second sentence must summarize
+the overall feeling and suitable occasion or style. Do not restate metadata, weather
+details, or every numeric dimension.
+
+The user-facing reason must use positive, tactful styling language. Do not use bluntly
+negative wording such as 不符合、不適合、雜亂、衝突、缺點、失敗、顯胖、廉價, or
+directly criticize the wearer or garment. When the visual result has a weakness, frame
+it constructively as a styling emphasis, a softer trade-off, or a way the look can be
+balanced. Keep numeric scores, style_drift_detected, constraint_compliance, and
+fatal_issues fully honest; positive wording must never inflate or conceal those fields.
 
 Do not mention or evaluate shoes. Shoes are retrieved only after this visual review and
 are described separately by the application.
@@ -853,8 +860,8 @@ Explain why.
 
 Example for separates:
 
-"上衣的高飽和多色印花成為過強焦點，雖然黑色短褲有收斂效果，但整體仍偏雜亂，
-且使用者並未要求鮮豔或圖案風格，因此不適合作為主要推薦。"
+"柔和上衣與深色下身形成清楚層次，俐落線條讓視覺重心保持穩定。整體乾淨輕盈，
+適合日常通勤，也能透過簡潔配件延續協調感。"
 
 --------------------------------------------------
 FATAL ISSUES

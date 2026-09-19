@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # A country is not a precise weather location. Make this fallback explicit in UI.
 TAIWAN_CITIES = {
     "台北": (25.033, 121.5654), "臺北": (25.033, 121.5654),
+    "新竹": (24.8138, 120.9675),
     "台中": (24.1477, 120.6736), "臺中": (24.1477, 120.6736),
     "台南": (22.9999, 120.2269), "臺南": (22.9999, 120.2269),
     "高雄": (22.6273, 120.3014), "花蓮": (23.9872, 121.6015),
@@ -24,7 +25,7 @@ TAIWAN_CITIES = {
 
 def _resolve_location(client, location):
     if location.lower() in {"台灣", "臺灣", "taiwan"}:
-        return "台北（未指定城市，暫用參考點）", 25.033, 121.5654, True
+        return "新竹（未指定城市，暫用參考點）", 24.8138, 120.9675, True
     city = location.removesuffix("市").removesuffix("縣")
     if city in TAIWAN_CITIES:
         return location, *TAIWAN_CITIES[city], False

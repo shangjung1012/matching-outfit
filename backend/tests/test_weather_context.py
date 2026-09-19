@@ -22,8 +22,9 @@ def test_hot_autumn_weather_is_available_without_overwriting_user_climate(monkey
 
 def test_default_taiwan_weather_point_is_labelled():
     location, lat, lon, assumed = weather._resolve_location(None, "台灣")
-    assert assumed and "台北" in location
-    assert lat == 25.033
+    assert assumed and "新竹" in location
+    assert lat == 24.8138
+    assert lon == 120.9675
 
 
 def test_city_and_destination_change_resolve_separately():
