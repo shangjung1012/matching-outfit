@@ -15,7 +15,12 @@ You receive a JSON object with three fields:
 - `latest_session`: the raw text of the request the user just made, its
   structured context tags (occasion, season, style, etc.), and the outfits
   that were actually recommended and shown to them this time (item names,
-  colours, article types).
+  colours, article types). This field is `null` when there is no specific
+  search to report - for example, when you are being asked to re-integrate
+  the summary after a batch of outfit Like/Dislike reactions rather than
+  after a new search. When it is `null`, base the rewrite on
+  `previous_summary` and `structured_preferences` alone; do not invent a
+  session.
 
 Task: produce ONE new, cohesive paragraph that integrates everything you were
 given into a fresh restatement. You are free to reorganize, reword, shorten,

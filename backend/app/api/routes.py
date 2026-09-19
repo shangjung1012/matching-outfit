@@ -31,7 +31,7 @@ from app.preferences.context import (
     build_planner_preference_context,
     outfit_context_embedding_text,
 )
-from app.services.user_summary import regenerate_user_summary, user_summary_for
+from app.services.user_summary import bump_reaction_count, regenerate_user_summary, user_summary_for
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
@@ -1321,9 +1321,10 @@ def recommendations(
                 aesthetic_review_error=note,
                 shoe_retrievals=shoe_retrievals,
             )
-        background_tasks.add_task(
-            regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
-        )
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -1433,9 +1434,10 @@ def recommendations(
                 for reference in recommendation.references
             )
         )
-        background_tasks.add_task(
-            regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
-        )
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=discarded,
@@ -1473,9 +1475,10 @@ def recommendations(
                 "aesthetic_review_diagnostics": getattr(reviewer, "last_debug", {}),
                 "shoe_retrievals": shoe_retrievals,
             })
-        background_tasks.add_task(
-            regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
-        )
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -1545,6 +1548,7 @@ def replace_user_summary(
         row = UserSummary(user_key=user_key)
         db.add(row)
     row.summary_text = payload.summary_text
+    row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
     return _user_summary_view(user_key, row)
@@ -1581,6 +1585,7 @@ def add_style_preference(
 def add_outfit_reaction(
     user_key: str,
     payload: StylePreferenceAddRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> StylePreferenceView:
     """Persist one explicit Like/Dislike reaction without a proposal step."""
@@ -1601,8 +1606,13 @@ def add_outfit_reaction(
         [clothes_by_id[item_id] for item_id in item_ids], payload
     )
     saved, _ = upsert_style_preference(db, user_key, row, confirmed=True)
+    # Batch reactions rather than rewriting the summary on every single Like/
+    # Dislike click - see settings.user_summary_reaction_batch_size.
+    should_regenerate_summary = bump_reaction_count(db, user_key)
     db.commit()
     db.refresh(saved)
+    if should_regenerate_summary:
+        background_tasks.add_task(regenerate_user_summary, user_key)
     return StylePreferenceView.model_validate(saved)
 
 

@@ -15,6 +15,7 @@ from app.models.user_favorite import (
     UserFavoriteOutfitItem,
 )
 from app.models.user_preference import UserStylePreference
+from app.models.user_summary import UserSummary
 
 
 @pytest.fixture()
@@ -32,6 +33,7 @@ def client():
             UserFavoriteOutfit.__table__,
             UserFavoriteOutfitItem.__table__,
             UserStylePreference.__table__,
+            UserSummary.__table__,
         ],
     )
     test_session: sessionmaker[Session] = sessionmaker(
