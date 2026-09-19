@@ -11,6 +11,7 @@ import type {
   QuerySearchResult,
   GeneratedQueryTrace,
 } from '../types'
+import { formatCurrency } from '../utils/currency'
 
 const props = defineProps<{
   trace: PipelineDebugSession | null
@@ -151,6 +152,12 @@ function knowledgeSummaries(query: QueryDraft): string {
 function outfitName(outfit: OutfitRecommendation): string {
   return outfit.items.map(item => item.product_display_name).join(' + ')
 }
+function outfitTotal(outfit: OutfitRecommendation): string {
+  return formatCurrency(
+    outfit.items.reduce((total, item) => total + item.price, 0),
+    outfit.items[0]?.currency,
+  )
+}
 function percent(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
 }
@@ -284,6 +291,13 @@ function deleteHistory(id: string) {
                 <span>場合 <b>{{ outfit.aesthetic_review.occasion_fit }}</b></span><span>配色 <b>{{ outfit.aesthetic_review.color_harmony }}</b></span>
                 <span>輪廓 <b>{{ outfit.aesthetic_review.silhouette_balance }}</b></span><span>材質 <b>{{ outfit.aesthetic_review.material_coherence }}</b></span>
                 <span>整體 <b>{{ outfit.aesthetic_review.overall_aesthetic }}</b></span>
+              </div>
+              <div class="analysis-result-price">
+                <strong>價格</strong>
+                <b>{{ outfitTotal(outfit) }}</b>
+                <small>
+                  {{ outfit.items.map(item => `${zoneLabel(item.garment_zone)} ${formatCurrency(item.price, item.currency)}`).join(' · ') }}
+                </small>
               </div>
               <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
               <div v-if="outfitPreferenceReferences(outfit).length" class="analysis-result-meta">

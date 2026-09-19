@@ -534,6 +534,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .analysis-query-values dd { margin: 0; color: #4d5850; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .64rem; line-height: 1.45; overflow-wrap: anywhere; }
 .analysis-search-zone-grid { grid-template-columns: 1fr; gap: 8px; padding: 10px; background: #f8faf8; }
 .analysis-search-zone-grid details:only-child { grid-column: 1 / -1; }
+.analysis-result-price { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: 7px; margin: 13px 0; padding: 9px 10px; border: 1px solid #e0e5df; background: #f7faf7; }
+.analysis-result-price > strong { color: #657067; font-size: .66rem; }
+.analysis-result-price > b { color: #285541; font-size: .8rem; }
+.analysis-result-price > small { min-width: 0; color: #7a827b; font-size: .64rem; line-height: 1.45; overflow-wrap: anywhere; }
 .analysis-knowledge-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .analysis-knowledge-list article { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 14px; border: 1px solid #dce1dc; background: #fff; }
 .analysis-knowledge-list article > svg { color: #47705d; }
