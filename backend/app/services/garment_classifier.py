@@ -2,6 +2,8 @@ UPPER_BODY_TYPES = {
     "shirts",
     "tshirts",
     "tops",
+    "vest top",
+    "bodysuit",
     "sweaters",
     "sweatshirts",
     "jackets",
@@ -20,7 +22,10 @@ LOWER_BODY_TYPES = {
     "capris",
     "salwar",
 }
-ONE_PIECE_TYPES = {"dresses", "jumpsuit", "rompers", "sarees", "lehenga choli"}
+ONE_PIECE_TYPES = {
+    "dresses", "jumpsuit", "rompers", "sarees", "lehenga choli",
+    "costumes", "dungarees", "garment set",
+}
 
 
 def classify_garment_zone(article_type: str | None, sub_category: str | None) -> str:

@@ -40,6 +40,12 @@ Rejected concepts include close functional substitutes; do not evade sports-bott
 rejections with biker shorts, yoga leggings, running shorts or compression bottoms.
 Do not prohibit all shorts or pleated skirts. Preserve explicit preferences.
 
+For vacation, resort, beach-leisure, sightseeing, or photo-ready travel styling without
+an explicit sports goal, keep lower-body queries visibly presentable. Shorts may be
+linen, woven, tailored, pleated, paperbag-waist, or Bermuda styles. Do not generate
+running, gym, jersey, mesh, dolphin-hem, track, or technical athletic shorts merely
+because the setting is warm or casual.
+
 activity_mode is a compact summary only.
 
 Do not derive garment requirements from activity_mode alone.

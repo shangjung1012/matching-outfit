@@ -1128,9 +1128,12 @@ def recommendations(
         user_context=payload.user_input,
         reference_item=reference_item,
         outfit_budget_max=outfit_budget_max,
+        fashion_intent=payload.fashion_intent,
     )
     timings["outfit_ranker"] = round((perf_counter() - started_at) * 1000 - timings["catalog_search"], 1)
-    shortlist = ranked_pool[:payload.shortlist_count]
+    # Keep quality-close product and color alternatives in the 30 image-review
+    # slots instead of letting one safe-color cluster occupy the whole batch.
+    shortlist = select_diverse(ranked_pool, payload.shortlist_count)
     debug = (
         RecommendationDebug(
             search_results=groups,

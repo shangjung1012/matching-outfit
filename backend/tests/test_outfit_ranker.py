@@ -1,7 +1,9 @@
 from app.models.user_preference import UserHardRule
 from app.models.cloth import Cloth
 from app.schemas import (
+    AestheticReview,
     ClothResult,
+    FashionIntent,
     QueryDraft,
     QuerySearchResult,
     ReferenceLink,
@@ -9,7 +11,14 @@ from app.schemas import (
     StylePreferenceProposalRequest,
 )
 from app.api.routes import effective_audience, outfit_memory_proposals
-from app.services.outfit_ranker import _color_pair_score, parse_color, rank_outfits, select_diverse
+from app.services.outfit_ranker import (
+    _color_pair_score,
+    _fashion_intent_requests_bold_color,
+    fashion_intent_color_mode,
+    parse_color,
+    rank_outfits,
+    select_diverse,
+)
 
 
 def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothResult:
@@ -56,15 +65,54 @@ def test_parse_color_preserves_lightness_and_base_family() -> None:
     assert parse_color("Light Blue") == ("light", "blue")
     assert parse_color("Dark Green") == ("dark", "green")
     assert parse_color("Blue") == ("normal", "blue")
+    assert parse_color("Navy Blue") == ("normal", "navy")
+    assert parse_color("Other Blue") == ("normal", "blue")
+    assert parse_color("Off White") == ("normal", "cream")
 
 
 def test_color_pair_score_understands_tones_and_color_families() -> None:
     assert _color_pair_score("Light Blue", "Light Blue") == 0.86
     assert _color_pair_score("Light Blue", "Dark Blue") == 0.90
-    assert _color_pair_score("Light Beige", "Blue") == 0.95
+    assert _color_pair_score("Light Beige", "Blue") == 0.80
+    assert _color_pair_score("Black", "White") == 0.95
+    assert _color_pair_score("Beige", "Brown") == 0.95
+    assert _color_pair_score("Navy Blue", "Cream") == 0.95
+    assert _color_pair_score("Beige", "Purple") == 0.80
+    assert _color_pair_score("Black", "Orange") == 0.80
     assert _color_pair_score("Orange", "Green") == 0.35
     assert _color_pair_score("Light Orange", "Green") == 0.65
-    assert _color_pair_score("Light Orange", "Light Green") == 0.72
+    assert _color_pair_score("Light Orange", "Light Green") == 0.70
+
+
+def test_explicit_bold_fashion_intent_overrides_default_clash_penalty() -> None:
+    intent = FashionIntent.model_construct(
+        desired_impression=["playful"],
+        core_aesthetic=["colorful Y2K"],
+        must_have_visual_cues=["deliberate high-saturation color blocking"],
+        optional_visual_cues=[],
+        styling_principles=[],
+    )
+
+    color_mode = fashion_intent_color_mode(intent)
+
+    assert _fashion_intent_requests_bold_color(intent) is True
+    assert color_mode == "contrast"
+    assert _color_pair_score("Red", "Green", color_mode=color_mode) == 0.86
+
+
+def test_vivid_intent_softens_but_does_not_erase_clash_penalty() -> None:
+    intent = FashionIntent.model_construct(
+        desired_impression=["vivid and colorful"],
+        core_aesthetic=["playful color"],
+        must_have_visual_cues=["high-saturation garment"],
+        optional_visual_cues=[],
+        styling_principles=[],
+    )
+
+    color_mode = fashion_intent_color_mode(intent)
+
+    assert color_mode == "vivid"
+    assert _color_pair_score("Red", "Green", color_mode=color_mode) == 0.65
 
 
 def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> None:
@@ -376,3 +424,112 @@ def test_select_diverse_does_not_force_unsuitable_outfit_kind() -> None:
     selected = select_diverse([first, second, unsuitable_dress], 2)
 
     assert [recommendation.kind for recommendation in selected] == ["separates", "separates"]
+
+
+def test_select_diverse_prefers_quality_close_bottom_color_variety() -> None:
+    upper_colors = ["Blue", "Light Blue", "Dark Blue", "White", "Pink"]
+    black_bottoms = [
+        rank_outfits(
+            [
+                group("upper_body", [cloth(100 + index, "upper_body", color, 0.90)]),
+                group("lower_body", [cloth(200 + index, "lower_body", "Black", 0.90)]),
+            ]
+        )[0].model_copy(update={"score": 0.90 - index * 0.01})
+        for index, color in enumerate(upper_colors)
+    ]
+    white_bottom = rank_outfits(
+        [
+            group("upper_body", [cloth(300, "upper_body", "Blue", 0.90)]),
+            group("lower_body", [cloth(301, "lower_body", "White", 0.90)]),
+        ]
+    )[0].model_copy(update={"score": 0.84})
+
+    selected = select_diverse([*black_bottoms, white_bottom], 5)
+
+    assert sum(
+        item.base_colour == "Black"
+        for recommendation in selected
+        for item in recommendation.items
+        if item.garment_zone == "lower_body"
+    ) == 4
+    assert white_bottom in selected
+
+
+def test_select_diverse_does_not_trade_quality_for_bottom_color_variety() -> None:
+    black_bottoms = [
+        rank_outfits(
+            [
+                group("upper_body", [cloth(400 + index, "upper_body", color, 0.90)]),
+                group("lower_body", [cloth(500 + index, "lower_body", "Black", 0.90)]),
+            ]
+        )[0].model_copy(update={"score": 0.90 - index * 0.01})
+        for index, color in enumerate(["Blue", "Light Blue", "Dark Blue", "White", "Pink"])
+    ]
+    low_quality_white = rank_outfits(
+        [
+            group("upper_body", [cloth(600, "upper_body", "Blue", 0.70)]),
+            group("lower_body", [cloth(601, "lower_body", "White", 0.70)]),
+        ]
+    )[0].model_copy(update={"score": 0.70})
+
+    selected = select_diverse([*black_bottoms, low_quality_white], 5)
+
+    assert selected == black_bottoms
+
+
+def test_select_diverse_never_uses_fatal_candidate_to_fill_limit() -> None:
+    good = rank_outfits(
+        [
+            group("upper_body", [cloth(700, "upper_body", "Blue", 0.90)]),
+            group("lower_body", [cloth(701, "lower_body", "Black", 0.90)]),
+        ]
+    )[0]
+    fatal = rank_outfits(
+        [
+            group("upper_body", [cloth(702, "upper_body", "Pink", 0.89)]),
+            group("lower_body", [cloth(703, "lower_body", "White", 0.89)]),
+        ]
+    )[0].model_copy(
+        update={
+            "aesthetic_review": AestheticReview(
+                occasion_fit=80,
+                color_harmony=20,
+                silhouette_balance=80,
+                material_coherence=80,
+                overall_aesthetic=40,
+                fatal_issues=["prohibited color"],
+                reason="Visible hard-constraint violation",
+            )
+        }
+    )
+
+    assert select_diverse([good, fatal], 2) == [good]
+
+
+def test_select_diverse_does_not_fill_results_with_low_reviewed_quality() -> None:
+    good = rank_outfits(
+        [
+            group("upper_body", [cloth(800, "upper_body", "Blue", 0.90)]),
+            group("lower_body", [cloth(801, "lower_body", "White", 0.90)]),
+        ]
+    )[0]
+    unattractive = rank_outfits(
+        [
+            group("upper_body", [cloth(802, "upper_body", "Orange", 0.88)]),
+            group("lower_body", [cloth(803, "lower_body", "Orange", 0.88)]),
+        ]
+    )[0].model_copy(
+        update={
+            "score": 0.55,
+            "aesthetic_review": AestheticReview(
+                occasion_fit=50,
+                color_harmony=60,
+                silhouette_balance=55,
+                material_coherence=55,
+                overall_aesthetic=55,
+                reason="Visible athletic styling misses the polished vacation identity",
+            ),
+        }
+    )
+
+    assert select_diverse([good, unattractive], 2) == [good]

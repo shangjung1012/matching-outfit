@@ -10,6 +10,7 @@ from app.schemas import AestheticReview, OutfitRecommendation, ReferenceLink, St
 from app.schemas.fashion_knowledge import OutfitObservation
 from app.schemas.workflow import FashionIntent, RequirementSummary
 from app.services.integration_tools.llm import LLM
+from app.services.outfit_ranker import fashion_intent_color_mode
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 AESTHETIC_REVIEW_PROMPT = (PROMPTS_DIR / "AestheticReviewer.txt").read_text(
@@ -90,9 +91,11 @@ class AestheticReviewer:
         fashion_intent: FashionIntent | None = None,
     ) -> dict[str, AestheticReview]:
         observations = observations or []
+        color_mode = fashion_intent_color_mode(fashion_intent)
         self.last_debug = {
             "candidate_count": len(recommendations), "image_failures": [],
             "submitted_ids": [], "attempts": [], "missing_ids": [], "reviewed_count": 0,
+            "color_mode": color_mode,
         }
         metadata = []
         content: list[dict] = []
@@ -150,6 +153,7 @@ class AestheticReviewer:
                 "text": json.dumps(
                     {
                         "user_request": user_input,
+                        "color_mode": color_mode,
                         "activity_context": fashion_intent.activity_context.model_dump(mode="json") if fashion_intent else None,
                         "forbidden_style_drift": fashion_intent.forbidden_style_drift if fashion_intent else [],
                         "body_context": fashion_intent.body_context.model_dump(mode="json") if fashion_intent else None,

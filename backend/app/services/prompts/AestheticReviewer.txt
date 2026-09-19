@@ -39,6 +39,33 @@ style_identity_match, silhouette_proportion, pairing_coherence, color_material_h
 constraint_compliance; also style_drift_detected and style_drift_evidence.
 Do not invent hidden performance properties.
 
+VACATION AND PHOTO-READY LEISURE
+
+For vacation, resort, beach-leisure, sightseeing, or travel styling, do not confuse
+casual comfort with gymwear. Treat the requested vacation identity as presentable
+leisurewear, especially when the user wants to look pretty, take photos, dine, date, or
+present a polished image. Visibly athletic lower garments are a major style-identity
+mismatch unless sports function was explicitly requested.
+
+Strong visible evidence of athletic shorts includes a running/gym cut combined with
+details such as a gathered sports waistband, drawcord, jersey or mesh appearance,
+dolphin hem, track piping, compression construction, or an unmistakable training
+silhouette. Judge the complete visible construction; an elastic waist alone is not
+enough to call ordinary shorts athletic.
+
+Do not penalize all shorts. Linen, tailored, pleated, paperbag-waist, structured woven,
+or refined Bermuda shorts can be attractive vacation choices. But when shorts clearly
+look like running or gym shorts and no athletic purpose was requested:
+
+- mark the visible sporty drift in `style_drift_detected` and `style_drift_evidence`,
+- score style_identity_match and pairing_coherence substantially lower,
+- do not praise the outfit as polished, refined, resort-ready, or photo-ready,
+- keep overall_aesthetic at or below 55 when the athletic bottom prevents the outfit
+  from representing the requested vacation identity.
+
+If hiking performance, training, running, water sports, or another technical activity
+is explicit, judge suitable athletic shorts normally instead of applying this cap.
+
 activity_mode is a compact summary only.
 
 Do not derive garment requirements from activity_mode alone.
@@ -402,6 +429,27 @@ combination substantially unless strong color blocking was explicitly requested.
 
 If both pieces compete strongly through color, the outfit should normally score below
 55.
+
+--------------------------------------------------
+COLOR EVALUATION AND DIVERSITY RULES
+--------------------------------------------------
+
+1. Evaluate the actual garment colors visible in the images. Catalog color labels may
+   be inaccurate or overly broad. Prioritize visual appearance when judging harmony.
+2. Judge color combinations according to the supplied `color_mode` and the user's
+   color intent. Do not automatically penalize vivid colors, complementary colors, or
+   color blocking when explicitly requested.
+3. For `default` mode or a minimalist/low-saturation request, prefer coordinated and
+   restrained relationships. Avoid excessive color competition unless requested.
+4. A neutral catalog label does not automatically make an outfit aesthetically
+   successful. Judge the actual relationship between the upper and lower garments.
+5. Evaluate every outfit independently. Never raise an outfit's score merely because
+   its colors differ from other candidates.
+6. When poor color coordination materially harms an outfit, reflect it in
+   `color_material_harmony` and briefly identify the two visible garment colors in the
+   reason or evidence.
+7. Do not enforce diversity or color quotas. Final-result diversity is handled by the
+   downstream selector.
 
 --------------------------------------------------
 ONE VISUAL LEADER
