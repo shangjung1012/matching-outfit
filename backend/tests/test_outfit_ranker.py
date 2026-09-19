@@ -305,6 +305,34 @@ def test_ranker_penalizes_casual_items_in_strict_formal_context() -> None:
     assert recommendations[0].score_breakdown.context_fit > recommendations[1].score_breakdown.context_fit
 
 
+def test_ranker_score_uses_compatibility_and_context_only() -> None:
+    low_similarity = rank_outfits(
+        [
+            group("upper_body", [cloth(21, "upper_body", "White", 0.20)]),
+            group("lower_body", [cloth(22, "lower_body", "Black", 0.20)]),
+        ],
+        limit=1,
+    )[0]
+    high_similarity = rank_outfits(
+        [
+            group("upper_body", [cloth(23, "upper_body", "White", 0.99)]),
+            group("lower_body", [cloth(24, "lower_body", "Black", 0.99)]),
+        ],
+        limit=1,
+    )[0]
+
+    assert low_similarity.score_breakdown is not None
+    assert high_similarity.score_breakdown is not None
+    assert low_similarity.score_breakdown.fashion_clip == 0.20
+    assert high_similarity.score_breakdown.fashion_clip == 0.99
+    assert low_similarity.score == high_similarity.score
+    assert low_similarity.score == round(
+        0.8 * low_similarity.score_breakdown.compatibility
+        + 0.2 * low_similarity.score_breakdown.context_fit,
+        4,
+    )
+
+
 def test_select_diverse_avoids_reusing_same_garment_when_possible() -> None:
     upper = cloth(1, "upper_body", "White", 0.9)
     first = rank_outfits(

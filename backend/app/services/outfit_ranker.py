@@ -208,7 +208,7 @@ def _recommendation(
     context_fit, context_reasons = _context_fit_score(items, user_context)
     match_score = max(
         0.0,
-        min(1.0, 0.5 * similarity + 0.3 * compatibility + 0.2 * context_fit),
+        min(1.0, 0.8 * compatibility + 0.2 * context_fit),
     )
     references = list({reference.url: reference for item in items for reference in item.references}.values())
     preference_references = list(dict.fromkeys(

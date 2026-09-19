@@ -174,27 +174,18 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-/** 手機支援時走系統分享，其餘情況直接下載 PNG。 */
-export async function saveMbtiCard(canvas: HTMLCanvasElement, code: string): Promise<'shared' | 'downloaded'> {
+/** 將穿搭人格卡固定下載為 PNG，不開啟系統分享面板。 */
+export async function saveMbtiCard(canvas: HTMLCanvasElement, code: string): Promise<'downloaded'> {
   const blob = await toBlob(canvas)
   const fileName = `fashion-mbti-${code}.png`
-  const file = new File([blob], fileName, { type: 'image/png' })
-
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: `Fashion MBTI ${code}` })
-      return 'shared'
-    } catch (reason) {
-      // 使用者取消分享就不要再自動下載一次。
-      if (reason instanceof DOMException && reason.name === 'AbortError') return 'shared'
-    }
-  }
-
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
+  link.style.display = 'none'
+  document.body.appendChild(link)
   link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   return 'downloaded'
 }

@@ -439,38 +439,38 @@ export const MBTI_TYPES: Record<string, FashionMbtiType> = {
     code: 'CIMN',
     name: '質感安定者',
     representative: { name: '高質感基本派' },
-    description: '舒服仍然重要，但遇到材質、做工或版型真的好的單品，你願意多花一點。偏愛包覆、素色與能長期穿著的高質感基本款。',
+    description: '舒服很重要，但遇到材質、做工或版型真的好的單品，你願意多花一點。偏愛包覆、素色與能長期穿著的高質感基本款。',
   },
   CIMV: {
     code: 'CIMV',
     name: '質感配色者',
     representative: { name: '精品休閒派' },
-    description: '你願意為舒適與品質付出更高預算，也不排斥鮮明色彩。整體包覆感偏高，但會用漂亮色彩讓高質感單品不顯無聊。',
+    description: '你願意為舒適與品質付出更高預算，也喜歡鮮明色彩。整體包覆感偏高，但會用漂亮色彩讓高質感單品不顯無聊。',
   },
   CION: {
     code: 'CION',
     name: '輕奢清爽者',
     representative: { name: '度假質感派' },
-    description: '你願意為真正舒服、好看的衣服多花一點，也偏好較輕盈的露膚感。配色通常簡潔，靠材質與剪裁營造乾淨的高級感。',
+    description: '你願意為真正舒服、好看的衣服多花一點，也偏好較輕盈的露膚感。喜歡簡潔的配色，靠材質與剪裁營造乾淨的高級感。',
   },
   CIOV: {
     code: 'CIOV',
     name: '亮彩享受者',
     representative: { name: '精品度假派' },
-    description: '舒適、品質、清爽與色彩你都想要。你願意為喜歡的單品提高預算，也很適合亮色、短版與度假感較強的穿搭。',
+    description: '舒適、品質、清爽與色彩你都想要。你願意為喜歡的單品提高預算，也很喜愛亮色、短版與度假感較強的穿搭。',
   },
 
   SBMN: {
     code: 'SBMN',
     name: '聰明造型者',
     representative: { name: '高 CP 造型派' },
-    description: '你重視整體好看，但不一定要靠高價完成造型。偏好包覆與素色，因此更講究比例、搭配與版型，用有限預算穿出完成度。',
+    description: '你重視整體好看，但 CP 值高的穿搭。偏好包覆與素色，因此更講究比例、搭配與版型，用有限預算穿出完成度。',
   },
   SBMV: {
     code: 'SBMV',
     name: '平價吸睛者',
     representative: { name: '彩色混搭派' },
-    description: '你喜歡有造型感，也很會在預算內找到亮點。包覆度偏高，但不怕用鮮明顏色、撞色或彩色配件讓整套更有記憶點。',
+    description: '你喜歡有造型感，也很擅長在預算內找到亮點。包覆度偏高，但不怕用鮮明顏色、撞色或彩色配件讓整套更有記憶點。',
   },
   SBON: {
     code: 'SBON',
@@ -488,7 +488,7 @@ export const MBTI_TYPES: Record<string, FashionMbtiType> = {
     code: 'SIMN',
     name: '低調精品者',
     representative: { name: '極簡精品派' },
-    description: '你願意為造型與品質投資，但不需要靠大量露膚或鮮豔顏色吸引注意。剪裁、布料與細節才是你真正重視的地方。',
+    description: '你願意為造型與品質投資，但不需要靠大量露膚或鮮豔顏色吸引注意。你更偏好素一點的顏色，剪裁、布料與細節才是你真正重視的地方。',
   },
   SIMV: {
     code: 'SIMV',
@@ -506,7 +506,7 @@ export const MBTI_TYPES: Record<string, FashionMbtiType> = {
     code: 'SIOV',
     name: '華麗主角者',
     representative: { name: '高調時尚派' },
-    description: '你願意為造型投入預算，也不怕露膚與鮮明色彩。對你而言穿搭就是完整表達，值得用有存在感的單品把造型做到位。',
+    description: '你願意為造型投入預算，也熱愛露膚與鮮明色彩。對你而言穿搭就是完整表達，值得用有存在感的單品把造型做到位。',
   },
 }
 

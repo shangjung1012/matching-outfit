@@ -184,8 +184,8 @@ async function saveToPreferences() {
 async function saveImage() {
   if (!cardCanvas.value || !result.value) return
   try {
-    const outcome = await saveMbtiCard(cardCanvas.value, result.value.code)
-    showSuccess(outcome === 'shared' ? '已送出分享。' : '已下載分享圖。')
+    await saveMbtiCard(cardCanvas.value, result.value.code)
+    showSuccess('已下載穿搭人格圖片。')
   } catch {
     showError('圖片產生失敗，請再試一次。')
   }
