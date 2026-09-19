@@ -44,6 +44,11 @@ const articleTypeOptions = [
   ['Tailored Waistcoat', '西裝背心'],
 ] as const
 
+const supportedAvoidColours = new Set([
+  'Black', 'White', 'Grey', 'Beige', 'Blue', 'Green', 'Red', 'Pink',
+  'Purple', 'Orange', 'Yellow', 'Turquoise', 'Metallic',
+])
+
 function emptyHard(): HardRules {
   return {
     gender: null,
@@ -69,6 +74,7 @@ const savingHard = ref(false)
 function applyHard(source: Partial<HardRules> | null | undefined): void {
   Object.assign(hard, emptyHard(), source ?? {})
   if (!Array.isArray(hard.avoid_colours)) hard.avoid_colours = []
+  else hard.avoid_colours = hard.avoid_colours.filter((colour) => supportedAvoidColours.has(colour))
   if (!Array.isArray(hard.avoid_article_types)) hard.avoid_article_types = []
   if (!Array.isArray(hard.avoid_master_categories)) hard.avoid_master_categories = []
 }

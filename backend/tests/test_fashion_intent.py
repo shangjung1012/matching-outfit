@@ -67,6 +67,21 @@ def test_valid_fashion_intent_parses() -> None:
     assert intent.occasion_interpretation.formality_target == 0.2
 
 
+def test_fashion_intent_allows_compact_output_without_direction_concepts() -> None:
+    intent = make_fashion_intent(concepts=[])
+
+    assert intent.concepts == []
+
+
+def test_legacy_direction_ids_may_use_either_valid_outfit_shape() -> None:
+    concepts = [make_concept(direction_id) for direction_id in "ABCDEFG"]
+    concepts[0] = make_concept("F").model_copy(update={"direction_id": "A"})
+
+    intent = make_fashion_intent(concepts=concepts)
+
+    assert intent.concepts[0].one_piece_role
+
+
 @pytest.mark.parametrize(
     "concepts",
     [

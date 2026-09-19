@@ -3,6 +3,7 @@ from app.models.user_preference import UserHardRule
 from app.services import catalog_search
 from app.api import routes
 from app.schemas import CatalogSemanticSearchRequest
+from app.services.integration_tools.colour_mapping import expand_avoid_colours
 
 
 class FakeRows:
@@ -88,6 +89,35 @@ def test_free_text_catalog_search_never_relaxes_hard_exclusions(monkeypatch) -> 
 
     assert results == []
     assert db.execute_count == 1
+
+
+def test_avoid_colour_family_expands_to_catalog_values(monkeypatch) -> None:
+    monkeypatch.setattr(
+        catalog_search.fashion_clip,
+        "encode_texts",
+        lambda _: [[0.0] * 512],
+    )
+    db = FakeSession([])
+
+    catalog_search.search_catalog_items(
+        db,
+        "formal dinner outfit",
+        20,
+        hard=UserHardRule(user_key="demo", avoid_colours=["Blue"]),
+    )
+
+    params = {
+        value
+        for parameter in db.statement.compile().params.values()
+        for value in (parameter if isinstance(parameter, list) else [parameter])
+    }
+    assert {"blue", "dark blue", "light blue", "other blue"}.issubset(params)
+
+
+def test_avoid_colour_expansion_ignores_unsupported_values() -> None:
+    assert expand_avoid_colours(["blue", "Navy Blue"]) == [
+        "Blue", "Dark Blue", "Light Blue", "Other Blue",
+    ]
 
 
 def test_free_text_catalog_search_applies_per_item_price_range(monkeypatch) -> None:

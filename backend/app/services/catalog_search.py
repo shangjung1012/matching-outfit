@@ -6,6 +6,7 @@ from app.models.user_preference import UserHardRule
 from app.schemas import (
     ClothResult, QueryDraft, QuerySearchResult, ReferenceLink, RequirementSummary, ShoeSpec,
 )
+from app.services.integration_tools.colour_mapping import expand_avoid_colours
 from app.services.integration_tools.fashion_clip import fashion_clip
 from app.services.query_planner import is_skirt_outfit_request
 
@@ -29,7 +30,7 @@ def _exclusion_filters(hard: UserHardRule) -> list:
     """Hard exclusion gates applied to every catalog search."""
     conditions = []
     if hard.avoid_colours:
-        conditions.append(_not_in_ci(Cloth.base_colour, hard.avoid_colours))
+        conditions.append(_not_in_ci(Cloth.base_colour, expand_avoid_colours(hard.avoid_colours)))
     if hard.avoid_article_types:
         conditions.append(_not_in_ci(Cloth.article_type, hard.avoid_article_types))
     if hard.avoid_master_categories:
