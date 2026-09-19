@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from threading import Event, Thread
-from typing import Protocol
+from typing import Any, Protocol
 
 from PIL import Image
 
@@ -19,6 +19,8 @@ class ManagedEngine(Protocol):
 
     def load(self) -> None: ...
     def unload(self) -> None: ...
+    def prepare(self, images: list[Image.Image]) -> Any: ...
+    def run_prepared(self, prepared: Any, output_dir: Path) -> ReconstructionResult: ...
     def run(self, images: list[Image.Image], output_dir: Path) -> ReconstructionResult: ...
 
 
@@ -78,7 +80,7 @@ class ResidencyController:
     ) -> None:
         self.engine = engine
         self.fastfit = fastfit or FastFitControlClient()
-        requested = (mode or os.getenv("GPU_RESIDENCY_MODE", "auto")).lower()
+        requested = (mode or os.getenv("GPU_RESIDENCY_MODE", "switch")).lower()
         if requested not in self.MODES:
             raise ValueError(f"Invalid GPU_RESIDENCY_MODE: {requested}")
         self.requested_mode = requested
@@ -107,13 +109,21 @@ class ResidencyController:
     def _is_oom(error: BaseException) -> bool:
         return "out of memory" in str(error).lower()
 
-    def _switch_run(
-        self, images: list[Image.Image], output_dir: Path
-    ) -> ReconstructionResult:
+    def _prepare_inputs(self, images: list[Image.Image]) -> Any:
+        prepare = getattr(self.engine, "prepare", None)
+        return prepare(images) if callable(prepare) else images
+
+    def _run_engine(self, prepared: Any, output_dir: Path) -> ReconstructionResult:
+        run_prepared = getattr(self.engine, "run_prepared", None)
+        if callable(run_prepared):
+            return run_prepared(prepared, output_dir)
+        return self.engine.run(prepared, output_dir)
+
+    def _switch_run(self, prepared: Any, output_dir: Path) -> ReconstructionResult:
         self.fastfit.unload()
         try:
             self.engine.load()
-            return self.engine.run(images, output_dir)
+            return self._run_engine(prepared, output_dir)
         finally:
             self.engine.unload()
             try:
@@ -126,14 +136,17 @@ class ResidencyController:
     def run(
         self, images: list[Image.Image], output_dir: Path
     ) -> ReconstructionResult:
+        # Segmentation is CPU-only and may initialize/download its own model.
+        # Do it before taking the shared GPU semaphore or unloading FastFit.
+        prepared = self._prepare_inputs(images)
         with SharedGPULock():
             if self.effective_mode == "switch":
-                return self._switch_run(images, output_dir)
+                return self._switch_run(prepared, output_dir)
 
             monitor = DeviceMemoryMonitor()
             monitor.start()
             try:
-                result = self.engine.run(images, output_dir)
+                result = self._run_engine(prepared, output_dir)
             except Exception as error:
                 monitor.stop()
                 if self.requested_mode != "auto" or not self._is_oom(error):
@@ -143,7 +156,7 @@ class ResidencyController:
                 for partial in output_dir.glob("*"):
                     if partial.is_file():
                         partial.unlink(missing_ok=True)
-                return self._switch_run(images, output_dir)
+                return self._switch_run(prepared, output_dir)
             monitor.stop()
             self.measured_device_peak_bytes = max(
                 self.measured_device_peak_bytes, monitor.peak_used_bytes

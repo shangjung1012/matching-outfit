@@ -45,6 +45,16 @@ class FakeFastFit:
         self.events.append("fastfit.load")
 
 
+class FakePreparedEngine(FakeEngine):
+    def prepare(self, images):
+        self.events.append("lhm.prepare")
+        return ["prepared" for _ in images]
+
+    def run_prepared(self, prepared, output_dir: Path) -> ReconstructionResult:
+        assert prepared == ["prepared"]
+        return super().run(prepared, output_dir)
+
+
 class FakeMonitor:
     total_bytes = 16 * 1024**3
     peak_used_bytes = 0
@@ -74,6 +84,32 @@ def test_switch_mode_unloads_fastfit_then_restores_it(monkeypatch, tmp_path: Pat
     controller.run([image()], tmp_path)
 
     assert events == [
+        "fastfit.unload",
+        "lhm.load",
+        "lhm.run",
+        "lhm.unload",
+        "fastfit.load",
+    ]
+
+
+def test_cpu_preprocessing_happens_before_fastfit_is_unloaded(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("GPU_LOCK_PATH", str(tmp_path / "gpu.lock"))
+    events: list[str] = []
+    controller = residency.ResidencyController(
+        FakePreparedEngine(events),
+        FakeFastFit(events),
+        mode="switch",
+    )
+    controller.initialize()
+    events.clear()
+
+    controller.run([image()], tmp_path)
+
+    assert events == [
+        "lhm.prepare",
         "fastfit.unload",
         "lhm.load",
         "lhm.run",

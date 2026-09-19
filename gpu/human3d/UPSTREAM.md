@@ -28,6 +28,21 @@ kernels for GPU architectures that are not embedded in its wheel. `simple-knn`
 and flash-attn are not used by this inference/export path. There is no CPU
 fallback.
 
+The prebuilt xFormers 0.0.32.post2 wheel advertises attention operators on the
+RTX 5080 but its automatic dispatcher selects a Hopper FA3 kernel that exits
+with `invalid argument` during the DINO forward pass. Disabling xFormers is not
+viable either: Sonata's dense fallback needs a roughly 6 GiB attention matrix.
+The service therefore forces the xFormers CUTLASS forward operator, which is
+tested on sm_120, for both DINO attention and a small adapter implementing
+Sonata's packed variable-length inference call. LHM++ is lazy-switched with
+FastFit by default because measurements with both resident leave insufficient
+activation headroom on a 16 GB card.
+
+The rembg U2Net checkpoint uses `U2NET_HOME=/models/u2net`, inside the same
+persistent model volume as the LHM++ and Torch caches. CPU segmentation runs
+before the shared GPU lock is acquired, so its initialization does not block
+ordinary FastFit inference.
+
 Pinned extension sources:
 
 - PyTorch3D: `978cd99221b9e0a6a568f1d427854d73363265cf`
