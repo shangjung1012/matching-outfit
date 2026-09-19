@@ -604,6 +604,7 @@ export interface OutfitPreferenceReaction {
   user_key: string
   user_request: string
   review_summary?: string
+  user_feedback?: string
   outfit_item_ids: number[]
   preference_type: PreferenceType
   requirements: RequirementSummary | null

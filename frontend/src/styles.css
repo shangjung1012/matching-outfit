@@ -749,6 +749,11 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .reference-picker { width: min(440px, 100%); padding: 22px; border: 1px solid #d8ddd8; border-radius: 7px; background: #fff; box-shadow: 0 22px 60px rgb(20 30 24 / 18%); }
 .reference-picker > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .reference-picker h2 { margin: 4px 0 0; color: #28322c; font-size: 1.1rem; }
+.dislike-feedback-dialog { width: min(500px, 100%); }
+.dislike-feedback-dialog > p { margin: 18px 0 0; color: #626b64; font-size: .8rem; line-height: 1.65; }
+.dislike-feedback-field textarea { resize: vertical; }
+.dislike-feedback-field small { justify-self: end; color: #8a918b; font-size: .65rem; }
+.dislike-feedback-dialog > footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
 .reference-type-control { display: grid; grid-template-columns: 1fr 1fr; margin: 20px 0 12px; border: 1px solid #d7dcd7; border-radius: 5px; padding: 3px; background: #f5f7f4; }
 .reference-type-control button { border: 0; border-radius: 3px; padding: 8px; color: #687069; background: transparent; font-size: .75rem; font-weight: 700; }
 .reference-type-control button.active { color: #245a45; background: #fff; box-shadow: 0 1px 4px rgb(30 45 35 / 10%); }

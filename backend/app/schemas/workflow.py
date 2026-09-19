@@ -626,6 +626,7 @@ class StylePreferenceAddRequest(BaseModel):
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)
     user_request: str | None = Field(default=None, max_length=1200)
     review_summary: str | None = Field(default=None, max_length=600)
+    user_feedback: str | None = Field(default=None, max_length=600)
     outfit_item_ids: list[int] = Field(min_length=1)
     preference_type: PreferenceType
     requirements: RequirementSummary | None = None

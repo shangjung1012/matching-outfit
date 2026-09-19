@@ -77,6 +77,8 @@ const composerInput = ref<HTMLTextAreaElement | null>(null)
 const agentActivity = ref<AgentActivityKind | null>(null)
 const typingVisible = ref(false)
 const actionLoading = ref(false)
+const dislikeTarget = ref<OutfitRecommendation | null>(null)
+const dislikeFeedback = ref('')
 const isNearMessageBottom = ref(true)
 const hasUnreadMessage = ref(false)
 const stage = ref<'start' | 'review' | 'results'>('start')
@@ -713,6 +715,11 @@ async function reactToOutfit(
   if (actionLoading.value) return
   const itemIds = outfitItemIds(outfit)
   const current = outfitPreference(itemIds)
+  if (preferenceType === 'avoid' && current?.preference_type !== 'avoid') {
+    dislikeTarget.value = outfit
+    dislikeFeedback.value = ''
+    return
+  }
   await runAction(async () => {
     if (current?.preference_type === preferenceType) {
       await removePreference(current.id)
@@ -728,6 +735,34 @@ async function reactToOutfit(
     }
     emit('preferenceUpdated')
   })
+}
+
+function closeDislikeDialog() {
+  if (actionLoading.value) return
+  dislikeTarget.value = null
+  dislikeFeedback.value = ''
+}
+
+async function confirmDislike() {
+  const outfit = dislikeTarget.value
+  if (!outfit || actionLoading.value) return
+  const itemIds = outfitItemIds(outfit)
+  const current = outfitPreference(itemIds)
+  let saved = false
+  await runAction(async () => {
+    if (current) await removePreference(current.id)
+    await addOutfitReaction(
+      itemIds,
+      originalRequest.value,
+      requirements.value,
+      'avoid',
+      outfit.aesthetic_review?.reason ?? '',
+      dislikeFeedback.value.trim(),
+    )
+    emit('preferenceUpdated')
+    saved = true
+  })
+  if (saved) closeDislikeDialog()
 }
 
 async function toggleFavorite(outfit: OutfitRecommendation) {
@@ -1058,6 +1093,48 @@ onBeforeUnmount(() => {
         </section>
       </section>
     </main>
+
+    <div
+      v-if="dislikeTarget"
+      class="reference-picker-backdrop dislike-feedback-backdrop"
+      @click.self="closeDislikeDialog"
+      @keydown.esc="closeDislikeDialog"
+    >
+      <section
+        class="reference-picker dislike-feedback-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dislike-feedback-title"
+      >
+        <header>
+          <div>
+            <span class="section-kicker">Outfit feedback</span>
+            <h2 id="dislike-feedback-title">覺得這套哪裡不太適合？</h2>
+          </div>
+          <button class="icon-button" type="button" title="關閉" :disabled="actionLoading" @click="closeDislikeDialog">
+            <X :size="18" />
+          </button>
+        </header>
+        <p>你的意見會加入穿搭偏好，幫助後續避開類似搭配。不想填也可以直接送出。</p>
+        <label class="reference-style-note dislike-feedback-field">
+          <span>不喜歡的原因（選填）</span>
+          <textarea
+            v-model="dislikeFeedback"
+            rows="4"
+            maxlength="600"
+            placeholder="例如：配色對比太強、版型看起來太厚重、不適合這個場合……"
+            :disabled="actionLoading"
+          />
+          <small>{{ dislikeFeedback.length }}/600</small>
+        </label>
+        <footer>
+          <button class="secondary-button" type="button" :disabled="actionLoading" @click="closeDislikeDialog">取消</button>
+          <button class="primary-button" type="button" :disabled="actionLoading" @click="confirmDislike">
+            {{ actionLoading ? '儲存中…' : (dislikeFeedback.trim() ? '送出意見' : '略過並送出') }}
+          </button>
+        </footer>
+      </section>
+    </div>
 
     <div v-if="referencePickerOpen" class="reference-picker-backdrop" @click.self="referencePickerOpen = false">
       <section class="reference-picker reference-source-picker" role="dialog" aria-modal="true" aria-labelledby="reference-picker-title">

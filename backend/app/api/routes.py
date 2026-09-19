@@ -837,8 +837,22 @@ def outfit_reaction_preference(
     direction, since downstream matching (query planner) only reads that field.
     """
     is_avoid = payload.preference_type == "avoid"
+    user_feedback = " ".join((payload.user_feedback or "").split()).strip()
     review_summary = _review_summary(payload.review_summary, clothes, prefer_negative=is_avoid)
-    if review_summary:
+    if is_avoid and user_feedback:
+        context = _preference_context(payload)
+        outfit_summary = _review_summary(
+            payload.review_summary,
+            clothes,
+            prefer_negative=False,
+        )
+        if not outfit_summary:
+            outfit_summary = "這套搭配的配色、輪廓與整體風格"
+        sentence = (
+            f"在「{context}」的情境與要求下，使用者認為「{outfit_summary}」"
+            f"不符合偏好，原因是「{user_feedback}」；後續應避免相同的搭配方向。"
+        )
+    elif review_summary:
         context = _preference_context(payload)
         sentence = (
             f"在「{context}」的情境與要求下，使用者認為「{review_summary}」"
@@ -866,7 +880,7 @@ def outfit_reaction_preference(
         verb = "使用者想避免由" if is_avoid else "使用者喜歡由"
         sentence = f"{verb} {outfit_description} 組成的整套搭配。"
     user_request = (payload.user_request or "").strip()
-    if user_request and not review_summary:
+    if user_request and not review_summary and not user_feedback:
         sentence = f"在「{user_request}」的需求下，{sentence}"
     if len(sentence) > 500:
         sentence = f"{sentence[:497]}..."

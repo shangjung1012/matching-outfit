@@ -393,6 +393,32 @@ def test_avoid_outfit_review_summary_is_saved_as_contextual_preference(client) -
     assert sentence.endswith("是後續應避免的搭配方向。")
 
 
+def test_dislike_feedback_is_saved_verbatim_and_may_be_omitted(client) -> None:
+    test_client, _ = client
+    created = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "user_request": "想找適合上班的簡約穿搭",
+            "outfit_item_ids": [2, 1],
+            "preference_type": "avoid",
+            "review_summary": (
+                "深藍上衣與深灰裙形成安定的深色層次，版型也維持俐落線條。"
+                "整體低調專業，屬於很穩健的辦公簡約風。"
+            ),
+            "user_feedback": "上衣和褲子的顏色對比太強，看起來不夠沉穩",
+        },
+    )
+
+    assert created.status_code == 201
+    sentence = created.json()["preference_text"]
+    assert "深藍上衣與深灰裙形成安定的深色層次" in sentence
+    assert "上衣和褲子的顏色對比太強，看起來不夠沉穩" in sentence
+    assert "想找適合上班的簡約穿搭" in sentence
+    assert sentence.count("想找適合上班的簡約穿搭") == 1
+    assert created.json()["preference_type"] == "avoid"
+
+
 def test_single_item_reaction_has_no_context_prefix_without_user_request(client) -> None:
     test_client, _ = client
     liked = test_client.post(
