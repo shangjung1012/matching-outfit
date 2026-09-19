@@ -150,7 +150,9 @@ class FashionIntent(BaseModel):
     optional_visual_cues: list[str] = Field(default_factory=list, max_length=12)
     avoid_concepts: list[str] = Field(default_factory=list, max_length=12)
     styling_principles: list[str] = Field(min_length=1, max_length=12)
-    concepts: list[StylingConcept] = Field(min_length=7, max_length=7)
+    # Direction-level outfit formulas belong to QueryPlanner.  Keep this field
+    # optional for backward compatibility with saved/older FashionIntent data.
+    concepts: list[StylingConcept] = Field(default_factory=list, max_length=7)
     ambiguities: list[str] = Field(default_factory=list, max_length=8)
     confidence: float = Field(ge=0, le=1)
 
@@ -158,17 +160,22 @@ class FashionIntent(BaseModel):
 
     @model_validator(mode="after")
     def _validate_concept_contract(self) -> "FashionIntent":
+        if not self.concepts:
+            return self
         by_id = {concept.direction_id: concept for concept in self.concepts}
         expected = set("ABCDEFG")
         if len(by_id) != 7 or set(by_id) != expected:
             raise ValueError("FashionIntent concepts must have unique direction IDs A-G")
-        for direction_id in "ABCDE":
-            concept = by_id[direction_id]
-            if not concept.upper_role or not concept.lower_role:
-                raise ValueError(f"Direction {direction_id} requires upper_role and lower_role")
-        for direction_id in "FG":
-            if not by_id[direction_id].one_piece_role:
-                raise ValueError(f"Direction {direction_id} requires one_piece_role")
+        for concept in self.concepts:
+            has_upper = bool(concept.upper_role)
+            has_lower = bool(concept.lower_role)
+            has_one_piece = bool(concept.one_piece_role)
+            has_separates = has_upper and has_lower
+            if has_upper != has_lower or has_separates == has_one_piece:
+                raise ValueError(
+                    f"Direction {concept.direction_id} must contain either a complete "
+                    "upper/lower pair or one one-piece role"
+                )
         return self
 
 
