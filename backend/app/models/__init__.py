@@ -3,6 +3,7 @@ from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.fashion_rule import FashionRule
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.models.user_profile import UserProfile
+from app.models.user_summary import UserSummary
 from app.models.try_on_job import TryOnJob, TryOnJobReference
 from app.models.human3d_job import Human3DJob
 from app.models.user_favorite import (
@@ -23,6 +24,7 @@ __all__ = [
     "UserHardRule",
     "UserStylePreference",
     "UserProfile",
+    "UserSummary",
     "UserFavoriteItem",
     "UserFavoriteOutfit",
     "UserFavoriteOutfitItem",

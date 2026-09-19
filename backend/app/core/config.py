@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     fashion_intent_interpreter_enabled: bool = True
     aesthetic_review_model: str = "gpt-4.1-mini"
     aesthetic_review_enabled: bool = True
+    user_summary_model: str = "gpt-4.1-mini"
+    user_summary_enabled: bool = True
+    user_summary_reaction_batch_size: int = 5
     # Keep the parsed total budget visible in the request for now, but do not
     # let it eliminate final recommendations until catalog currency is unified.
     outfit_budget_filter_enabled: bool = False

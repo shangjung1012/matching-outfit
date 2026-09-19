@@ -1063,8 +1063,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .memory-list li.inactive { background: #f7f8f6; }
 .memory-list li.inactive .memory-content { opacity: .55; }
 .memory-content { min-width: 0; flex: 1; }
-.memory-content p { margin: 0; color: #353c36; font-size: .78rem; line-height: 1.6; }
-.memory-content textarea { min-height: 82px; }
+.memory-content p { margin: 0; color: #353c36; font-size: .85rem; line-height: 1.6; }
+.memory-content textarea { min-height: 82px; font-size: .85rem; }
 .memory-contexts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .memory-contexts span { padding: 3px 7px; color: #58675e; background: #eef1ed; font-size: .63rem; }
 .memory-actions, .memory-edit-actions { display: flex; align-items: center; gap: 6px; }

@@ -21,6 +21,7 @@ from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
 from app.models.user_profile import UserProfile
+from app.models.user_summary import UserSummary
 from app.models.user_favorite import (
     UserFavoriteItem,
     UserFavoriteOutfit,
@@ -30,6 +31,7 @@ from app.preferences.context import (
     build_planner_preference_context,
     outfit_context_embedding_text,
 )
+from app.services.user_summary import bump_reaction_count, regenerate_user_summary, user_summary_for
 from app.schemas import (
     CatalogItem,
     CatalogResponse,
@@ -69,6 +71,8 @@ from app.schemas import (
     UserProfileLoginRequest,
     UserProfileUpdate,
     UserProfileView,
+    UserSummaryUpdate,
+    UserSummaryView,
 )
 from app.schemas.workflow import GarmentZone, RequirementSummary, SessionHardRules
 from app.services.catalog_search import search_catalog, search_catalog_items
@@ -1317,6 +1321,10 @@ def recommendations(
                 aesthetic_review_error=note,
                 shoe_retrievals=shoe_retrievals,
             )
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -1426,6 +1434,10 @@ def recommendations(
                 for reference in recommendation.references
             )
         )
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=discarded,
@@ -1463,6 +1475,10 @@ def recommendations(
                 "aesthetic_review_diagnostics": getattr(reviewer, "last_debug", {}),
                 "shoe_retrievals": shoe_retrievals,
             })
+        if final:
+            background_tasks.add_task(
+                regenerate_user_summary, payload.user_key, payload.user_input, payload.requirements, final,
+            )
         return RecommendationResponse(
             recommendations=final,
             discarded_recommendations=[
@@ -1481,6 +1497,14 @@ def _hard_rules_view(user_key: str, preference: UserHardRule | None) -> HardRule
     return HardRulesView(user_key=user_key, **hard_rules_payload(preference))
 
 
+def _user_summary_view(user_key: str, row: UserSummary | None) -> UserSummaryView:
+    return UserSummaryView(
+        user_key=user_key,
+        summary_text=(row.summary_text or "") if row else "",
+        updated_at=row.updated_at if row else None,
+    )
+
+
 @router.get("/preferences/{user_key}", response_model=PreferenceBundle)
 def get_preferences(user_key: str, db: Session = Depends(get_db)) -> PreferenceBundle:
     """Everything the settings page needs in one call: hard gates + every soft row."""
@@ -1490,6 +1514,7 @@ def get_preferences(user_key: str, db: Session = Depends(get_db)) -> PreferenceB
             StylePreferenceView.model_validate(row)
             for row in style_preferences_for(db, user_key, only_active=False)
         ],
+        summary=_user_summary_view(user_key, user_summary_for(db, user_key)),
     )
 
 
@@ -1509,6 +1534,24 @@ def replace_hard_rules(
     db.commit()
     db.refresh(preference)
     return _hard_rules_view(user_key, preference)
+
+
+@router.put("/preferences/{user_key}/summary", response_model=UserSummaryView)
+def replace_user_summary(
+    user_key: str, payload: UserSummaryUpdate, db: Session = Depends(get_db)
+) -> UserSummaryView:
+    """Manual full-replace edit of the free-text personal summary."""
+    if payload.user_key != user_key:
+        raise HTTPException(status_code=400, detail="user_key in path and body must match")
+    row = user_summary_for(db, user_key)
+    if row is None:
+        row = UserSummary(user_key=user_key)
+        db.add(row)
+    row.summary_text = payload.summary_text
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return _user_summary_view(user_key, row)
 
 
 @router.get("/preferences/{user_key}/soft", response_model=list[StylePreferenceView])
@@ -1542,6 +1585,7 @@ def add_style_preference(
 def add_outfit_reaction(
     user_key: str,
     payload: StylePreferenceAddRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> StylePreferenceView:
     """Persist one explicit Like/Dislike reaction without a proposal step."""
@@ -1562,8 +1606,13 @@ def add_outfit_reaction(
         [clothes_by_id[item_id] for item_id in item_ids], payload
     )
     saved, _ = upsert_style_preference(db, user_key, row, confirmed=True)
+    # Batch reactions rather than rewriting the summary on every single Like/
+    # Dislike click - see settings.user_summary_reaction_batch_size.
+    should_regenerate_summary = bump_reaction_count(db, user_key)
     db.commit()
     db.refresh(saved)
+    if should_regenerate_summary:
+        background_tasks.add_task(regenerate_user_summary, user_key)
     return StylePreferenceView.model_validate(saved)
 
 
