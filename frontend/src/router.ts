@@ -10,7 +10,6 @@ const routes: Array<{ path: string; name: AppView; alias?: string | string[] }> 
   { path: '/my_favorites', name: 'favorites' },
   { path: '/my_preference', name: 'preferences', alias: '/my_profile' },
   { path: '/outfit-mbti', name: 'mbti' },
-  { path: '/pipeline_debug', name: 'debug' },
 ]
 
 export const router = createRouter({

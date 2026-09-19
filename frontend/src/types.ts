@@ -3,7 +3,6 @@ export type PlannerGarmentZone = 'upper_body' | 'lower_body' | 'one_piece'
 export type AppView =
   | 'agent'
   | 'knowledge'
-  | 'debug'
   | 'similarity'
   | 'catalog'
   | 'favorites'

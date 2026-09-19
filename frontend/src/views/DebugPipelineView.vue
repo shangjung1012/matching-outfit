@@ -1,15 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ArrowLeft, BookOpenText, CheckCircle2, ChevronDown, History, Search, Trash2 } from 'lucide-vue-next'
 import type { DebugHistoryItem } from '../composables/useDebugHistory'
-import {
-  AlertTriangle, BrainCircuit, CheckCircle2, Database, Download, SearchCode,
-} from 'lucide-vue-next'
-import type {
-  GarmentZone,
-  OutfitRecommendation,
-  PipelineDebugSession,
-  QueryDraft,
-} from '../types'
+import type { GarmentZone, OutfitRecommendation, PipelineDebugSession, QueryDraft } from '../types'
 
 const props = defineProps<{
   trace: PipelineDebugSession | null
@@ -17,450 +10,205 @@ const props = defineProps<{
   selectedId: string | null
 }>()
 const emit = defineEmits<{
+  back: []
   selectHistory: [id: string]
   showCurrent: []
   deleteHistory: [id: string]
 }>()
-function deleteHistory(id: string) {
-  if (window.confirm('確定刪除這份除錯報告？')) emit('deleteHistory', id)
-}
 
-const reviewedCandidates = computed(() => [
-  ...(props.trace?.recommendations ?? []),
-  ...(props.trace?.discarded_recommendations ?? []),
-])
+const requirementLabels: Record<string, string> = {
+  location: '地點', target_date: '日期', outfit_budget_max: '整套預算',
+  occasions: '場合', seasons: '季節', times_of_day: '時段', climates: '氣候',
+  formalities: '正式程度', activities: '活動', styles: '風格',
+  special_requirements: '特別需求', additional_notes: '補充說明',
+}
 
 const requirementRows = computed(() => {
   const requirements = props.trace?.requirements
   if (!requirements) return []
-  return Object.entries(requirements).filter(([key]) => key !== 'tag_translations')
+  return Object.entries(requirementLabels).flatMap(([key, label]) => {
+    const value = requirements[key as keyof typeof requirements]
+    if (Array.isArray(value) && value.length) return [{ label, value: value.join('、') }]
+    if (key === 'outfit_budget_max' && typeof value === 'number') return [{ label, value: `$${value.toLocaleString('zh-TW')}` }]
+    if (typeof value === 'string' && value.trim()) return [{ label, value }]
+    return []
+  })
 })
 
-const planningTotalMs = computed(() => props.trace?.plan_debug?.stage_timings_ms?.total ?? 0)
-const recommendationTotalMs = computed(
-  () => props.trace?.recommendation_debug?.stage_timings_ms?.total ?? 0,
-)
-const fullPipelineMs = computed(() => planningTotalMs.value + recommendationTotalMs.value)
+const searchResults = computed(() => props.trace?.recommendation_debug?.search_results ?? [])
+const searchedItemCount = computed(() => searchResults.value.reduce((total, group) => total + group.clothes.length, 0))
+const knowledge = computed(() => (
+  props.trace?.recommendation_debug?.knowledge_observations
+  ?? props.trace?.plan_debug?.knowledge_observations
+  ?? []
+))
 
-function seconds(milliseconds: number): string {
-  return `${(milliseconds / 1000).toFixed(1)} 秒`
+const timingLabels: Record<string, string> = {
+  context_and_knowledge: '需求與文章知識整理',
+  fashion_intent: '風格需求理解',
+  query_planner: '搭配搜尋方向規劃',
+  catalog_search: '商品搜尋',
+  outfit_ranker: '搭配組合與初步評分',
+  compatibility_rerank: '搭配協調度重排',
+  aesthetic_review: '圖片美感評估',
+  shoe_retrieval: '鞋款搜尋',
 }
+const timingRows = computed(() => {
+  const planning = props.trace?.plan_debug?.stage_timings_ms ?? {}
+  const recommendation = props.trace?.recommendation_debug?.stage_timings_ms ?? {}
+  const rows = [
+    ...Object.entries(planning).filter(([key]) => key !== 'total'),
+    ...Object.entries(recommendation).filter(([key]) => key !== 'total'),
+  ].map(([key, value]) => ({ label: timingLabels[key] ?? key, value }))
+  if (planning.total !== undefined) rows.push({ label: '規劃階段合計', value: planning.total })
+  if (recommendation.total !== undefined) rows.push({ label: '推薦階段合計', value: recommendation.total })
+  return rows
+})
 
 function zoneLabel(zone: GarmentZone) {
-  return {
-    upper_body: '上身',
-    lower_body: '下身',
-    one_piece: '單件連身',
-    accessory: '配件',
-    other: '其他',
-  }[zone]
+  return { upper_body: '上身', lower_body: '下身', one_piece: '連身單品', accessory: '配件', other: '其他' }[zone]
 }
-
-function displayValue(value: unknown): string {
-  if (Array.isArray(value)) return value.length ? value.join('、') : '—'
-  if (typeof value === 'object' && value !== null) return JSON.stringify(value, null, 2)
-  if (value === null || value === undefined || value === '') return '—'
-  return String(value)
-}
-
-function afterQuery(directionId: string, zone: GarmentZone): QueryDraft | undefined {
-  return props.trace?.plan_debug?.generated_queries_after_normalization.find(
-    (query) => query.direction_id === directionId && query.garment_zone === zone,
-  )
-}
-
-function currentQuery(directionId: string, zone: GarmentZone): QueryDraft | undefined {
-  return props.trace?.queries.find(
-    (query) => query.direction_id === directionId && query.garment_zone === zone,
-  )
-}
-
 function outfitName(outfit: OutfitRecommendation): string {
-  return outfit.items.map((item) => item.product_display_name).join(' + ')
+  return outfit.items.map(item => item.product_display_name).join(' + ')
 }
-
 function percent(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${Math.round(value * 100)}%`
 }
-
-function downloadTrace() {
-  if (!props.trace) return
-  const blob = new Blob([JSON.stringify(props.trace, null, 2)], {
-    type: 'application/json;charset=utf-8',
-  })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `outfit-debug-${props.trace.updated_at.replace(/[:.]/g, '-')}.json`
-  link.click()
-  URL.revokeObjectURL(url)
+function originalQuery(query: QueryDraft): string {
+  return props.trace?.plan_debug?.generated_queries_before_normalization.find(item => (
+    item.direction_id === query.direction_id && item.garment_zone === query.garment_zone
+  ))?.text ?? query.text
+}
+function duration(milliseconds: number): string {
+  return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(2)} 秒` : `${Math.round(milliseconds)} ms`
+}
+function deleteHistory(id: string) {
+  if (window.confirm('確定刪除這份搭配分析？')) emit('deleteHistory', id)
 }
 </script>
 
 <template>
-  <section class="page-view debug-view">
-    <header class="view-heading debug-heading">
+  <section class="page-view debug-view analysis-view">
+    <header class="view-heading debug-heading analysis-heading">
       <div>
-        <span class="section-kicker">Pipeline inspector</span>
-        <h2>推薦流程除錯</h2>
+        <button class="back-button" type="button" @click="emit('back')"><ArrowLeft :size="16" />返回推薦搭配</button>
+        <span class="section-kicker">Outfit analysis</span>
+        <h2>詳細搭配分析</h2>
+        <p>從你的需求到最後推薦，查看這次搭配是如何選出的。</p>
       </div>
-      <button v-if="trace" class="secondary-button" @click="downloadTrace">
-        <Download :size="16" />下載完整 JSON
-      </button>
     </header>
 
-    <section class="debug-panel debug-history">
-      <h3>分析歷史（{{ history.length }} 筆）</h3>
-      <button class="secondary-button" @click="emit('showCurrent')">查看目前分析</button>
+    <details v-if="history.length" class="analysis-history">
+      <summary><History :size="16" />過往搭配分析（{{ history.length }}）<ChevronDown :size="15" /></summary>
       <div class="debug-history-list">
         <article v-for="item in history" :key="item.id" class="debug-history-row">
           <button :class="{ active: selectedId === item.id }" @click="emit('selectHistory', item.id)">
             <strong>{{ item.title }}</strong>
-            <small>{{ new Date(item.savedAt).toLocaleString('zh-TW') }} · {{ item.stage }}{{ selectedId === item.id ? ' · 正在查看' : '' }}</small>
+            <small>{{ new Date(item.savedAt).toLocaleString('zh-TW') }}{{ selectedId === item.id ? ' · 正在查看' : '' }}</small>
           </button>
-          <button class="secondary-button" @click="deleteHistory(item.id)">刪除快照</button>
+          <button class="icon-button danger" title="刪除分析" @click="deleteHistory(item.id)"><Trash2 :size="15" /></button>
         </article>
+        <button v-if="selectedId" class="secondary-button" @click="emit('showCurrent')">回到目前結果</button>
       </div>
-      <p v-if="!history.length">尚未保存分析</p>
-    </section>
+    </details>
 
     <div v-if="!trace" class="empty-view debug-empty">
-      <SearchCode :size="34" />
-      <h3>尚無流程紀錄</h3>
+      <Search :size="34" /><h3>還沒有可分析的搭配</h3>
+      <p>完成一次找搭配後，就能在這裡看到完整的選擇過程。</p>
+      <button class="primary-button" type="button" @click="emit('back')">開始找搭配</button>
     </div>
 
     <template v-else>
-      <div class="debug-summary-grid">
-        <article>
-          <span>最後更新</span>
-          <strong>{{ new Date(trace.updated_at).toLocaleString('zh-TW') }}</strong>
-        </article>
-        <article>
-          <span>Intent</span>
-          <strong>{{ trace.fashion_intent ? '已產生' : '尚未產生' }}</strong>
-        </article>
-        <article>
-          <span>搜尋 query</span>
-          <strong>{{ trace.queries.length }} 條</strong>
-        </article>
-        <article>
-          <span>全流程耗時</span>
-          <strong>{{ fullPipelineMs ? seconds(fullPipelineMs) : '尚無紀錄' }}</strong>
-          <small v-if="fullPipelineMs">
-            規劃 {{ seconds(planningTotalMs) }}（含 Query Planner）＋推薦 {{ seconds(recommendationTotalMs) }}
-          </small>
-        </article>
-      </div>
-
-      <section class="debug-section">
-        <header><span>1</span><div><h3>原始對話與 RequirementSummary</h3><p>先確認語意是否在需求整理時就已經偏掉。</p></div></header>
-        <div class="debug-two-columns">
-          <div class="debug-panel">
-            <h4>對話</h4>
-            <div class="debug-conversation">
-              <p v-for="(message, index) in trace.messages" :key="index" :class="message.role">
-                <strong>{{ message.role === 'user' ? '使用者' : 'Agent' }}</strong>{{ message.text }}
-              </p>
-            </div>
-          </div>
-          <div class="debug-panel">
-            <h4>結構化需求</h4>
-            <dl class="debug-definition-list">
-              <div v-for="([key, value]) in requirementRows" :key="key">
-                <dt>{{ key }}</dt><dd>{{ displayValue(value) }}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
+      <section class="analysis-overview" aria-label="分析摘要">
+        <article><span>搭配方向</span><strong>{{ trace.queries.length }}</strong><small>組搜尋方向</small></article>
+        <article><span>搜尋結果</span><strong>{{ searchedItemCount }}</strong><small>件候選商品</small></article>
+        <article><span>搭配候選</span><strong>{{ trace.recommendation_debug?.ranked_candidate_count ?? 0 }}</strong><small>套完成搭配</small></article>
+        <article><span>最後推薦</span><strong>{{ trace.recommendations.length }}</strong><small>套精選結果</small></article>
       </section>
 
-      <section class="debug-section">
-        <header><span>2</span><div><h3>Fashion Intent Interpreter</h3><p>檢查抽象需求被解讀成什麼形象、視覺線索與搭配策略。</p></div></header>
-        <details class="debug-panel" open>
-          <summary>產生 query 前的文章知識與缺口</summary>
-          <p>{{ trace.plan_debug?.knowledge_note }}</p>
-          <p v-if="!trace.plan_debug?.knowledge_used_ids?.length">本次未採用合適的文章句子；以下缺口是規劃診斷，非全庫不存在的證明。</p>
-          <ul><li v-for="gap in trace.plan_debug?.knowledge_gaps" :key="gap">待補充：{{ gap }}</li></ul>
-          <article v-for="item in trace.plan_debug?.knowledge_observations" :key="item.observation_id">
-            <strong>{{ trace.plan_debug?.knowledge_used_ids?.includes(item.observation_id) ? '已採用' : '已檢索但未採用' }}</strong>
-            <p>{{ item.summary }}</p>
-            <a :href="item.source_url" target="_blank" rel="noopener noreferrer">{{ item.source_title || item.source_url }}</a>
-          </article>
-        </details>
-        <div v-if="trace.fashion_intent" class="debug-panel">
-          <div class="debug-intent-title">
-            <div><small>USER GOAL</small><h4>{{ trace.fashion_intent.user_goal }}</h4></div>
-            <strong>信心 {{ percent(trace.fashion_intent.confidence) }}</strong>
-          </div>
-          <div v-if="trace.fashion_intent.activity_context" class="debug-panel">
-            <h4>活動雙軸判斷</h4>
-            <p>有活動：{{ trace.fashion_intent.activity_context.activity_present ? '是' : '否' }} ·
-              造型優先度：{{ trace.fashion_intent.activity_context.appearance_priority }} ·
-              機能優先度：{{ trace.fashion_intent.activity_context.functional_priority }}</p>
-            <p>視覺身分：{{ trace.fashion_intent.activity_context.requested_visual_identity || '未提供' }}</p>
-            <p>最低機能：{{ trace.fashion_intent.activity_context.minimum_functional_requirements.join('、') || '無' }}</p>
-            <p>明確機能：{{ trace.fashion_intent.activity_context.explicit_functional_requests?.join('、') || '無' }}</p>
-            <p>避免偏移：{{ trace.fashion_intent.activity_context.avoid_style_drift?.join('、') || '無' }}</p>
-          </div>
-          <div class="debug-chip-groups">
-            <div><b>目標印象</b><span v-for="item in trace.fashion_intent.desired_impression" :key="item">{{ item }}</span></div>
-            <div><b>必須線索</b><span v-for="item in trace.fashion_intent.must_have_visual_cues" :key="item">{{ item }}</span></div>
-            <div><b>避免誤解</b><span v-for="item in trace.fashion_intent.avoid_concepts" :key="item" class="warning">{{ item }}</span></div>
-            <div><b>搭配原則</b><span v-for="item in trace.fashion_intent.styling_principles" :key="item">{{ item }}</span></div>
-          </div>
-          <div class="debug-context-row">
-            <span>情境：{{ trace.fashion_intent.occasion_interpretation.social_context }}</span>
-            <span>正式度：{{ percent(trace.fashion_intent.occasion_interpretation.formality_target) }}</span>
-            <span>視覺強度：{{ trace.fashion_intent.occasion_interpretation.visual_impact }}</span>
-            <span>實用性：{{ trace.fashion_intent.occasion_interpretation.practicality }}</span>
-          </div>
-          <div class="debug-concept-grid">
-            <article v-for="concept in trace.fashion_intent.concepts" :key="concept.direction_id">
-              <strong>{{ concept.direction_id }}</strong>
-              <div><h4>{{ concept.concept_name }}</h4><p>{{ concept.outfit_formula }}</p></div>
-              <dl>
-                <div v-if="concept.upper_role"><dt>上身</dt><dd>{{ concept.upper_role }}</dd></div>
-                <div v-if="concept.lower_role"><dt>下身</dt><dd>{{ concept.lower_role }}</dd></div>
-                <div v-if="concept.one_piece_role"><dt>連身</dt><dd>{{ concept.one_piece_role }}</dd></div>
-                <div><dt>可見線索</dt><dd>{{ concept.visible_cues.join('、') }}</dd></div>
-                <div><dt>平衡規則</dt><dd>{{ concept.balance_rules.join('、') }}</dd></div>
+      <section class="debug-section analysis-section">
+        <header><span>1</span><div><h3>理解你的需求</h3><p>{{ trace.original_input }}</p></div></header>
+        <dl v-if="requirementRows.length" class="analysis-requirements">
+          <div v-for="row in requirementRows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div>
+        </dl>
+        <div v-else class="debug-panel debug-muted">這次沒有額外的需求條件。</div>
+      </section>
+
+      <section class="debug-section analysis-section">
+        <header><span>2</span><div><h3>形成搭配方向</h3><p>將你的場合與風格需求轉換成可搜尋的服裝方向。</p></div></header>
+        <div v-if="trace.queries.length" class="analysis-direction-grid">
+          <article v-for="query in trace.queries" :key="`${query.direction_id}-${query.garment_zone}`">
+            <span>{{ zoneLabel(query.garment_zone) }}</span>
+            <div>
+              <strong>{{ query.rationale }}</strong>
+              <dl class="analysis-query-values">
+                <div><dt>原始 Query</dt><dd>{{ originalQuery(query) }}</dd></div>
               </dl>
-            </article>
-          </div>
-          <p v-if="trace.plan_debug?.intent_fallback_used" class="debug-warning">
-            <AlertTriangle :size="15" />Interpreter 失敗，本次已回退舊 Planner。
-            <span v-if="trace.plan_debug.intent_fallback_error">
-              原因：{{ trace.plan_debug.intent_fallback_error }}
-            </span>
-          </p>
+            </div>
+          </article>
         </div>
-        <div v-else class="debug-panel debug-muted">尚未產生 Intent，或本次使用了 fallback。</div>
+        <div v-else class="debug-panel debug-muted">尚未產生搭配方向。</div>
       </section>
 
-      <section class="debug-section">
-        <header><span>3</span><div><h3>Query Planner 與 Normalizer</h3><p>逐條比較 LLM 原始 query 與真正送入 FashionCLIP 的內容。</p></div></header>
-        <div v-if="trace.plan_debug" class="debug-panel">
-          <div class="debug-meta-line">
-            <span>模型：{{ trace.plan_debug.model }}</span>
-            <span>Prompt：{{ trace.plan_debug.prompt_version }}</span>
-            <span>修改 {{ trace.plan_debug.normalizer_changes.length }} 條</span>
-          </div>
-          <div v-if="Object.keys(trace.plan_debug.stage_timings_ms || {}).length" class="debug-meta-line">
-            <span
-              v-for="(milliseconds, timingStage) in trace.plan_debug.stage_timings_ms"
-              :key="timingStage"
-            >{{ timingStage }} {{ milliseconds.toFixed(0) }}ms</span>
-          </div>
-          <div v-if="trace.plan_debug.query_warnings.length" class="debug-warning-list">
-            <strong><AlertTriangle :size="15" />Query warnings</strong>
-            <p v-for="warning in trace.plan_debug.query_warnings" :key="warning">{{ warning }}</p>
-          </div>
-          <div class="debug-table-wrap">
-            <table class="debug-table">
-              <thead><tr><th>方向</th><th>區域</th><th>Normalizer 前</th><th>Normalizer 後</th><th>目前／實際搜尋</th></tr></thead>
-              <tbody>
-                <tr v-for="query in trace.plan_debug.generated_queries_before_normalization" :key="`${query.direction_id}-${query.garment_zone}`">
-                  <td><b>{{ query.direction_id }}</b></td>
-                  <td>{{ zoneLabel(query.garment_zone) }}</td>
-                  <td>{{ query.text }}</td>
-                  <td :class="{ changed: afterQuery(query.direction_id, query.garment_zone)?.text !== query.text }">
-                    {{ afterQuery(query.direction_id, query.garment_zone)?.text ?? '—' }}
-                  </td>
-                  <td>{{ currentQuery(query.direction_id, query.garment_zone)?.selected ? currentQuery(query.direction_id, query.garment_zone)?.text : '已取消選取' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-if="trace.plan_debug.shoe_plans.length" class="debug-details-stack">
-            <details
-              v-for="plan in trace.plan_debug.shoe_plans"
-              :key="`shoe-plan-${plan.direction_id}`"
-            >
-              <summary>
-                <span>{{ plan.direction_id }} · 鞋子 query</span>
-                <strong>{{ plan.shoe_spec.shoe_query }}</strong>
-                <small>{{ plan.shoe_spec.shoe_color }} · {{ plan.shoe_spec.shoe_type }}</small>
-              </summary>
-            </details>
-          </div>
-        </div>
-        <div v-else class="debug-panel debug-muted">確認需求並產生 query 後，這裡會顯示 Planner trace。</div>
-      </section>
-
-      <section class="debug-section">
-        <header><span>4</span><div><h3>FashionCLIP 商品召回</h3><p>每條 query 的 top-10 商品與向量相似度；這裡能判斷是 query 還是資料集出問題。</p></div></header>
-        <div v-if="trace.recommendation_debug?.search_results.length" class="debug-details-stack">
-          <details v-for="group in trace.recommendation_debug.search_results" :key="group.query.id">
-            <summary>
-              <span>{{ group.query.direction_id }} · {{ zoneLabel(group.query.garment_zone) }}</span>
-              <strong>{{ group.query.text }}</strong>
-              <small>{{ group.clothes.length }} 件</small>
-            </summary>
+      <section class="debug-section analysis-section">
+        <header><span>3</span><div><h3>搜尋合適商品</h3><p>依照每個搭配方向找出外觀與條件相符的商品。</p></div></header>
+        <div v-if="searchResults.length" class="debug-details-stack analysis-search-groups">
+          <details v-for="group in searchResults" :key="`${group.query.direction_id}-${group.query.garment_zone}`">
+            <summary><span>{{ zoneLabel(group.query.garment_zone) }}</span><strong>{{ group.query.rationale }}</strong><small>{{ group.clothes.length }} 件候選</small></summary>
             <div class="debug-product-strip">
-              <article v-for="item in group.clothes" :key="item.id">
+              <article v-for="(item, index) in group.clothes.slice(0, 6)" :key="item.id">
                 <img :src="item.image_url" :alt="item.product_display_name" />
-                <div><strong>{{ percent(item.similarity) }}</strong><p>{{ item.product_display_name }}</p><small>{{ item.base_colour }} · {{ item.article_type }}</small></div>
+                <div><strong>#{{ index + 1 }} · 符合度 {{ percent(item.similarity) }}</strong><p>{{ item.product_display_name }}</p><small>{{ item.base_colour }} · {{ item.article_type }}</small></div>
               </article>
             </div>
           </details>
         </div>
-        <div v-else class="debug-panel debug-muted">尚無搭配紀錄</div>
+        <div v-else class="debug-panel debug-muted">這次沒有保留商品搜尋紀錄。</div>
       </section>
 
-      <section class="debug-section">
-        <header><span>5</span><div><h3>Outfit Ranker 與 shortlist</h3><p>顯示規則初排規模、前 30 名預覽及送進視覺 Reviewer 的候選</p></div></header>
-        <div v-if="trace.recommendation_debug" class="debug-panel">
-          <p v-if="Object.keys(trace.recommendation_debug.stage_timings_ms || {}).length" class="debug-count-line">
-            耗時：<span v-for="(milliseconds, stage) in trace.recommendation_debug.stage_timings_ms" :key="stage">{{ stage }} {{ milliseconds.toFixed(0) }}ms　</span>
-            <small>{{ trace.recommendation_debug.compatibility_note }}</small>
-          </p>
-          <p class="debug-count-line"><Database :size="16" />產生 {{ trace.recommendation_debug.ranked_candidate_count }} 套組合，shortlist {{ trace.recommendation_debug.shortlist_before_review.length }} 套。</p>
-          <details>
-            <summary>查看初排前 {{ trace.recommendation_debug.ranked_preview.length }} 名</summary>
-            <div class="debug-outfit-grid">
-              <article v-for="(outfit, index) in trace.recommendation_debug.ranked_preview" :key="outfit.id" class="debug-outfit-card">
-                <div class="debug-outfit-images" :class="{ single: outfit.items.length === 1 }">
-                  <img v-for="item in outfit.items" :key="item.id" :src="item.image_url" :alt="item.product_display_name" />
-                </div>
-                <div class="debug-outfit-copy">
-                  <div class="debug-outfit-rank"><b>#{{ index + 1 }}</b><strong>{{ percent(outfit.score) }}</strong></div>
-                  <p>{{ outfitName(outfit) }}</p>
-                  <dl><div><dt>FashionCLIP</dt><dd>{{ percent(outfit.score_breakdown?.fashion_clip) }}</dd></div><div><dt>相容性</dt><dd>{{ percent(outfit.score_breakdown?.compatibility) }}</dd></div><div><dt>場合</dt><dd>{{ percent(outfit.score_breakdown?.context_fit) }}</dd></div></dl>
-                </div>
-              </article>
-            </div>
-          </details>
-          <details>
-            <summary>查看送給視覺 LLM 的 shortlist</summary>
-            <div class="debug-outfit-grid shortlist">
-              <article v-for="(outfit, index) in trace.recommendation_debug.shortlist_before_review" :key="outfit.id" class="debug-outfit-card">
-                <div class="debug-outfit-images" :class="{ single: outfit.items.length === 1 }">
-                  <img v-for="item in outfit.items" :key="item.id" :src="item.image_url" :alt="item.product_display_name" />
-                </div>
-                <div class="debug-outfit-copy">
-                  <div class="debug-outfit-rank"><b>送審 #{{ index + 1 }}</b><strong>{{ percent(outfit.score) }}</strong></div>
-                  <p>{{ outfitName(outfit) }}</p>
-                  <small>{{ outfit.kind === 'separates' ? '上下身搭配' : '單件連身' }} · 視覺審查前分數</small>
-                </div>
-              </article>
-            </div>
-          </details>
+      <section class="debug-section analysis-section">
+        <header><span>4</span><div><h3>參考穿搭文章</h3><p>用文章中的搭配原則協助判斷場合、比例與風格。</p></div></header>
+        <div v-if="knowledge.length" class="analysis-knowledge-list">
+          <article v-for="item in knowledge" :key="item.observation_id">
+            <BookOpenText :size="17" />
+            <div><strong>{{ item.summary }}</strong><p>{{ item.evidence }}</p><a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noreferrer">{{ item.source_title || item.source_name }}</a></div>
+          </article>
         </div>
-        <div v-else class="debug-panel debug-muted">尚未執行搭配。</div>
+        <div v-else class="debug-panel debug-muted">{{ trace.knowledge_note || '這次沒有使用文章參考。' }}</div>
       </section>
 
-      <section class="debug-section">
-        <header><span>6</span><div><h3>文章知識檢索</h3><p>列出本次送入 Aesthetic Reviewer 的 observations，而不只顯示文章名稱。</p></div></header>
-        <div v-if="trace.recommendation_debug?.knowledge_observations.length" class="debug-details-stack">
-          <details v-for="item in trace.recommendation_debug.knowledge_observations" :key="item.observation_id">
-            <summary><span>{{ item.signal_type }}</span><strong>{{ item.summary }}</strong><small>{{ percent(item.confidence) }}</small></summary>
-            <div class="debug-detail-body"><p><b>證據：</b>{{ item.evidence }}</p><p><b>標籤：</b>{{ [...item.styles, ...item.garments, ...item.colors, ...item.materials].join('、') || '—' }}</p><a v-if="item.source_url" :href="item.source_url" target="_blank" rel="noreferrer">{{ item.source_title || item.source_name || item.source_url }}</a></div>
-          </details>
-        </div>
-        <div v-else class="debug-panel debug-muted">{{ trace.knowledge_note || '本次沒有檢索到或使用文章知識。' }}</div>
-      </section>
-
-      <section class="debug-section">
-        <header><span>7</span><div><h3>Aesthetic Reviewer 與最終重排</h3><p>比較最佳 10 套和其他候選的各項視覺評分及致命問題；漏審候選不列入最終推薦。</p></div></header>
-        <div v-if="reviewedCandidates.length" class="debug-panel">
-          <p class="debug-count-line">
-            <component :is="trace.recommendation_debug?.aesthetic_review_error ? AlertTriangle : CheckCircle2" :size="16" />
-            {{ trace.review_note || '審查完成' }}
-          </p>
-          <p v-if="trace.recommendation_debug?.aesthetic_review_error" class="debug-warning">{{ trace.recommendation_debug.aesthetic_review_error }}</p>
-          <section v-if="trace.recommendation_debug?.aesthetic_review_diagnostics?.submitted_ids" class="debug-review-diagnostics">
-            <h4>美感審查完整性與補審紀錄</h4>
-            <p>
-              候選 {{ trace.recommendation_debug.aesthetic_review_diagnostics.candidate_count }} 套 ·
-              可送審 {{ trace.recommendation_debug.aesthetic_review_diagnostics.submitted_ids.length }} 套 ·
-              有效評分 {{ trace.recommendation_debug.aesthetic_review_diagnostics.reviewed_count }} 套 ·
-              圖片失敗 {{ trace.recommendation_debug.aesthetic_review_diagnostics.image_failures.length }} 套 ·
-              補審後缺評分 {{ trace.recommendation_debug.aesthetic_review_diagnostics.missing_ids.length }} 套
-            </p>
-            <details v-for="(attempt, index) in trace.recommendation_debug.aesthetic_review_diagnostics.attempts" :key="index">
-              <summary>
-                {{ attempt.round === 0 ? '首次審查' : '補審第 ' + attempt.round + ' 輪' }}：
-                送出 {{ attempt.requested_ids.length }} ／ 回覆 {{ attempt.returned_ids.length }} ／
-                缺漏 {{ attempt.missing_ids.length }} ／ 無效 ID {{ attempt.invalid_ids.length }} ／
-                重複 ID {{ attempt.duplicate_ids.length }}
-              </summary>
-              <pre>{{ JSON.stringify(attempt, null, 2) }}</pre>
-            </details>
-            <details v-if="trace.recommendation_debug.aesthetic_review_diagnostics.image_failures.length">
-              <summary>查看圖片失敗的商品 ID 與原因</summary>
-              <pre>{{ JSON.stringify(trace.recommendation_debug.aesthetic_review_diagnostics.image_failures, null, 2) }}</pre>
-            </details>
-          </section>
-          <div class="debug-reviewed-grid">
-            <article
-              v-for="(outfit, index) in reviewedCandidates"
-              :key="outfit.id"
-              class="debug-reviewed-card"
-              :class="{ discarded: index >= trace.recommendations.length }"
-            >
-              <div class="debug-outfit-images reviewed" :class="{ single: outfit.items.length === 1 }">
-                <img v-for="item in outfit.items" :key="item.id" :src="item.image_url" :alt="item.product_display_name" />
+      <section class="debug-section analysis-section">
+        <header><span>5</span><div><h3>完成推薦結果</h3><p>綜合場合、配色、輪廓與整體協調度，選出最後搭配。</p></div></header>
+        <div v-if="trace.recommendations.length" class="debug-reviewed-grid analysis-result-grid">
+          <article v-for="(outfit, index) in trace.recommendations" :key="outfit.id" class="debug-reviewed-card">
+            <div class="debug-outfit-images reviewed" :class="{ single: outfit.items.length === 1 }">
+              <img v-for="item in outfit.items" :key="item.id" :src="item.image_url" :alt="item.product_display_name" />
+            </div>
+            <div class="debug-reviewed-copy">
+              <div class="debug-outfit-rank"><b>推薦 #{{ index + 1 }}</b><strong>{{ percent(outfit.score) }}</strong></div>
+              <h4>{{ outfitName(outfit) }}</h4>
+              <div v-if="outfit.aesthetic_review" class="debug-review-scores">
+                <span>場合 <b>{{ outfit.aesthetic_review.occasion_fit }}</b></span><span>配色 <b>{{ outfit.aesthetic_review.color_harmony }}</b></span>
+                <span>輪廓 <b>{{ outfit.aesthetic_review.silhouette_balance }}</b></span><span>材質 <b>{{ outfit.aesthetic_review.material_coherence }}</b></span>
+                <span>整體 <b>{{ outfit.aesthetic_review.overall_aesthetic }}</b></span>
               </div>
-              <div class="debug-reviewed-copy">
-                <div class="debug-outfit-rank">
-                  <b>{{ index < trace.recommendations.length ? `最終推薦 #${index + 1}` : '未入選' }}</b>
-                  <strong>{{ percent(outfit.score) }}</strong>
-                </div>
-                <h4>{{ outfitName(outfit) }}</h4>
-                <div class="debug-review-scores">
-                  <span>場合 <b>{{ outfit.aesthetic_review?.occasion_fit ?? '—' }}</b></span>
-                  <span>配色 <b>{{ outfit.aesthetic_review?.color_harmony ?? '—' }}</b></span>
-                  <span>輪廓 <b>{{ outfit.aesthetic_review?.silhouette_balance ?? '—' }}</b></span>
-                  <span>材質 <b>{{ outfit.aesthetic_review?.material_coherence ?? '—' }}</b></span>
-                  <span>美感 <b>{{ outfit.aesthetic_review?.overall_aesthetic ?? '—' }}</b></span>
-                  <span>風格吻合 <b>{{ outfit.aesthetic_review?.style_identity_match ?? '—' }}</b></span>
-                  <span>搭配協調 <b>{{ outfit.aesthetic_review?.pairing_coherence ?? '—' }}</b></span>
-                  <span>限制遵守 <b>{{ outfit.aesthetic_review?.constraint_compliance ?? '—' }}</b></span>
-                </div>
-                <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
-                <p v-if="outfit.aesthetic_review?.style_drift_detected">
-                  重大風格偏移證據：{{ outfit.aesthetic_review.style_drift_evidence?.join('；') }}
-                </p>
-                <p v-if="outfit.aesthetic_review?.local_fallback_fields?.length" class="debug-warning">
-                  本機 fallback，非模型判斷：{{ outfit.aesthetic_review.local_fallback_fields.join('、') }}
-                </p>
-                <em v-if="outfit.aesthetic_review?.fatal_issues.length">Fatal：{{ outfit.aesthetic_review.fatal_issues.join('、') }}</em>
-              </div>
-            </article>
-          </div>
+              <p>{{ outfit.aesthetic_review?.reason || outfit.reasons.join('；') }}</p>
+            </div>
+          </article>
         </div>
         <div v-else class="debug-panel debug-muted">尚未取得最終推薦。</div>
       </section>
 
-      <section class="debug-section">
-        <header><span>8</span><div><h3>Shoe retrieval</h3><p>每套最終穿搭的原始鞋子 query，以及嚴格限定 Shoes 類型後的前五名向量符合度。</p></div></header>
-        <div v-if="trace.recommendation_debug?.shoe_retrievals?.length" class="debug-details-stack">
-          <details v-for="shoeSearch in trace.recommendation_debug.shoe_retrievals" :key="shoeSearch.outfit_id">
-            <summary>
-              <span>{{ shoeSearch.requested_color || 'neutral' }} · {{ shoeSearch.requested_type || 'shoe' }}</span>
-              <strong>{{ shoeSearch.query }}</strong>
-              <small>{{ shoeSearch.candidates.length }} candidates</small>
-            </summary>
-            <div class="debug-detail-body"><p><b>Planner original query:</b> {{ shoeSearch.original_query }}</p><p><b>Actual retrieval query:</b> {{ shoeSearch.query }}</p></div>
-            <div class="debug-product-strip">
-              <article v-for="(item, index) in shoeSearch.candidates" :key="item.id">
-                <img :src="item.image_url" :alt="item.product_display_name" />
-                <div>
-                  <strong>#{{ index + 1 }} · {{ percent(item.similarity) }}</strong>
-                  <p>{{ item.product_display_name }}</p>
-                  <small>{{ item.base_colour }} · {{ item.article_type }}<template v-if="item.id === shoeSearch.selected_item_id"> · selected</template></small>
-                </div>
-              </article>
-            </div>
-          </details>
+      <section class="debug-section analysis-section">
+        <header><span>6</span><div><h3>各階段處理時間</h3><p>顯示這次搭配分析在每個主要階段花費的時間。</p></div></header>
+        <div v-if="timingRows.length" class="analysis-timing-table">
+          <div class="analysis-timing-head"><span>處理階段</span><span>耗時</span></div>
+          <div v-for="row in timingRows" :key="row.label"><span>{{ row.label }}</span><strong>{{ duration(row.value) }}</strong></div>
         </div>
-        <div v-else class="debug-panel debug-muted">No shoe retrieval trace was produced for this run.</div>
+        <div v-else class="debug-panel debug-muted">這次沒有保留處理時間。</div>
       </section>
 
-      <details class="debug-raw-json">
-        <summary><BrainCircuit :size="16" />查看完整原始 JSON</summary>
-        <pre>{{ JSON.stringify(trace, null, 2) }}</pre>
-      </details>
+      <div class="analysis-end-note"><CheckCircle2 :size="17" />分析完成，共選出 {{ trace.recommendations.length }} 套推薦搭配。</div>
     </template>
   </section>
 </template>

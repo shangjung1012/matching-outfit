@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import {
   ArrowLeft, Check, ChevronDown, ChevronUp,
-  ImagePlus, MessageSquare, MessageSquarePlus, Send, Shirt,
+  FileSearch, ImagePlus, MessageSquare, MessageSquarePlus, Send, Shirt,
   Sparkles, Square, X,
 } from 'lucide-vue-next'
 import {
@@ -33,6 +33,7 @@ const props = defineProps<{ userKey: string }>()
 const emit = defineEmits<{
   preferenceUpdated: []
   debugUpdated: [trace: PipelineDebugSession]
+  openAnalysis: []
 }>()
 const {
   favoriteItemIds,
@@ -717,6 +718,11 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="agent-workspace">
+      <div class="analysis-entry-toolbar">
+        <button class="secondary-button" type="button" @click="emit('openAnalysis')">
+          <FileSearch :size="16" />詳細搭配分析
+        </button>
+      </div>
       <details v-if="planningKnowledge.length" class="agent-context-details">
         <summary>搭配參考（{{ planningKnowledge.length }}）</summary>
         <article v-for="item in planningKnowledge" :key="item.observation_id">

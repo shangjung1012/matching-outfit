@@ -23,7 +23,7 @@ function database(): Promise<IDBDatabase> {
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-    request.onblocked = () => reject(new Error('除錯資料庫被其他分頁占用，請關閉舊分頁後重試'))
+    request.onblocked = () => reject(new Error('搭配分析資料庫被其他分頁占用，請關閉舊分頁後重試'))
   })
 }
 
@@ -35,7 +35,7 @@ async function transaction<T>(mode: IDBTransactionMode, action: (store: IDBObjec
     const request = action(tx.objectStore('snapshots'))
     request.onsuccess = () => { result = request.result }
     tx.oncomplete = () => { db.close(); resolve(result) }
-    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error ?? new Error('除錯紀錄儲存失敗')) }
+    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error ?? new Error('搭配分析紀錄儲存失敗')) }
   })
 }
 
@@ -48,25 +48,29 @@ export function useDebugHistory(userKey: string) {
   let queue = Promise.resolve()
 
   function report(reason: unknown) {
-    error.value = `除錯歷史保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。可下載目前 JSON 備份。`
+    error.value = `搭配分析保存／讀取失敗：${reason instanceof Error ? reason.message : String(reason)}。`
     showError(error.value)
   }
 
   async function load() {
     try {
       const rows = await transaction<StoredDebug[]>('readonly', store => store.index('userKey').getAll(userKey))
-      history.value = rows.map(({ trace: _trace, ...metadata }) => metadata)
+      const completed = rows.filter(row => row.trace.recommendation_debug && row.trace.recommendations.length)
+      const incomplete = rows.filter(row => !row.trace.recommendation_debug || !row.trace.recommendations.length)
+      await Promise.all(incomplete.map(row => transaction('readwrite', store => store.delete(row.id))))
+      history.value = completed
+        .map(({ trace: _trace, ...metadata }) => metadata)
         .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
     } catch (reason) { report(reason) }
   }
 
   function save(trace: PipelineDebugSession) {
-    if (!trace.messages.some(message => message.role === 'user')) return Promise.resolve()
+    if (!trace.recommendation_debug || !trace.recommendations.length) return Promise.resolve()
     const snapshot: PipelineDebugSession = JSON.parse(JSON.stringify(trace))
     const row: StoredDebug = {
       id: crypto.randomUUID(), userKey, savedAt: trace.updated_at,
       title: (trace.original_input || trace.messages.filter(message => message.role === 'user').map(message => message.text).join('；')).slice(0, 160),
-      stage: trace.recommendation_debug ? '配對結果' : trace.plan_debug ? 'Query 規劃' : '需求整理',
+      stage: '最終推薦',
       trace: snapshot,
     }
     queue = queue.then(async () => {

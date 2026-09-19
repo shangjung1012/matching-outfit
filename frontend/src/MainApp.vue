@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Bookmark, BookOpenText, Bug, ChevronDown, Compass, Fingerprint, LogOut, MessageSquareText,
+  Bookmark, BookOpenText, ChevronDown, Compass, Fingerprint, LogOut, MessageSquareText,
   ScanFace, Search, Shirt, SlidersHorizontal, Sparkles, UserRound,
 } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
@@ -26,6 +26,7 @@ const router = useRouter()
 const activeView = computed<AppView>(() => (route.name as AppView | undefined) ?? 'agent')
 const preferenceRevision = ref(0)
 const tryOnDraft = ref<TryOnDraft | null>(null)
+const analysisOpen = ref(false)
 let tryOnDraftRevision = 0
 const debugTrace = ref<PipelineDebugSession | null>(null)
 const debugHistory = useDebugHistory(props.userKey)
@@ -67,7 +68,6 @@ const navGroups = [
 ]
 const standaloneNav = [
   { id: 'mbti' as const, label: '穿搭測試', icon: Fingerprint },
-  { id: 'debug' as const, label: '流程除錯', icon: Bug },
 ]
 
 const navRef = ref<HTMLElement | null>(null)
@@ -115,8 +115,13 @@ function handleGroupEscape(event: KeyboardEvent, id: string) {
   }
 }
 function selectView(id: AppView) {
+  analysisOpen.value = false
   if (route.name !== id) void router.push({ name: id })
   openGroupId.value = null
+}
+function openAnalysis() {
+  debugHistory.showCurrent()
+  analysisOpen.value = true
 }
 function startTryOn(draft: TryOnDraft) {
   tryOnDraftRevision += 1
@@ -221,19 +226,21 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
 
     <div class="app-content">
       <AgentSearchView
-        v-show="activeView === 'agent'"
+        v-show="activeView === 'agent' && !analysisOpen"
         :user-key="userKey"
         @preference-updated="preferenceRevision++"
         @debug-updated="updateDebug"
+        @open-analysis="openAnalysis"
       />
       <DebugPipelineView
-        v-show="activeView === 'debug'"
+        v-if="activeView === 'agent' && analysisOpen"
         :trace="debugHistory.selected.value ?? debugTrace"
         :history="debugHistory.history.value"
         :selected-id="debugHistory.selectedId.value"
         @select-history="debugHistory.select"
         @show-current="debugHistory.showCurrent"
         @delete-history="debugHistory.remove"
+        @back="analysisOpen = false"
       />
       <KnowledgeManagementView v-if="activeView === 'knowledge'" />
       <SimilarSearchView v-show="activeView === 'similarity'" />
