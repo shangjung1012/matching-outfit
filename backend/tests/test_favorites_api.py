@@ -364,6 +364,33 @@ def test_outfit_review_summary_becomes_contextual_preference_without_product_nam
     assert "Black Casual Trousers" not in sentence
 
 
+def test_avoid_outfit_review_summary_is_saved_as_contextual_preference(client) -> None:
+    test_client, _ = client
+    created = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "user_request": "想找適合約會的穿搭",
+            "outfit_item_ids": [2, 1],
+            "preference_type": "avoid",
+            "review_summary": (
+                "搭配與整體：上下身比例失衡，黑白對比過硬，顯得有些違和。"
+                "雖然材質乾淨，但整體不適合約會時想要的柔和感。"
+            ),
+        },
+    )
+
+    assert created.status_code == 201
+    sentence = created.json()["preference_text"]
+    assert "想找適合約會的穿搭" in sentence
+    assert "失衡" in sentence
+    assert "違和" in sentence
+    assert "不適合約會時想要的柔和感" in sentence
+    assert "White Shirt" not in sentence
+    assert "Black Casual Trousers" not in sentence
+    assert sentence.endswith("是後續應避免的搭配方向。")
+
+
 def test_single_item_reaction_has_no_context_prefix_without_user_request(client) -> None:
     test_client, _ = client
     liked = test_client.post(

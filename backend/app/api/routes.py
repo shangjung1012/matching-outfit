@@ -780,12 +780,16 @@ def outfit_reaction_preference(
     direction, since downstream matching (query planner) only reads that field.
     """
     is_avoid = payload.preference_type == "avoid"
-    review_summary = _positive_review_summary(payload.review_summary, clothes)
-    if review_summary and not is_avoid:
+    review_summary = _review_summary(payload.review_summary, clothes, prefer_negative=is_avoid)
+    if review_summary:
         context = _preference_context(payload)
         sentence = (
             f"在「{context}」的情境與要求下，使用者認為「{review_summary}」"
-            "是符合個人偏好的搭配方向。"
+            + (
+                "是後續應避免的搭配方向。"
+                if is_avoid
+                else "是符合個人偏好的搭配方向。"
+            )
         )
     elif len(clothes) == 1:
         cloth = clothes[0]
@@ -830,8 +834,13 @@ _NEGATIVE_REVIEW_TERMS = (
 )
 
 
-def _positive_review_summary(summary: str | None, clothes: list[Cloth]) -> str:
-    """Keep positive visual observations without another LLM call or product names."""
+def _review_summary(
+    summary: str | None,
+    clothes: list[Cloth],
+    *,
+    prefer_negative: bool,
+) -> str:
+    """Keep directional visual observations without another LLM call or product names."""
     text = " ".join((summary or "").replace("**", "").split()).strip()
     if not text:
         return ""
@@ -846,13 +855,23 @@ def _positive_review_summary(summary: str | None, clothes: list[Cloth]) -> str:
         clause.strip(" ；;。")
         for clause in re.split(r"(?<=[。！？!?；;])", text)
         if clause.strip(" ；;。")
-        and not any(term in clause for term in _NEGATIVE_REVIEW_TERMS)
+        and (
+            any(term in clause for term in _NEGATIVE_REVIEW_TERMS)
+            if prefer_negative
+            else not any(term in clause for term in _NEGATIVE_REVIEW_TERMS)
+        )
     ]
-    positive = "".join(
+    directional = "".join(
         clause if clause.endswith(("。", "！", "？")) else f"{clause}。"
         for clause in clauses
     ).strip()
-    return positive or "整體配色、輪廓與材質呈現協調且有重點的視覺效果。"
+    if directional:
+        return directional
+    return (
+        "整體在配色、輪廓或材質上存在明顯不協調，和這次需求不夠貼合。"
+        if prefer_negative
+        else "整體配色、輪廓與材質呈現協調且有重點的視覺效果。"
+    )
 
 
 def _preference_context(payload: StylePreferenceAddRequest) -> str:
