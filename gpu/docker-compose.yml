@@ -12,7 +12,6 @@ services:
     restart: unless-stopped
 
   cloudflared:
-    profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     container_name: matching-outfit-gpu-cloudflared
     command:
