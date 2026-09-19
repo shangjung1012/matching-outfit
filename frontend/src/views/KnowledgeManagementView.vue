@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
-  BookOpenText, ChevronDown, ExternalLink, LoaderCircle, Plus,
+  BookOpenText, ChevronDown, ExternalLink, Globe2, LoaderCircle, Plus,
   RefreshCw, Search, Trash2,
 } from 'lucide-vue-next'
 import {
@@ -22,6 +22,7 @@ const urlInput = ref('')
 const loading = ref(false)
 const collecting = ref(false)
 const expandedIds = ref(new Set<number>())
+const expandedSources = ref(new Set<string>())
 const collectResults = ref<FashionArticleCollectResult[]>([])
 const sources = ref<FashionKnowledgeSource[]>([])
 const selectedSourceKeys = ref<string[]>([])
@@ -47,8 +48,15 @@ const groupedArticles = computed(() => {
     }
     groups[indexBySource.get(source)!].items.push(article)
   }
+  groups.forEach(group => group.items.sort((left, right) =>
+    articleTime(right) - articleTime(left),
+  ))
   return groups
 })
+
+function articleTime(article: FashionArticleAdmin): number {
+  return new Date(article.published_at || article.collected_at).getTime() || 0
+}
 
 const signalLabels: Record<string, string> = {
   timeless: '長期適用',
@@ -116,6 +124,12 @@ function toggleExpanded(id: number) {
   const next = new Set(expandedIds.value)
   next.has(id) ? next.delete(id) : next.add(id)
   expandedIds.value = next
+}
+
+function toggleSource(source: string) {
+  const next = new Set(expandedSources.value)
+  next.has(source) ? next.delete(source) : next.add(source)
+  expandedSources.value = next
 }
 
 async function collectUrls(urls: string[] = [], forceRefresh = false) {
@@ -205,11 +219,11 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
       <div>
         <span class="section-kicker">Knowledge Library</span>
         <h2>文章與搭配知識</h2>
-        <p>{{ total }} 篇文章 · {{ activeObservationTotal }}/{{ observationTotal }} 條參考句子啟用中</p>
+        <p>{{ total }} 篇文章 · {{ activeObservationTotal }} 條參考句子啟用中</p>
       </div>
       <div class="catalog-search">
         <Search :size="17" />
-        <input v-model="search" placeholder="語意搜尋標題或知識，例如：女團造型、短上衣配寬褲" @keyup.enter="loadArticles" />
+        <input v-model="search" placeholder="搜尋文章標題或穿搭知識" @keyup.enter="loadArticles" />
       </div>
     </header>
 
@@ -237,7 +251,7 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
               <label class="knowledge-limit-control">
                 檢查列表頁數
                 <select v-model.number="pageLimit">
-                  <option :value="0">自動（直到沒有新連結）</option>
+                  <option :value="0">自動</option>
                   <option :value="1">1 頁</option>
                   <option :value="2">2 頁</option>
                   <option :value="3">3 頁</option>
@@ -263,7 +277,7 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
           </button>
 
           <details class="manual-import">
-            <summary>手動補抓特定文章（選用）</summary>
+            <summary>手動補抓特定文章</summary>
             <textarea v-model="urlInput" rows="3" placeholder="可貼上 Markdown 分類標題、文章連結或每行一個網址" />
             <button class="secondary-button" :disabled="collecting" @click="collectUrls()">
               <Plus :size="15" />抓取指定網址
@@ -307,15 +321,34 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
     </div>
     <div v-else class="knowledge-article-groups">
       <section v-for="group in groupedArticles" :key="group.source" class="knowledge-article-group">
-        <h3 class="knowledge-group-title">{{ group.source }}<small>{{ group.items.length }} 篇</small></h3>
+        <header class="knowledge-group-header">
+          <div class="knowledge-group-title">
+            <Globe2 :size="17" />
+            <div><h3>{{ group.source }}</h3><small>{{ group.items.length }} 篇文章</small></div>
+          </div>
+          <button
+            v-if="group.items.length > 1"
+            class="knowledge-source-toggle"
+            type="button"
+            :aria-expanded="expandedSources.has(group.source)"
+            @click="toggleSource(group.source)"
+          >
+            {{ expandedSources.has(group.source) ? '收起文章' : `查看其餘 ${group.items.length - 1} 篇` }}
+            <ChevronDown :class="{ expanded: expandedSources.has(group.source) }" :size="15" />
+          </button>
+        </header>
         <div class="knowledge-article-list">
-          <article v-for="article in group.items" :key="article.id" class="knowledge-article-card">
+          <article
+            v-for="(article, index) in group.items"
+            v-show="index === 0 || expandedSources.has(group.source)"
+            :key="article.id"
+            class="knowledge-article-card"
+            :class="{ featured: index === 0 }"
+          >
             <div class="knowledge-article-main">
-              <button class="knowledge-expand-button" @click="toggleExpanded(article.id)">
-                <ChevronDown :class="{ expanded: expandedIds.has(article.id) }" :size="18" />
-              </button>
               <div class="knowledge-article-content">
                 <div class="knowledge-article-meta">
+                  <strong v-if="index === 0">最新文章</strong>
                   <span>{{ formatDate(article.published_at || article.collected_at) }}</span>
                   <span>{{ article.active_observation_count }}/{{ article.observation_count }} 條啟用</span>
                 </div>
@@ -324,15 +357,19 @@ onMounted(() => Promise.all([loadArticles(), loadSources()]))
                     {{ article.title }} <ExternalLink :size="14" />
                   </a>
                 </h3>
-                <small v-for="category in article.extraction_notes.filter(note => note.startsWith('匯入分類：'))" :key="category">{{ category }}</small>
+                <small v-for="category in article.extraction_notes.filter(note => note.startsWith('文章類別：'))" :key="category">{{ category }}</small>
                 <p v-if="article.search_match_kind">
                   {{ article.search_match_kind === 'knowledge' ? '命中內容重點' : '命中標題或摘要' }}
                   <br />{{ article.search_match_text }}
                 </p>
-                <p v-if="expandedIds.has(article.id)">{{ article.article_summary }}</p>
-                <div v-if="expandedIds.has(article.id)" class="knowledge-tags">
+                <p class="knowledge-article-summary">{{ article.article_summary }}</p>
+                <div class="knowledge-tags">
                   <span v-for="tag in tags(article)" :key="tag">{{ tag }}</span>
                 </div>
+                <button class="knowledge-expand-button" type="button" @click="toggleExpanded(article.id)">
+                  {{ expandedIds.has(article.id) ? '收起參考句子' : `查看 ${article.observation_count} 條參考句子` }}
+                  <ChevronDown :class="{ expanded: expandedIds.has(article.id) }" :size="15" />
+                </button>
               </div>
               <div class="knowledge-card-actions">
                 <button class="icon-button" :disabled="collecting" title="重新抓取" @click="refreshArticle(article)"><RefreshCw :size="15" /></button>
