@@ -143,6 +143,37 @@ REJECTABLE_CONCEPTS = {
     "stripes": (("條紋", "striped", "stripes"), ("striped", "stripes")),
 }
 
+# Database article-type values and the visual garment words an LLM may use for
+# the same category. Catalog filtering remains the final hard gate; these aliases
+# prevent the planner from displaying a query that visibly contradicts the rule.
+ARTICLE_TYPE_QUERY_ALIASES = {
+    "tshirts": {"t-shirt", "t-shirts", "tshirt", "tshirts", "tee", "tees"},
+    "polo shirt": {"polo", "polo shirt", "polo shirts"},
+    "shirts": {"shirt", "shirts", "button-up", "button up"},
+    "blouse": {"blouse", "blouses"},
+    "tops": {"top", "tops"},
+    "vest top": {"vest top", "vest tops", "tank", "tank top", "tank tops", "camisole"},
+    "bodysuit": {"bodysuit", "bodysuits", "body suit", "body suits"},
+    "sweaters": {"sweater", "sweaters", "pullover", "pullovers", "jumper", "jumpers"},
+    "hoodie": {"hoodie", "hoodies", "hooded sweatshirt"},
+    "cardigan": {"cardigan", "cardigans"},
+    "jackets": {"jacket", "jackets"},
+    "blazers": {"blazer", "blazers"},
+    "coat": {"coat", "coats", "overcoat", "overcoats"},
+    "trousers": {"trousers", "trouser", "pants"},
+    "outdoor trousers": {"outdoor trousers", "outdoor pants", "hiking trousers", "hiking pants"},
+    "shorts": {"shorts", "short"},
+    "skirts": {"skirt", "skirts", "miniskirt", "midi skirt", "maxi skirt"},
+    "leggings": {"leggings", "legging", "tights"},
+    "dresses": {"dress", "dresses", "gown", "gowns"},
+    "jumpsuit": {"jumpsuit", "jumpsuits", "playsuit", "playsuits", "romper", "rompers"},
+    "dungarees": {"dungarees", "dungaree", "overalls", "overall"},
+    "garment set": {"garment set", "matching set", "co-ord", "co-ord set", "coord set"},
+    "costumes": {"costume", "costumes"},
+    "outdoor waistcoat": {"outdoor waistcoat", "outdoor vest", "utility vest"},
+    "tailored waistcoat": {"tailored waistcoat", "tailored vest", "suit vest", "waistcoat"},
+}
+
 CHINESE_REJECTION_PREFIX = re.compile(
     r"(?:不要|不想(?:要|穿)?|避免|不喜歡|討厭|排除|不能穿)[^，。；,.但而]{0,10}$"
 )
@@ -656,13 +687,18 @@ class QueryOutputNormalizer:
                     forbidden.update(alias for alias in aliases if alias.isascii())
 
         if hard is not None:
-            for value in (*hard.avoid_article_types, *hard.avoid_master_categories):
+            for value in (
+                *(hard.avoid_article_types or []),
+                *(hard.avoid_master_categories or []),
+            ):
                 normalized = value.strip().lower()
                 if normalized:
-                    forbidden.add(normalized)
-                    if normalized.endswith("s"):
-                        forbidden.add(normalized[:-1])
-            for avoided_color in hard.avoid_colours:
+                    aliases = ARTICLE_TYPE_QUERY_ALIASES.get(normalized, {normalized})
+                    forbidden.update(aliases)
+                    for alias in aliases:
+                        if alias.endswith("s"):
+                            forbidden.add(alias[:-1])
+            for avoided_color in hard.avoid_colours or []:
                 normalized = avoided_color.strip().lower()
                 for color, aliases in COLOR_ALIASES.items():
                     if normalized == color or normalized in {alias.lower() for alias in aliases}:

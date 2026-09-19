@@ -55,7 +55,9 @@ HM_ARTICLE_TYPE_MAP = {
     "sweater": "Sweaters",
     "t-shirt": "Tshirts",
     "top": "Tops",
-    "vest top": "Tops",
+    # Keep sleeveless tops separate so users can exclude tank/vest tops without
+    # excluding every generic top in the catalog.
+    "vest top": "Vest top",
 }
 
 

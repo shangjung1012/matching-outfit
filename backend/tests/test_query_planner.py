@@ -483,6 +483,26 @@ def test_rejected_concepts_are_removed_before_embedding_search() -> None:
     ) == "relaxed"
 
 
+def test_hard_article_type_rules_remove_visual_query_aliases() -> None:
+    normalizer = QueryOutputNormalizer(FakeLLM())
+    forbidden = normalizer._forbidden_query_terms(
+        "夏季穿搭",
+        None,
+        UserHardRule(
+            user_key="demo",
+            avoid_article_types=["Vest top", "Outdoor Waistcoat"],
+        ),
+        None,
+    )
+
+    assert {"tank top", "tank", "vest top", "outdoor vest", "utility vest"}.issubset(
+        forbidden
+    )
+    assert normalizer._remove_forbidden_terms(
+        "light fitted ribbed tank top", forbidden
+    ) == "light fitted ribbed"
+
+
 def test_refinement_rejections_are_removed_from_embedding_queries() -> None:
     result = QueryPlanner(FakeLLM()).plan(
         "女生參加正式晚宴",

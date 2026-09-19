@@ -2,11 +2,43 @@ from itertools import combinations, product
 from typing import Literal
 from uuid import uuid4
 
-from app.schemas import ClothResult, OutfitRecommendation, OutfitScoreBreakdown, QuerySearchResult
+from app.schemas import (
+    ClothResult,
+    FashionIntent,
+    OutfitRecommendation,
+    OutfitScoreBreakdown,
+    QuerySearchResult,
+)
 
-NEUTRAL_COLORS = {
-    "black", "white", "grey", "gray", "charcoal", "beige", "cream",
-    "navy blue", "navy", "brown", "tan",
+CORE_NEUTRAL_COLORS = {"black", "white", "grey", "charcoal", "beige", "cream"}
+WARDROBE_SAFE_COLORS = {
+    *CORE_NEUTRAL_COLORS,
+    "navy", "brown", "tan",
+}
+COLOR_ALIASES = {
+    "gray": "grey",
+    "navy blue": "navy",
+    "off white": "cream",
+    "off-white": "cream",
+    "greyish beige": "beige",
+    "greenish khaki": "khaki",
+    "yellowish brown": "brown",
+}
+SAFE_COLOR_PAIRS = {
+    frozenset(("black", "white")),
+    frozenset(("black", "grey")),
+    frozenset(("black", "beige")),
+    frozenset(("white", "navy")),
+    frozenset(("white", "blue")),
+    frozenset(("white", "beige")),
+    frozenset(("white", "brown")),
+    frozenset(("cream", "brown")),
+    frozenset(("cream", "navy")),
+    frozenset(("beige", "brown")),
+    frozenset(("beige", "navy")),
+    frozenset(("grey", "blue")),
+    frozenset(("grey", "pink")),
+    frozenset(("navy", "brown")),
 }
 CLASHING_COLOR_PAIRS = {
     # 原本的規則
@@ -33,6 +65,18 @@ STRICT_CONTEXT_TERMS = {
 }
 CASUAL_ARTICLE_TYPES = {"tshirts", "shorts", "track pants", "sweatshirts", "leggings"}
 FORMAL_ARTICLE_TYPES = {"blazers", "shirts", "trousers", "dresses", "sarees", "waistcoat"}
+VIVID_COLOR_TERMS = {
+    "colorful", "colourful", "vivid", "high-saturation", "high saturation",
+    "bold color", "bold colour", "bright color", "bright colour",
+    "鮮豔", "高飽和", "繽紛", "五彩繽紛",
+}
+CONTRAST_COLOR_TERMS = {
+    "color blocking", "colour blocking", "contrasting colors", "contrasting colours",
+    "color contrast", "colour contrast", "撞色",
+}
+QUALITY_TOLERANCE = 0.05
+MAX_SAME_BOTTOM_COLOR = 4
+MIN_REVIEWED_SCORE = 0.60
 
 
 def parse_color(color: str | None) -> tuple[str, str]:
@@ -41,11 +85,20 @@ def parse_color(color: str | None) -> tuple[str, str]:
     for modifier in ("light", "dark"):
         prefix = f"{modifier} "
         if normalized.startswith(prefix):
-            return modifier, normalized[len(prefix):].strip()
-    return "normal", normalized
+            family = normalized[len(prefix):].strip()
+            return modifier, COLOR_ALIASES.get(family, family)
+    # H&M's `Other Blue`, `Other Pink`, etc. still belong to the named family.
+    if normalized.startswith("other "):
+        normalized = normalized.removeprefix("other ").strip()
+    return "normal", COLOR_ALIASES.get(normalized, normalized)
 
 
-def _color_pair_score(first: str | None, second: str | None) -> float:
+def _color_pair_score(
+    first: str | None,
+    second: str | None,
+    *,
+    color_mode: Literal["default", "vivid", "contrast"] = "default",
+) -> float:
     left_tone, left_family = parse_color(first)
     right_tone, right_family = parse_color(second)
     if not left_family or not right_family:
@@ -54,23 +107,64 @@ def _color_pair_score(first: str | None, second: str | None) -> float:
         return 0.86
     if left_family == right_family:
         return 0.90
-    if left_family in NEUTRAL_COLORS or right_family in NEUTRAL_COLORS:
+    pair = frozenset((left_family, right_family))
+    if pair in SAFE_COLOR_PAIRS or (
+        left_family in CORE_NEUTRAL_COLORS and right_family in CORE_NEUTRAL_COLORS
+    ):
         return 0.95
-    if frozenset((left_family, right_family)) in CLASHING_COLOR_PAIRS:
+    if pair in CLASHING_COLOR_PAIRS:
+        if color_mode == "contrast":
+            return 0.86
         modified_count = sum(tone != "normal" for tone in (left_tone, right_tone))
-        if modified_count == 0:
-            return 0.35
-        if modified_count == 1:
-            return 0.65
-        return 0.72
+        default_score = (
+            0.35 if modified_count == 0 else 0.65 if modified_count == 1 else 0.70
+        )
+        # Vivid requests visible color, but does not automatically request a
+        # complementary clash. It only softens the default penalty.
+        return max(default_score, 0.65) if color_mode == "vivid" else default_score
+    if left_family in WARDROBE_SAFE_COLORS or right_family in WARDROBE_SAFE_COLORS:
+        return 0.80
     return 0.72
 
 
-def _compatibility_score(items: list[ClothResult]) -> float:
+def fashion_intent_color_mode(
+    fashion_intent: FashionIntent | None,
+) -> Literal["default", "vivid", "contrast"]:
+    if fashion_intent is None:
+        return "default"
+    positive_signals = [
+        *fashion_intent.desired_impression,
+        *fashion_intent.core_aesthetic,
+        *fashion_intent.must_have_visual_cues,
+        *fashion_intent.optional_visual_cues,
+        *fashion_intent.styling_principles,
+    ]
+    normalized = " ".join(positive_signals).casefold()
+    if any(term in normalized for term in CONTRAST_COLOR_TERMS):
+        return "contrast"
+    if any(term in normalized for term in VIVID_COLOR_TERMS):
+        return "vivid"
+    return "default"
+
+
+def _fashion_intent_requests_bold_color(fashion_intent: FashionIntent | None) -> bool:
+    """Backward-compatible boolean helper for intensity-only callers."""
+    return fashion_intent_color_mode(fashion_intent) != "default"
+
+
+def _compatibility_score(
+    items: list[ClothResult],
+    *,
+    color_mode: Literal["default", "vivid", "contrast"] = "default",
+) -> float:
     if len(items) == 1:
         return 0.82
     color_scores = [
-        _color_pair_score(first.base_colour, second.base_colour)
+        _color_pair_score(
+            first.base_colour,
+            second.base_colour,
+            color_mode=color_mode,
+        )
         for first, second in combinations(items, 2)
     ]
     usages = {(item.usage or "").strip().lower() for item in items if item.usage}
@@ -104,12 +198,13 @@ def _recommendation(
     coverage_reason: str,
     user_context: str,
     direction_id: str | None = None,
+    color_mode: Literal["default", "vivid", "contrast"] = "default",
 ) -> OutfitRecommendation:
     # A user-uploaded reference is fixed, not a search result. Its placeholder
     # similarity must not inflate or deflate the catalog candidate's relevance.
     catalog_items = [item for item in items if not item.is_reference]
     similarity = sum(item.similarity for item in catalog_items) / len(catalog_items)
-    compatibility = _compatibility_score(items)
+    compatibility = _compatibility_score(items, color_mode=color_mode)
     context_fit, context_reasons = _context_fit_score(items, user_context)
     match_score = max(
         0.0,
@@ -148,7 +243,9 @@ def rank_outfits(
     user_context: str = "",
     reference_item: ClothResult | None = None,
     outfit_budget_max: float | None = None,
+    fashion_intent: FashionIntent | None = None,
 ) -> list[OutfitRecommendation]:
+    color_mode = fashion_intent_color_mode(fashion_intent)
     pooled_by_zone: dict[str, dict[int, ClothResult]] = {}
     pooled_by_direction: dict[str, dict[str, dict[int, ClothResult]]] = {}
     one_piece_directions: dict[int, tuple[str, float]] = {}
@@ -196,6 +293,7 @@ def rank_outfits(
                     items,
                     "User-uploaded garment paired with catalog candidate",
                     user_context,
+                    color_mode=color_mode,
                 )
             )
         return _balanced_direction_candidates(
@@ -231,6 +329,7 @@ def rank_outfits(
                         f"Matched styling direction: {direction_id}",
                         user_context,
                         direction_id,
+                        color_mode,
                     )
                 )
     else:
@@ -243,6 +342,7 @@ def rank_outfits(
                 _recommendation(
                     "separates", items,
                     "Upper and lower body candidate coverage", user_context,
+                    color_mode=color_mode,
                 )
             )
     for item in by_zone.get("one_piece", []):
@@ -252,6 +352,7 @@ def rank_outfits(
             _recommendation(
                 "one_piece", items,
                 "One-piece candidate coverage", user_context, direction_id,
+                color_mode,
             )
         )
     # Price is a whole-outfit gate, so apply it only after garments have been
@@ -331,6 +432,7 @@ def select_diverse(
     used_outfit_styles: set[tuple] = set()
     used_color_profiles: set[tuple] = set()
     used_combinations: set[tuple[str, ...]] = set()
+    bottom_color_counts: dict[str, int] = {}
 
     def normalized(value: str | None) -> str:
         return (value or "unknown").strip().lower()
@@ -363,6 +465,20 @@ def select_diverse(
             )
         )
 
+    def bottom_color(recommendation: OutfitRecommendation) -> str:
+        lower = next(
+            (
+                item
+                for item in recommendation.items
+                if item.garment_zone in {"lower_body", "one_piece"}
+            ),
+            None,
+        )
+        if lower is None:
+            return "unknown"
+        _, family = parse_color(lower.base_colour)
+        return family or "unknown"
+
     def add(recommendation: OutfitRecommendation) -> None:
         selected.append(recommendation)
         used_item_ids.update(item.id for item in recommendation.items if not item.is_reference)
@@ -370,15 +486,18 @@ def select_diverse(
         used_outfit_styles.add(style_signature(recommendation))
         used_color_profiles.add(color_profile(recommendation))
         used_combinations.add(tuple(sorted(identities(recommendation))))
+        lower_color = bottom_color(recommendation)
+        bottom_color_counts[lower_color] = bottom_color_counts.get(lower_color, 0) + 1
 
     best_score = max((recommendation.score for recommendation in recommendations), default=0.0)
     quality_floor = best_score - 0.10
 
     def is_suitable(recommendation: OutfitRecommendation) -> bool:
         review = recommendation.aesthetic_review
-        return recommendation.score >= quality_floor and not (
-            review is not None and review.fatal_issues
+        review_quality_ok = review is None or (
+            not review.fatal_issues and recommendation.score >= MIN_REVIEWED_SCORE
         )
+        return recommendation.score >= quality_floor and review_quality_ok
 
     suitable_counts = {
         kind: sum(
@@ -419,6 +538,29 @@ def select_diverse(
         add(recommendation)
         kind_counts[recommendation.kind] += 1
 
+    def quality_close_bottom_alternative(
+        recommendation: OutfitRecommendation,
+        candidates: list[OutfitRecommendation],
+    ) -> OutfitRecommendation | None:
+        repeated_color = bottom_color(recommendation)
+        if bottom_color_counts.get(repeated_color, 0) < MAX_SAME_BOTTOM_COLOR:
+            return None
+        minimum_score = recommendation.score - QUALITY_TOLERANCE
+        return next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate not in selected
+                and candidate.score >= minimum_score
+                and is_suitable(candidate)
+                and bottom_color(candidate) != repeated_color
+                and bottom_color_counts.get(bottom_color(candidate), 0)
+                < MAX_SAME_BOTTOM_COLOR
+                and tuple(sorted(identities(candidate))) not in used_combinations
+            ),
+            None,
+        )
+
     # Give every viable A-E styling direction a chance to reach the visual reviewer.
     # This is coverage, not a final-result quota: the reviewer may still reject it.
     separates_directions = sorted(
@@ -458,7 +600,10 @@ def select_diverse(
                 if {item.id for item in recommendation.items if not item.is_reference}.isdisjoint(used_item_ids)
                 and identities(recommendation).isdisjoint(used_assets)
             ]
-            add_with_count((non_repeating or candidates)[0])
+            options = non_repeating or candidates
+            preferred = options[0]
+            alternative = quality_close_bottom_alternative(preferred, options)
+            add_with_count(alternative or preferred)
 
     # Prefer different products, images, garment/color combinations, and color profiles.
     # Later passes relax one condition at a time only when the catalog cannot fill the limit.
@@ -479,6 +624,8 @@ def select_diverse(
             if style_signature(recommendation) in used_outfit_styles:
                 continue
             if require_new_colors and color_profile(recommendation) in used_color_profiles:
+                continue
+            if quality_close_bottom_alternative(recommendation, recommendations) is not None:
                 continue
             add_with_count(recommendation)
             if len(selected) >= limit:
@@ -513,16 +660,16 @@ def select_diverse(
         if (
             recommendation not in selected
             and combination not in used_combinations
-            and not (review is not None and review.fatal_issues)
+            and (
+                review is None
+                or (
+                    not review.fatal_issues
+                    and recommendation.score >= MIN_REVIEWED_SCORE
+                )
+            )
         ):
             add_with_count(recommendation)
         if len(selected) >= limit:
             return selected
-    # Fatal candidates are a last resort to preserve the requested result count.
-    for recommendation in recommendations:
-        combination = tuple(sorted(identities(recommendation)))
-        if recommendation not in selected and combination not in used_combinations:
-            add_with_count(recommendation)
-        if len(selected) >= limit:
-            return selected
+    # Never add a reviewer-fatal candidate merely to fill the requested count.
     return selected

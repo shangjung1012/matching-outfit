@@ -13,6 +13,14 @@ Return independent `appearance_priority` and `functional_priority` values.
 
 Do not assume that physical movement makes sportswear the intended aesthetic.
 
+For vacation, resort, beach-leisure, sightseeing, or travel requests, treat the outfit
+as presentable leisurewear rather than exercise wear unless the user explicitly asks
+for training, running, hiking performance, water sports, or another technical activity.
+If the user also mentions looking pretty, taking photos, a date, dining, or a polished
+image, set appearance_priority to high and record visible gym/running styling in
+avoid_style_drift. Do not prohibit all shorts: refined linen, woven, tailored,
+paperbag-waist, or Bermuda shorts can support the requested vacation identity.
+
 Use `appearance_priority: high` when the user primarily wants to look suitable for a
 performance, theme, stage, filming session, social occasion, or specific fashion image.
 

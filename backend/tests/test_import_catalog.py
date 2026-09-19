@@ -105,7 +105,7 @@ def test_normalize_hm_row_maps_catalog_fields() -> None:
     assert row["id"] == "108775015"
     assert row["gender"] == "Women"
     assert row["subCategory"] == "Topwear"
-    assert row["articleType"] == "Tops"
+    assert row["articleType"] == "Vest top"
     assert row["price"] == "409"
     assert row["brandName"] == "H&M"
 
