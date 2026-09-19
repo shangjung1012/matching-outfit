@@ -883,8 +883,26 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .tryon-result-placeholder h3 { margin: 4px 0 0; color: #3c443d; font-size: .95rem; }
 .tryon-result-placeholder p { max-width: 300px; margin: 0; font-size: .72rem; line-height: 1.5; }
 .tryon-result { min-height: 100%; display: flex; flex-direction: column; gap: 12px; }
-.tryon-result img { min-height: 0; width: 100%; flex: 1; object-fit: contain; background: #f0f2ef; }
-.tryon-result > div { display: flex; align-items: center; justify-content: center; gap: 7px; color: #276044; font-size: .78rem; }
+.tryon-result > img { min-height: 0; width: 100%; flex: 1; object-fit: contain; background: #f0f2ef; }
+.tryon-result-status { display: flex; align-items: center; justify-content: center; gap: 7px; color: #276044; font-size: .78rem; }
+.human3d-actions { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.human3d-actions button { min-height: 44px; justify-content: center; }
+.human3d-unavailable { margin: 0; color: #727a73; font-size: .68rem; line-height: 1.5; text-align: center; }
+.human3d-progress { display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 5px; padding: 9px 11px; color: #5e4b28; background: #fff6e6; font-size: .68rem; line-height: 1.5; }
+.human3d-progress.error { color: #873f35; background: #fff0ed; }
+.human3d-caveat { margin: 0; color: #727a73; font-size: .65rem; line-height: 1.55; text-align: center; }
+.human3d-viewer { position: relative; isolation: isolate; min-height: 420px; width: 100%; overflow: hidden; flex: 1; border: 1px solid #d7ddd8; border-radius: 7px; background: radial-gradient(circle at 50% 38%, #f9fbf9 0, #e7ece8 75%); touch-action: none; }
+.human3d-canvas { position: absolute; inset: 0; }
+.human3d-canvas canvas { width: 100% !important; height: 100% !important; display: block; }
+.human3d-overlay { position: absolute; z-index: 2; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 24px; color: #315b48; background: rgb(242 247 243 / 92%); text-align: center; }
+.human3d-overlay.error { color: #84463c; background: rgb(255 247 245 / 94%); }
+.human3d-overlay strong { font-size: .82rem; }
+.human3d-overlay span, .human3d-overlay p { margin: 0; max-width: 320px; font-size: .7rem; line-height: 1.5; }
+.human3d-overlay button { min-height: 44px; margin-top: 5px; }
+.human3d-reset { position: absolute; z-index: 3; top: 12px; right: 12px; min-height: 44px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgb(194 203 196 / 90%); border-radius: 5px; padding: 0 12px; color: #334f40; background: rgb(255 255 255 / 92%); box-shadow: 0 2px 9px rgb(22 36 28 / 12%); font-size: .68rem; font-weight: 750; cursor: pointer; }
+.human3d-reset:hover { background: #fff; }
+.human3d-reset:focus-visible { outline: 3px solid #7aa58f; outline-offset: 2px; }
+.human3d-help { position: absolute; z-index: 3; bottom: 10px; left: 50%; margin: 0; transform: translateX(-50%); border-radius: 999px; padding: 6px 11px; color: #f7faf8; background: rgb(31 48 39 / 72%); font-size: .62rem; white-space: nowrap; pointer-events: none; }
 
 /* Virtual try-on workspace */
 .tryon-view { width: min(1480px, 100%); }
@@ -1508,6 +1526,9 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .tryon-conflict { grid-template-columns: 20px minmax(0, 1fr); }
   .tryon-conflict-actions, .tryon-conflict > button { grid-column: 2; }
   .tryon-conflict-actions { flex-wrap: wrap; }
+  .human3d-viewer { min-height: 440px; }
+  .human3d-actions { flex-direction: column; align-items: stretch; }
+  .human3d-actions button { width: 100%; }
 }
 
 @media (max-width: 430px) {
@@ -1519,4 +1540,6 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .temporary-person-card { grid-template-columns: 64px minmax(0, 1fr); }
   .temporary-person-card img { width: 64px; height: 82px; }
   .temporary-person-card button { grid-column: 2; justify-self: start; }
+  .human3d-viewer { min-height: 380px; }
+  .human3d-help { bottom: 8px; font-size: .58rem; }
 }

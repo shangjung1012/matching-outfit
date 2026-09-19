@@ -24,9 +24,9 @@ License. Copyright LavieAI. IN NO EVENT SHALL LAVIEAI BE LIABLE FOR ANY CLAIM,
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH USE OF THIS MODEL.
 
-## Standalone deployment
+## Deployment
 
-`docker-compose.yml` runs only the FastFit try-on API and its private MinIO
-instance. It never connects to the Matching Outfit PostgreSQL database. Copy
-`.env.example` to `.env`, replace every secret, and run `docker compose up
---build -d` on an NVIDIA Linux host.
+FastFit is built as its own image but is orchestrated with the optional LHM++
+service by `gpu/docker-compose.yml`. Both services are isolated from the
+Matching Outfit PostgreSQL database and share only the GPU inference lock and
+the authenticated gateway. See the root README for exact commands.

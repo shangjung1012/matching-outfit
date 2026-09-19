@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   AlertCircle,
+  Box,
   Check,
   CheckCircle2,
   ImagePlus,
@@ -16,12 +17,22 @@ import {
   Upload,
   X,
 } from 'lucide-vue-next'
-import { createTryOnJob, getTryOnCapabilities, getTryOnJob } from '../api'
+import {
+  createHuman3DJob,
+  createTryOnJob,
+  getHuman3DCapabilities,
+  getHuman3DJob,
+  getTryOnCapabilities,
+  getTryOnJob,
+} from '../api'
+import Human3DViewer from '../components/Human3DViewer.vue'
 import { usePersonPhotoLibrary, PERSON_PHOTO_LIMIT, validatePersonPhoto } from '../composables/usePersonPhotoLibrary'
 import { useToast } from '../composables/useToast'
 import { useUserLibrary } from '../composables/useUserLibrary'
 import type {
   CatalogItem,
+  Human3DCapabilities,
+  Human3DJob,
   SavedPersonPhoto,
   TryOnCapabilities,
   TryOnDraft,
@@ -35,6 +46,7 @@ import {
   TRYON_REFERENCE_LABELS,
   TRYON_REFERENCE_TYPES,
 } from '../utils/tryOnSelection'
+import { canGenerateHuman3D, human3DStatusLabel } from '../utils/human3dUi'
 
 const props = defineProps<{ userKey: string; draft: TryOnDraft | null }>()
 const { showError } = useToast()
@@ -56,6 +68,8 @@ type WardrobeTab = 'outfits' | 'items' | 'upload'
 
 const capabilities = ref<TryOnCapabilities | null>(null)
 const capabilityLoading = ref(true)
+const human3DCapabilities = ref<Human3DCapabilities | null>(null)
+const human3DCapabilityLoading = ref(true)
 const wardrobeTab = ref<WardrobeTab>('outfits')
 const references = ref<Partial<Record<TryOnReferenceType, TryOnReferenceSelection>>>({})
 const draftCandidates = ref<Partial<Record<TryOnReferenceType, CatalogItem[]>>>({})
@@ -72,7 +86,11 @@ const editingPhotoName = ref('')
 const job = ref<TryOnJob | null>(null)
 const historyJobs = ref<TryOnJob[]>([])
 const submitting = ref(false)
+const human3DJob = ref<Human3DJob | null>(null)
+const human3DSubmitting = ref(false)
+const resultMode = ref<'2d' | '3d'>('2d')
 let pollTimer: number | undefined
+let human3DPollTimer: number | undefined
 let cleanupTimer: number | undefined
 let componentActive = false
 let historyGeneration = 0
@@ -139,10 +157,33 @@ const statusLabel = computed(() => {
     failed: '試穿失敗',
   }[job.value.status]
 })
+const canGenerate3D = computed(() => canGenerateHuman3D(
+  job.value,
+  human3DCapabilities.value,
+  human3DJob.value,
+) && !human3DSubmitting.value)
+const human3DStatus = computed(() => human3DStatusLabel(human3DJob.value))
+const human3DIsPending = computed(() => (
+  human3DSubmitting.value
+  || human3DJob.value?.status === 'queued'
+  || human3DJob.value?.status === 'running'
+))
 
 function stopPolling() {
   if (pollTimer !== undefined) window.clearTimeout(pollTimer)
   pollTimer = undefined
+}
+
+function stopHuman3DPolling() {
+  if (human3DPollTimer !== undefined) window.clearTimeout(human3DPollTimer)
+  human3DPollTimer = undefined
+}
+
+function resetHuman3D() {
+  stopHuman3DPolling()
+  human3DJob.value = null
+  human3DSubmitting.value = false
+  resultMode.value = '2d'
 }
 
 function isTryOnJob(value: unknown): value is TryOnJob {
@@ -207,11 +248,13 @@ function discardStoredHistory() {
 }
 
 function selectHistoryJob(historyJob: TryOnJob) {
+  if (job.value?.id !== historyJob.id) resetHuman3D()
   job.value = historyJob
   persistHistory()
 }
 
 function replaceHistory(nextJob: TryOnJob, select = false) {
+  if (select && job.value?.id !== nextJob.id) resetHuman3D()
   historyJobs.value = sortAndLimitHistory([
     nextJob,
     ...historyJobs.value.filter((historyJob) => historyJob.id !== nextJob.id),
@@ -259,6 +302,7 @@ function clearHistory() {
   retryJobIds.clear()
   historyJobs.value = []
   job.value = null
+  resetHuman3D()
   discardStoredHistory()
 }
 
@@ -551,6 +595,63 @@ async function loadCapabilities() {
   }
 }
 
+async function loadHuman3DCapabilities() {
+  human3DCapabilityLoading.value = true
+  try {
+    human3DCapabilities.value = await getHuman3DCapabilities()
+  } catch (reason) {
+    human3DCapabilities.value = {
+      available: false,
+      reason: reason instanceof Error ? reason.message : '無法檢查 3D 服務狀態',
+      artifact_formats: ['ply'],
+    }
+  } finally {
+    human3DCapabilityLoading.value = false
+  }
+}
+
+async function reloadCapabilities() {
+  await Promise.allSettled([loadCapabilities(), loadHuman3DCapabilities()])
+}
+
+async function pollHuman3DJob() {
+  stopHuman3DPolling()
+  const current = human3DJob.value
+  if (!current || !componentActive) return
+  try {
+    const updated = await getHuman3DJob(current.id)
+    if (human3DJob.value?.id !== current.id || job.value?.id !== current.try_on_job_id) return
+    human3DJob.value = updated
+    if (human3DJob.value.status === 'succeeded') {
+      resultMode.value = '3d'
+      return
+    }
+    if (human3DJob.value.status === 'failed') return
+    human3DPollTimer = window.setTimeout(pollHuman3DJob, 2000)
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法更新 3D 工作狀態')
+    human3DPollTimer = window.setTimeout(pollHuman3DJob, 5000)
+  }
+}
+
+async function generateHuman3D() {
+  if (!job.value || !canGenerate3D.value) return
+  const tryOnJobId = job.value.id
+  stopHuman3DPolling()
+  human3DSubmitting.value = true
+  try {
+    const created = await createHuman3DJob(tryOnJobId, props.userKey)
+    if (job.value?.id !== tryOnJobId) return
+    human3DJob.value = created
+    human3DPollTimer = window.setTimeout(pollHuman3DJob, 1200)
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '無法建立 3D 工作')
+    await loadHuman3DCapabilities()
+  } finally {
+    human3DSubmitting.value = false
+  }
+}
+
 async function synchronizeHistory(refreshAll = false) {
   stopPolling()
   cleanExpiredHistory()
@@ -680,6 +781,7 @@ onMounted(async () => {
   loadHistory()
   await Promise.allSettled([
     loadCapabilities(),
+    loadHuman3DCapabilities(),
     personLibrary.load(),
     loadFavorites(),
   ])
@@ -692,6 +794,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   componentActive = false
   stopPolling()
+  stopHuman3DPolling()
   if (cleanupTimer !== undefined) window.clearInterval(cleanupTimer)
   temporaryPersonPreview.value = replacePreview(temporaryPersonPreview.value, null)
   Object.values(personPreviewUrls.value).forEach((preview) => URL.revokeObjectURL(preview))
@@ -709,8 +812,8 @@ onBeforeUnmount(() => {
         <h2>虛擬試穿</h2>
         <p>選擇人物與穿搭後，即可直接生成試穿結果。</p>
       </div>
-      <button class="secondary-button" :disabled="capabilityLoading" @click="loadCapabilities">
-        <RefreshCw :size="16" :class="{ spinning: capabilityLoading }" />重新檢查服務
+      <button class="secondary-button" :disabled="capabilityLoading || human3DCapabilityLoading" @click="reloadCapabilities">
+        <RefreshCw :size="16" :class="{ spinning: capabilityLoading || human3DCapabilityLoading }" />重新檢查服務
       </button>
     </header>
 
@@ -987,8 +1090,53 @@ onBeforeUnmount(() => {
         </div>
         <div class="tryon-result-body" aria-live="polite">
           <div v-if="job?.status === 'succeeded' && job.result_url" class="tryon-result">
-            <img :src="job.result_url" alt="虛擬試穿結果" />
-            <div><CheckCircle2 :size="17" /><strong>{{ statusLabel }}</strong></div>
+            <Human3DViewer
+              v-if="resultMode === '3d' && human3DJob?.status === 'succeeded' && human3DJob.result_url"
+              :src="human3DJob.result_url"
+            />
+            <img v-else :src="job.result_url" alt="虛擬試穿結果" />
+            <div class="tryon-result-status"><CheckCircle2 :size="17" /><strong>{{ resultMode === '3d' ? '3D View 已完成' : statusLabel }}</strong></div>
+            <div class="human3d-actions">
+              <button
+                v-if="resultMode === '3d'"
+                type="button"
+                class="secondary-button"
+                @click="resultMode = '2d'"
+              >
+                返回 2D 結果
+              </button>
+              <button
+                v-else-if="human3DJob?.status === 'succeeded' && human3DJob.result_url"
+                type="button"
+                class="primary-button"
+                @click="resultMode = '3d'"
+              >
+                <Box :size="17" />開啟 3D View
+              </button>
+              <button
+                v-else-if="human3DCapabilities?.available"
+                type="button"
+                class="primary-button"
+                :disabled="!canGenerate3D"
+                @click="generateHuman3D"
+              >
+                <LoaderCircle v-if="human3DIsPending" :size="17" class="spinning" />
+                <Box v-else :size="17" />
+                {{ human3DIsPending ? human3DStatus || '準備建立 3D 模型…' : '產生 3D View' }}
+              </button>
+              <p v-else-if="!human3DCapabilityLoading" class="human3d-unavailable">
+                3D View 目前無法使用。{{ human3DCapabilities?.reason || '' }}
+              </p>
+            </div>
+            <div v-if="human3DJob?.status === 'queued' || human3DJob?.status === 'running'" class="human3d-progress" role="status">
+              <LoaderCircle :size="16" class="spinning" />{{ human3DStatus }} 你仍可查看 2D 結果。
+            </div>
+            <div v-else-if="human3DJob?.status === 'failed'" class="human3d-progress error" role="alert">
+              <AlertCircle :size="16" />{{ human3DStatus }}：{{ human3DJob.error || '請重新嘗試。' }}
+            </div>
+            <p v-if="resultMode === '3d'" class="human3d-caveat">
+              3D View 由單張試穿圖片推估，未出現在原圖中的側面與背面細節可能與實際服裝不同。
+            </p>
           </div>
           <div v-else class="tryon-result-placeholder" :class="{ processing: job?.status === 'queued' || job?.status === 'running' }">
             <LoaderCircle v-if="job?.status === 'queued' || job?.status === 'running'" :size="36" class="spinning" />

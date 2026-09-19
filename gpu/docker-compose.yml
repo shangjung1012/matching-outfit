@@ -1,0 +1,142 @@
+services:
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: matching-outfit-gpu-gateway
+    ports:
+      - "${GPU_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GPU_GATEWAY_PORT:-9001}:8080"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      tryon:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cloudflared:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    container_name: matching-outfit-gpu-cloudflared
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  tryon:
+    platform: linux/amd64
+    build:
+      context: ./tryon
+    container_name: tryon-api
+    environment:
+      TRYON_API_KEY: ${TRYON_API_KEY:?Set TRYON_API_KEY in gpu/.env}
+      TRYON_MIXED_PRECISION: bf16
+      HF_HOME: /models/huggingface
+      MINIO_ENDPOINT: tryon-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in gpu/.env}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in gpu/.env}
+      MINIO_BUCKET: tryon
+      MINIO_SECURE: "false"
+      GPU_LOCK_PATH: /gpu-coordination/inference.lock
+    expose:
+      - "9001"
+    volumes:
+      - tryon_hf_cache:/models/huggingface
+      - gpu_coordination:/gpu-coordination
+    depends_on:
+      tryon-minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request;
+          request = urllib.request.Request('http://127.0.0.1:9001/health', headers={'X-API-Key': os.environ['TRYON_API_KEY']});
+          assert urllib.request.urlopen(request, timeout=5).status == 200
+      interval: 10s
+      timeout: 6s
+      retries: 12
+    devices:
+      - nvidia.com/gpu=all
+
+  tryon-minio:
+    image: minio/minio:latest
+    container_name: tryon-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in gpu/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in gpu/.env}
+    volumes:
+      - tryon_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  human3d:
+    profiles: ["human3d"]
+    platform: linux/amd64
+    build:
+      context: ./human3d
+    container_name: human3d-api
+    environment:
+      # Both APIs share the gateway credential; only the variable name differs
+      # for the internal FastFit control client.
+      TRYON_API_KEY: ${TRYON_API_KEY:?Set TRYON_API_KEY in gpu/.env}
+      FASTFIT_CONTROL_API_KEY: ${TRYON_API_KEY:?Set TRYON_API_KEY in gpu/.env}
+      FASTFIT_CONTROL_URL: http://tryon:9001
+      HUMAN3D_MODEL_ID: ${HUMAN3D_MODEL_ID:-LHMPP-700M-PixelShuffle}
+      HUMAN3D_MODEL_PATH: ${HUMAN3D_MODEL_PATH:-}
+      HUMAN3D_MIXED_PRECISION: bf16
+      HUMAN3D_PRETRAINED_DIR: /models/lhmpp/pretrained_models
+      HF_HOME: /models/huggingface
+      MINIO_ENDPOINT: human3d-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in gpu/.env}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in gpu/.env}
+      MINIO_BUCKET: human3d
+      MINIO_SECURE: "false"
+      JOB_TTL_HOURS: ${HUMAN3D_JOB_TTL_HOURS:-24}
+      GPU_LOCK_PATH: /gpu-coordination/inference.lock
+      GPU_RESIDENCY_MODE: ${GPU_RESIDENCY_MODE:-auto}
+      GPU_VRAM_SAFETY_MARGIN_GB: ${GPU_VRAM_SAFETY_MARGIN_GB:-1.5}
+    expose:
+      - "9002"
+    volumes:
+      - human3d_model_cache:/models
+      - gpu_coordination:/gpu-coordination
+    depends_on:
+      human3d-minio:
+        condition: service_healthy
+      tryon:
+        condition: service_healthy
+    devices:
+      - nvidia.com/gpu=all
+
+  human3d-minio:
+    profiles: ["human3d"]
+    image: minio/minio:latest
+    container_name: human3d-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in gpu/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in gpu/.env}
+    volumes:
+      - human3d_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  tryon_hf_cache:
+  tryon_minio_data:
+  human3d_model_cache:
+  human3d_minio_data:
+  gpu_coordination:
+    name: matching-outfit_gpu_coordination

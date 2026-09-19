@@ -11,6 +11,7 @@ export type AppView =
   | 'mbti'
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type Human3DJobStatus = TryOnJobStatus
 
 export interface TryOnCapabilities {
   available: boolean
@@ -25,6 +26,25 @@ export interface TryOnJob {
   status: TryOnJobStatus
   reference_types: TryOnReferenceType[]
   error: string | null
+  result_url: string | null
+  created_at: string
+  updated_at: string
+  expires_at: string | null
+}
+
+export interface Human3DCapabilities {
+  available: boolean
+  reason: string | null
+  artifact_formats: string[]
+}
+
+export interface Human3DJob {
+  id: string
+  try_on_job_id: string
+  status: Human3DJobStatus
+  error: string | null
+  artifact_type: string | null
+  artifact_format: string | null
   result_url: string | null
   created_at: string
   updated_at: string

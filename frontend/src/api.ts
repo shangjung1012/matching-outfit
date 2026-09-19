@@ -16,6 +16,8 @@ import type {
   TryOnCapabilities,
   TryOnJob,
   TryOnReferenceType,
+  Human3DCapabilities,
+  Human3DJob,
   QueryPlanResponse,
   RecommendationResponse,
   FashionArticleAdmin,
@@ -281,6 +283,21 @@ export function createTryOnJob(
 
 export function getTryOnJob(jobId: string) {
   return request<TryOnJob>(`/api/try-on/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function getHuman3DCapabilities() {
+  return request<Human3DCapabilities>('/api/human3d/capabilities')
+}
+
+export function createHuman3DJob(tryOnJobId: string, userKey: string) {
+  return request<Human3DJob>(
+    `/api/try-on/jobs/${encodeURIComponent(tryOnJobId)}/3d`,
+    json('POST', { user_key: userKey }),
+  )
+}
+
+export function getHuman3DJob(jobId: string) {
+  return request<Human3DJob>(`/api/human3d/jobs/${encodeURIComponent(jobId)}`)
 }
 
 export function getFashionArticles(search = '') {

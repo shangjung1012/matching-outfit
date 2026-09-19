@@ -60,6 +60,7 @@ from app.schemas.try_on import (
     TryOnReferenceType,
 )
 from app.schemas.fashion_knowledge import FashionKnowledgeStatus
+from app.schemas.human3d import Human3DCapabilities, Human3DJobStatus, Human3DJobView
 
 __all__ = [
     "CatalogItem",
@@ -119,5 +120,8 @@ __all__ = [
     "TryOnReferenceType",
     "TryOnJobStatus",
     "TryOnJobView",
+    "Human3DCapabilities",
+    "Human3DJobStatus",
+    "Human3DJobView",
     "FashionKnowledgeStatus",
 ]

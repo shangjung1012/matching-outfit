@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
 from engine import FastFitEngine
+from gpu_lock import SharedGPULock
+from model_manager import FastFitModelManager
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -439,11 +441,14 @@ def create_app(
                     reference_contents,
                 )
             }
-            result = await asyncio.to_thread(
-                api.state.engine.run,
-                validate_image(person_content),
-                references,
-            )
+            def run_exclusively() -> bytes:
+                with SharedGPULock():
+                    return api.state.engine.run(
+                        validate_image(person_content),
+                        references,
+                    )
+
+            result = await asyncio.to_thread(run_exclusively)
             validate_image(result)
             result_key = f"jobs/{manifest.id}/result.png"
             async with job_lock(job_id):
@@ -551,7 +556,12 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.storage = storage or MinioJobStorage()
         await asyncio.to_thread(app.state.storage.ensure_bucket)
-        app.state.engine = engine or await asyncio.to_thread(FastFitEngine)
+        if engine is None:
+            manager = FastFitModelManager()
+            await asyncio.to_thread(manager.load)
+            app.state.engine = manager
+        else:
+            app.state.engine = engine
         app.state.queue = asyncio.Queue()
         app.state.finalization_queue = asyncio.Queue()
         app.state.job_locks = weakref.WeakValueDictionary()
@@ -587,8 +597,34 @@ def create_app(
             raise HTTPException(status_code=401, detail="Invalid API key")
 
     @api.get("/health")
-    def health(_: None = Depends(verify_api_key)) -> dict[str, str]:
-        return {"status": "ready", "device": api.state.engine.device_name}
+    def health(_: None = Depends(verify_api_key)) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "device": api.state.engine.device_name,
+            "model_loaded": bool(getattr(api.state.engine, "model_loaded", True)),
+            "peak_gpu_memory_bytes": int(
+                getattr(api.state.engine, "peak_gpu_memory_bytes", 0)
+            ),
+            "gpu_lock": os.getenv(
+                "GPU_LOCK_PATH", "/gpu-coordination/inference.lock"
+            ),
+        }
+
+    @api.post("/v1/model/unload", status_code=204)
+    async def unload_model(_: None = Depends(verify_api_key)) -> Response:
+        unload = getattr(api.state.engine, "unload", None)
+        if not callable(unload):
+            raise HTTPException(status_code=409, detail="Model residency is not managed")
+        await asyncio.to_thread(unload)
+        return Response(status_code=204)
+
+    @api.post("/v1/model/load", status_code=204)
+    async def load_model(_: None = Depends(verify_api_key)) -> Response:
+        load = getattr(api.state.engine, "load", None)
+        if not callable(load):
+            raise HTTPException(status_code=409, detail="Model residency is not managed")
+        await asyncio.to_thread(load)
+        return Response(status_code=204)
 
     @api.post("/v1/jobs", response_model=JobView, status_code=202)
     async def create_job(

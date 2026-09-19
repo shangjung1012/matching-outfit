@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     tryon_api_url: str = ""
     tryon_api_key: str = ""
     tryon_request_timeout_seconds: float = 300.0
+    human3d_request_timeout_seconds: float = 900.0
     image_max_upload_bytes: int = 10 * 1024 * 1024
     image_max_pixels: int = 20_000_000
     catalog_currency: str = "INR"
