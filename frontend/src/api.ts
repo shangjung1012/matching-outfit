@@ -31,6 +31,7 @@ import type {
   ShoeSpec,
   FavoriteCollection,
   FavoriteItemsMutationResponse,
+  UserProfile,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -61,6 +62,17 @@ function json(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Requ
 
 function withSignal(init: RequestInit, signal?: AbortSignal): RequestInit {
   return signal ? { ...init, signal } : init
+}
+
+export function loginUserProfile(userKey: string) {
+  return request<UserProfile>('/api/user-profiles/login', json('POST', { user_key: userKey }))
+}
+
+export function updateUserProfile(userKey: string, values: Pick<UserProfile, 'do_test'>) {
+  return request<UserProfile>(
+    `/api/user-profiles/${encodeURIComponent(userKey)}`,
+    json('PATCH', values),
+  )
 }
 
 export function createQueryPlan(

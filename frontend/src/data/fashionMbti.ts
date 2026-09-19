@@ -47,7 +47,6 @@ export interface FashionMbtiResult {
     vivid: number
   }
   raw: MbtiRawScores
-  answers: FashionMbtiAnswer[]
   completedAt: string
 }
 
@@ -599,16 +598,14 @@ export function computeMbtiResult(answers: FashionMbtiAnswer[]): FashionMbtiResu
       vivid: 100 - neutral,
     },
     raw,
-    answers,
     completedAt: new Date().toISOString(),
   }
 }
 
-// ---- 本機儲存（結果與作答進度） ----
+// ---- 本機儲存（僅保留完成結果） ----
 
 interface StoredState {
   result: FashionMbtiResult | null
-  progress: FashionMbtiAnswer[]
 }
 
 const storageKey = (userKey: string) => `fashion-mbti:${userKey}`
@@ -616,15 +613,18 @@ const storageKey = (userKey: string) => `fashion-mbti:${userKey}`
 export function loadMbtiState(userKey: string): StoredState {
   try {
     const raw = window.localStorage.getItem(storageKey(userKey))
-    if (!raw) return { result: null, progress: [] }
+    if (!raw) return { result: null }
 
     const parsed = JSON.parse(raw) as Partial<StoredState>
+    if (!parsed.result) return { result: null }
+    // Drop answer-level fields written by earlier versions before the result
+    // is saved again; only the finished personality result is retained.
+    const { answers: _answers, ...result } = parsed.result as FashionMbtiResult & { answers?: unknown }
     return {
-      result: parsed.result ?? null,
-      progress: Array.isArray(parsed.progress) ? parsed.progress : [],
+      result,
     }
   } catch {
-    return { result: null, progress: [] }
+    return { result: null }
   }
 }
 

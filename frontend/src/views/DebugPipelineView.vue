@@ -44,10 +44,26 @@ const requirementRows = computed(() => {
 })
 
 const searchResults = computed(() => props.trace?.recommendation_debug?.search_results ?? [])
-const searchedItemCount = computed(() => searchResults.value.reduce(
-  (total: number, group: QuerySearchResult) => total + group.clothes.length,
-  0,
-))
+const directionGroups = computed(() => {
+  const groups = new Map<string, { id: string | null | undefined; queries: QueryDraft[] }>()
+  for (const query of props.trace?.queries ?? []) {
+    const key = query.direction_id ?? `unassigned-${query.id}`
+    const group = groups.get(key) ?? { id: query.direction_id, queries: [] as QueryDraft[] }
+    group.queries.push(query)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+})
+const searchDirectionGroups = computed(() => {
+  const groups = new Map<string, { id: string | null | undefined; results: QuerySearchResult[] }>()
+  for (const result of searchResults.value) {
+    const key = result.query.direction_id ?? `unassigned-${result.query.id}`
+    const group = groups.get(key) ?? { id: result.query.direction_id, results: [] as QuerySearchResult[] }
+    group.results.push(result)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+})
 const knowledge = computed(() => {
   const recommendationKnowledge = props.trace?.recommendation_debug?.knowledge_observations ?? []
   if (recommendationKnowledge.length) return recommendationKnowledge
@@ -183,13 +199,6 @@ function deleteHistory(id: string) {
     </div>
 
     <template v-else>
-      <section class="analysis-overview" aria-label="分析摘要">
-        <article><span>搭配方向</span><strong>{{ trace.queries.length }}</strong><small>組搜尋方向</small></article>
-        <article><span>搜尋結果</span><strong>{{ searchedItemCount }}</strong><small>件候選商品</small></article>
-        <article><span>搭配候選</span><strong>{{ trace.recommendation_debug?.ranked_candidate_count ?? 0 }}</strong><small>套完成搭配</small></article>
-        <article><span>最後推薦</span><strong>{{ trace.recommendations.length }}</strong><small>套精選結果</small></article>
-      </section>
-
       <section class="debug-section analysis-section">
         <header><span>1</span><div><h3>理解你的需求</h3><p>{{ trace.original_input }}</p></div></header>
         <dl v-if="requirementRows.length" class="analysis-requirements">
@@ -219,36 +228,44 @@ function deleteHistory(id: string) {
 
       <section class="debug-section analysis-section">
         <header><span>3</span><div><h3>形成搭配方向</h3><p>將你的場合與風格需求轉換成可搜尋的服裝方向。</p></div></header>
-        <div v-if="trace.queries.length" class="analysis-direction-grid">
-          <article v-for="query in trace.queries" :key="`${query.direction_id}-${query.garment_zone}`">
-            <span>{{ zoneLabel(query.garment_zone) }}</span>
-            <div>
-              <strong>{{ query.rationale }}</strong>
-              <dl class="analysis-query-values">
-                <div v-if="query.knowledge_observation_ids.length">
-                  <dt>參考文章</dt>
-                  <dd>{{ knowledgeSummaries(query) }}</dd>
+        <div v-if="trace.queries.length" class="analysis-direction-groups">
+          <section v-for="group in directionGroups" :key="group.id ?? group.queries[0].id" class="analysis-direction-group">
+            <div class="analysis-direction-grid">
+              <article v-for="query in group.queries" :key="query.id">
+                <span>{{ zoneLabel(query.garment_zone) }}</span>
+                <div>
+                  <strong>{{ query.rationale }}</strong>
+                  <dl class="analysis-query-values">
+                    <div v-if="query.knowledge_observation_ids.length">
+                      <dt>參考文章</dt>
+                      <dd>{{ knowledgeSummaries(query) }}</dd>
+                    </div>
+                    <div><dt>原始 Query</dt><dd>{{ originalQuery(query) }}</dd></div>
+                  </dl>
                 </div>
-                <div><dt>原始 Query</dt><dd>{{ originalQuery(query) }}</dd></div>
-              </dl>
+              </article>
             </div>
-          </article>
+          </section>
         </div>
         <div v-else class="debug-panel debug-muted">尚未產生搭配方向。</div>
       </section>
 
       <section class="debug-section analysis-section">
         <header><span>4</span><div><h3>搜尋合適商品</h3><p>依照每個搭配方向找出外觀與條件相符的商品。</p></div></header>
-        <div v-if="searchResults.length" class="debug-details-stack analysis-search-groups">
-          <details v-for="group in searchResults" :key="`${group.query.direction_id}-${group.query.garment_zone}`">
-            <summary><span>{{ zoneLabel(group.query.garment_zone) }}</span><strong>{{ group.query.rationale }}</strong><small>{{ group.clothes.length }} 件候選</small></summary>
-            <div class="debug-product-strip">
-              <article v-for="(item, index) in group.clothes.slice(0, 6)" :key="item.id">
-                <img :src="item.image_url" :alt="item.product_display_name" />
-                <div><strong>#{{ index + 1 }} · 符合度 {{ percent(item.similarity) }}</strong><p>{{ item.product_display_name }}</p><small>{{ item.base_colour }} · {{ item.article_type }}</small></div>
-              </article>
+        <div v-if="searchResults.length" class="analysis-search-direction-groups">
+          <section v-for="group in searchDirectionGroups" :key="group.id ?? group.results[0].query.id" class="analysis-search-direction-group">
+            <div class="debug-details-stack analysis-search-zone-grid">
+              <details v-for="result in group.results" :key="result.query.id">
+                <summary><span>{{ zoneLabel(result.query.garment_zone) }}</span><strong>{{ result.query.rationale }}</strong><small>{{ result.clothes.length }} 件候選</small></summary>
+                <div class="debug-product-strip">
+                  <article v-for="(item, index) in result.clothes.slice(0, 6)" :key="item.id">
+                    <img :src="item.image_url" :alt="item.product_display_name" />
+                    <div><strong>#{{ index + 1 }} · 符合度 {{ percent(item.similarity) }}</strong><p>{{ item.product_display_name }}</p><small>{{ item.base_colour }} · {{ item.article_type }}</small></div>
+                  </article>
+                </div>
+              </details>
             </div>
-          </details>
+          </section>
         </div>
         <div v-else class="debug-panel debug-muted">這次沒有保留商品搜尋紀錄。</div>
       </section>

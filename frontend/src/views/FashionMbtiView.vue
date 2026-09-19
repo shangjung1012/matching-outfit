@@ -25,6 +25,7 @@ const {
 const { showError, showSuccess } = useToast()
 
 type Stage = 'landing' | 'quiz' | 'result'
+const emit = defineEmits<{ stageChange: [stage: Stage] }>()
 
 const stage = ref<Stage>('landing')
 const answers = ref<FashionMbtiAnswer[]>([])
@@ -67,7 +68,6 @@ const bars = computed(() => {
 function persist() {
   saveMbtiState(props.userKey, {
     result: result.value ?? storedResult.value,
-    progress: stage.value === 'quiz' ? answers.value : [],
   })
 }
 
@@ -216,13 +216,13 @@ watch([() => stage.value, () => result.value], async () => {
   if (cardCanvas.value) await renderMbtiCard(cardCanvas.value, result.value)
 })
 
+watch(stage, (nextStage) => emit('stageChange', nextStage), { immediate: true })
+
 onMounted(() => {
   const state = loadMbtiState(props.userKey)
   storedResult.value = state.result
-  if (state.progress.length && state.progress.length < total) {
-    answers.value = state.progress
-    index.value = state.progress.length
-  } else if (state.result) {
+  if (state.result) {
+    saveMbtiState(props.userKey, { result: state.result })
     result.value = state.result
     stage.value = 'result'
   }

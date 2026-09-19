@@ -335,6 +335,21 @@ class QueryPlanDebug(BaseModel):
     stage_timings_ms: dict[str, float] = Field(default_factory=dict)
 
 
+class UserProfileLoginRequest(BaseModel):
+    user_key: str = Field(min_length=1, max_length=120)
+
+
+class UserProfileView(BaseModel):
+    user_key: str
+    do_test: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserProfileUpdate(BaseModel):
+    do_test: bool
+
+
 class PlanRequest(BaseModel):
     user_input: str = Field(min_length=2, max_length=1000)
     user_key: str = Field(default="demo-user", min_length=1, max_length=120)

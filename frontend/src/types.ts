@@ -26,6 +26,11 @@ export interface WardrobeItem {
   created_at: string
 }
 
+export interface UserProfile {
+  user_key: string
+  do_test: boolean
+}
+
 export interface TryOnCapabilities {
   available: boolean
   reason: string | null
@@ -692,7 +697,6 @@ export interface FashionMbtiResult extends FashionMbtiType {
     vivid: number
   }
   raw: MbtiRawScores
-  answers: FashionMbtiAnswer[]
   completedAt: string
 }
 

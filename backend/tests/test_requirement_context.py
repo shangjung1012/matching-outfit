@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.schemas.workflow import ChatTurn, RequirementSummary
+from app.schemas.workflow import ChatTurn, RequirementSummary, SessionHardRules
 from app.services.requirement_context import current_taiwan_context, with_context_defaults
 from app.services.query_planner import RequirementAssessment, RequirementCollector
 
@@ -65,6 +65,22 @@ def test_explicit_season_overrides_previous_defaults():
     assert result.requirements.seasons == ["winter"]
     assert result.requirements.target_date == ""
     assert "seasons" not in result.requirements.defaulted_fields
+
+
+def test_clarification_preserves_initialized_hard_rules_and_budget():
+    previous = RequirementSummary(
+        hard_rules=SessionHardRules(price_max=1800),
+        outfit_budget_max=5400,
+    )
+    result = RequirementCollector(
+        StubLLM(outfit_budget_max=4000, updated_fields=["outfit_budget_max"])
+    ).collect(
+        [ChatTurn(role="user", text="整套預算改成 4000 元")],
+        previous_requirements=previous,
+    )
+
+    assert result.requirements.hard_rules == previous.hard_rules
+    assert result.requirements.outfit_budget_max == 4000
 
 
 def test_explicit_date_recalculates_default_season():

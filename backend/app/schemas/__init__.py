@@ -52,6 +52,9 @@ from app.schemas.workflow import (
     StylingConcept,
     StylingGuide,
     GeneratedQueryTrace,
+    UserProfileLoginRequest,
+    UserProfileUpdate,
+    UserProfileView,
 )
 from app.schemas.try_on import (
     TryOnCapabilities,
@@ -116,6 +119,9 @@ __all__ = [
     "StylingConcept",
     "StylingGuide",
     "GeneratedQueryTrace",
+    "UserProfileLoginRequest",
+    "UserProfileUpdate",
+    "UserProfileView",
     "TryOnCapabilities",
     "TryOnReferenceType",
     "TryOnJobStatus",

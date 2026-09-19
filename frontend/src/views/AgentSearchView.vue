@@ -950,19 +950,19 @@ onBeforeUnmount(() => {
         <dl class="requirement-summary">
           <template v-if="requirements?.hard_rules">
             <div>
-              <dt>性別（hard rule）</dt>
+              <dt>性別</dt>
               <dd>{{ hardRuleGenderLabel() }}</dd>
             </div>
             <div>
-              <dt>避免顏色（hard rule）</dt>
+              <dt>避免顏色</dt>
               <dd>{{ hardRuleColoursLabel() }}</dd>
             </div>
             <div>
-              <dt>避免衣服類型（hard rule）</dt>
+              <dt>避免衣服類型</dt>
               <dd>{{ hardRuleArticleTypesLabel() }}</dd>
             </div>
             <div>
-              <dt>單件最高價格（hard rule）</dt>
+              <dt>單件最高價格</dt>
               <dd>{{ requirements.hard_rules.price_max === null ? '未設定' : `NT$ ${requirements.hard_rules.price_max.toLocaleString('zh-TW')}` }}</dd>
             </div>
           </template>

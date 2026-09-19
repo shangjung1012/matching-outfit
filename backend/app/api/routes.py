@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.models.cloth import Cloth
 from app.models.fashion_knowledge import FashionArticle, FashionObservation
 from app.models.user_preference import UserHardRule, UserStylePreference
+from app.models.user_profile import UserProfile
 from app.models.user_favorite import (
     UserFavoriteItem,
     UserFavoriteOutfit,
@@ -63,6 +64,9 @@ from app.schemas import (
     StylePreferenceItemProposalRequest,
     StylePreferenceView,
     FashionKnowledgeStatus,
+    UserProfileLoginRequest,
+    UserProfileUpdate,
+    UserProfileView,
 )
 from app.schemas.workflow import GarmentZone, RequirementSummary, SessionHardRules
 from app.services.catalog_search import search_catalog, search_catalog_items
@@ -167,6 +171,36 @@ def fashion_knowledge_store() -> FashionKnowledgeStore:
 @router.get("/health")
 def api_health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post("/user-profiles/login", response_model=UserProfileView)
+def login_user_profile(
+    payload: UserProfileLoginRequest, db: Session = Depends(get_db)
+) -> UserProfileView:
+    """Find a profile by login name, or create its default test-first profile."""
+    user_key = payload.user_key.strip()
+    if not user_key:
+        raise HTTPException(status_code=422, detail="user_key 不能為空白")
+    profile = db.get(UserProfile, user_key)
+    if profile is None:
+        profile = UserProfile(user_key=user_key, do_test=False)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return UserProfileView.model_validate(profile)
+
+
+@router.patch("/user-profiles/{user_key}", response_model=UserProfileView)
+def update_user_profile(
+    user_key: str, payload: UserProfileUpdate, db: Session = Depends(get_db)
+) -> UserProfileView:
+    profile = db.get(UserProfile, user_key)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="找不到使用者 profile")
+    profile.do_test = payload.do_test
+    db.commit()
+    db.refresh(profile)
+    return UserProfileView.model_validate(profile)
 
 
 @router.get("/fashion-knowledge/status", response_model=FashionKnowledgeStatus)
