@@ -13,6 +13,8 @@ import type {
   StylePreference,
   StylePreferenceCreate,
   OutfitPreferenceReaction,
+  WardrobeCategory,
+  WardrobeItem,
   TryOnCapabilities,
   TryOnJob,
   TryOnReferenceType,
@@ -260,6 +262,47 @@ export function patchStylePreference(
 
 export function deleteStylePreference(userKey: string, id: number) {
   return request<void>(`${prefBase(userKey)}/soft/remove/${id}`, json('DELETE'))
+}
+
+// ---- Personal wardrobe (kept separate from catalog favorites) ----
+
+const wardrobeBase = (userKey: string) => `/api/wardrobe/${encodeURIComponent(userKey)}`
+
+export function getWardrobeItems(
+  userKey: string,
+  category?: WardrobeCategory | null,
+  favoritesOnly = false,
+) {
+  const params = new URLSearchParams()
+  if (category) params.set('category', category)
+  if (favoritesOnly) params.set('favorites_only', 'true')
+  const query = params.size ? `?${params}` : ''
+  return request<WardrobeItem[]>(`${wardrobeBase(userKey)}${query}`)
+}
+
+export function uploadWardrobeItem(
+  userKey: string,
+  category: WardrobeCategory,
+  image: File,
+) {
+  const form = new FormData()
+  form.append('category', category)
+  form.append('image', image)
+  return request<WardrobeItem>(wardrobeBase(userKey), {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function setWardrobeFavorite(userKey: string, itemId: number, isFavorite: boolean) {
+  return request<WardrobeItem>(
+    `${wardrobeBase(userKey)}/${itemId}/favorite`,
+    json('PATCH', { is_favorite: isFavorite }),
+  )
+}
+
+export function removeWardrobeItem(userKey: string, itemId: number) {
+  return request<void>(`${wardrobeBase(userKey)}/${itemId}`, { method: 'DELETE' })
 }
 
 export function getTryOnCapabilities() {

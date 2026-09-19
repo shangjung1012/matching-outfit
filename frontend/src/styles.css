@@ -120,6 +120,206 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   text-align: left;
   white-space: nowrap;
 }
+
+/* Personal wardrobe */
+.wardrobe-view { padding-bottom: 72px; }
+.wardrobe-heading { align-items: center; }
+.wardrobe-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px 0 26px;
+  padding: 10px;
+  border: 1px solid #d8ddd7;
+  border-radius: 12px;
+  background: #fff;
+}
+.wardrobe-tabs { display: flex; align-items: center; gap: 5px; }
+.wardrobe-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  color: #677069;
+  background: transparent;
+  font-size: .8rem;
+  font-weight: 700;
+}
+.wardrobe-tabs button:hover { color: #245a45; background: #f2f6f3; }
+.wardrobe-tabs button.active { color: #174c38; background: #dfece5; }
+.wardrobe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+}
+.wardrobe-card {
+  overflow: hidden;
+  border: 1px solid #d8ddd7;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(28, 45, 36, .05);
+}
+.wardrobe-card-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: #f2f3ef;
+}
+.wardrobe-card-media img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.wardrobe-favorite-button {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(40, 55, 47, .14);
+  border-radius: 50%;
+  color: #4f5b54;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 4px 12px rgba(25, 40, 32, .12);
+}
+.wardrobe-favorite-button.active { color: #a63d4c; background: #fff1f3; }
+.wardrobe-card-body {
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 15px;
+}
+.wardrobe-card-body > div { min-width: 0; display: grid; gap: 4px; }
+.wardrobe-card-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .91rem; }
+.wardrobe-card-body small { color: #7a817b; font-size: .74rem; }
+.wardrobe-card-body .icon-button { flex: 0 0 auto; color: #8a504f; }
+.wardrobe-empty { min-height: 360px; }
+.wardrobe-empty p { margin: 0 0 16px; color: #727a73; }
+.wardrobe-uploader { width: min(560px, calc(100vw - 32px)); }
+.wardrobe-dropzone {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: #466153;
+  text-align: center;
+}
+.wardrobe-dropzone small { max-width: 390px; color: #7a817b; line-height: 1.5; }
+.wardrobe-file-list {
+  max-height: 130px;
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 10px 12px 10px 30px;
+  border-radius: 8px;
+  color: #5f685f;
+  background: #f5f7f4;
+  font-size: .78rem;
+}
+.wardrobe-file-list li + li { margin-top: 5px; }
+
+@media (max-width: 760px) {
+  .wardrobe-toolbar { align-items: stretch; flex-direction: column; }
+  .wardrobe-tabs { overflow-x: auto; }
+  .wardrobe-tabs button { white-space: nowrap; }
+  .wardrobe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+
+/* Start-with-an-item source chooser */
+.reference-source-picker { width: min(760px, calc(100vw - 32px)); }
+.reference-source-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 5px;
+  border-radius: 10px;
+  background: #eef1ed;
+}
+.reference-source-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 7px;
+  color: #687168;
+  background: transparent;
+  font-size: .82rem;
+  font-weight: 750;
+}
+.reference-source-tabs button.active {
+  color: #174c38;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(26, 48, 37, .08);
+}
+.reference-wardrobe-panel { min-height: 220px; max-height: 360px; overflow: auto; }
+.reference-wardrobe-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.reference-wardrobe-grid > button {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid #d9ddd7;
+  border-radius: 10px;
+  color: #4c554e;
+  background: #fff;
+  text-align: left;
+}
+.reference-wardrobe-grid > button.selected {
+  border-color: #347158;
+  box-shadow: 0 0 0 2px #d7e9df;
+}
+.reference-wardrobe-grid img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  display: block;
+  border-radius: 6px;
+  background: #f2f3ef;
+  object-fit: contain;
+}
+.reference-wardrobe-grid span {
+  overflow: hidden;
+  padding: 0 2px 2px;
+  font-size: .76rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-wardrobe-grid svg {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  padding: 3px;
+  border-radius: 50%;
+  color: #fff;
+  background: #2d7055;
+  box-sizing: content-box;
+}
+.reference-wardrobe-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #788079;
+}
+.reference-style-note { display: grid; gap: 7px; margin-top: 14px; }
+.reference-style-note > span { color: #505851; font-size: .78rem; font-weight: 750; }
+.reference-style-note textarea { min-height: 76px; }
+
+@media (max-width: 680px) {
+  .reference-wardrobe-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .nav-dropdown button:hover { color: #254e3e; background: #f2f5f1; }
 .nav-dropdown button.active { color: #174c38; background: #e7f1ea; }
 .nav-dropdown.align-right { left: auto; right: 0; transform: none; }

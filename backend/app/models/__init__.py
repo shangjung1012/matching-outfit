@@ -9,6 +9,7 @@ from app.models.user_favorite import (
     UserFavoriteOutfit,
     UserFavoriteOutfitItem,
 )
+from app.models.user_wardrobe import UserWardrobeItem
 
 __all__ = [
     "Cloth",
@@ -22,4 +23,5 @@ __all__ = [
     "UserFavoriteItem",
     "UserFavoriteOutfit",
     "UserFavoriteOutfitItem",
+    "UserWardrobeItem",
 ]

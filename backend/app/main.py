@@ -8,6 +8,7 @@ from app.api.routes import router
 from app.api.try_on import router as try_on_router
 from app.api.fashion_knowledge_admin import router as fashion_knowledge_admin_router
 from app.api.human3d import router as human3d_router
+from app.api.wardrobe import router as wardrobe_router
 from app.core.config import settings
 
 app = FastAPI(title="Matching Outfit API", version="0.1.0")
@@ -24,10 +25,15 @@ app.include_router(router, prefix="/api")
 app.include_router(try_on_router, prefix="/api")
 app.include_router(fashion_knowledge_admin_router, prefix="/api")
 app.include_router(human3d_router, prefix="/api")
+app.include_router(wardrobe_router, prefix="/api")
 
 image_dir = Path(settings.image_dir)
 image_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=image_dir), name="media")
+
+wardrobe_dir = Path(settings.wardrobe_dir)
+wardrobe_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/wardrobe-media", StaticFiles(directory=wardrobe_dir), name="wardrobe-media")
 
 
 @app.get("/health")

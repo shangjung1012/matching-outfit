@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Bookmark, BookOpenText, ChevronDown, Compass, Fingerprint, LogOut, MessageSquareText,
+  Bookmark, BookOpenText, ChevronDown, Compass, Fingerprint, Images, LogOut, MessageSquareText,
   ScanFace, Search, Shirt, SlidersHorizontal, Sparkles, UserRound,
 } from 'lucide-vue-next'
 import AgentSearchView from './views/AgentSearchView.vue'
@@ -10,6 +10,7 @@ import SimilarSearchView from './views/SimilarSearchView.vue'
 import CatalogView from './views/CatalogView.vue'
 import FashionMbtiView from './views/FashionMbtiView.vue'
 import FavoritesView from './views/FavoritesView.vue'
+import WardrobeView from './views/WardrobeView.vue'
 import PreferencesView from './views/PreferencesView.vue'
 import VirtualTryOnView from './views/VirtualTryOnView.vue'
 import KnowledgeManagementView from './views/KnowledgeManagementView.vue'
@@ -61,6 +62,7 @@ const navGroups = [
     label: '個人中心',
     icon: UserRound,
     items: [
+      { id: 'wardrobe' as const, label: '我的衣櫃', icon: Images },
       { id: 'favorites' as const, label: '我的收藏', icon: Bookmark },
       { id: 'preferences' as const, label: '我的偏好', icon: SlidersHorizontal },
     ],
@@ -247,6 +249,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
       <KnowledgeManagementView v-if="activeView === 'knowledge'" />
       <SimilarSearchView v-show="activeView === 'similarity'" />
       <CatalogView v-show="activeView === 'catalog'" :user-key="userKey" />
+      <WardrobeView v-if="activeView === 'wardrobe'" :user-key="userKey" />
       <FavoritesView
         v-show="activeView === 'favorites'"
         :user-key="userKey"

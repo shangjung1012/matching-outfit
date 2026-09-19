@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
       '/health': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
       '/media': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
+      '/wardrobe-media': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
     },
   },
 })

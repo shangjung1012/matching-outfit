@@ -7,6 +7,7 @@ const routes: Array<{ path: string; name: AppView; alias?: string | string[] }> 
   { path: '/virtual_tryon', name: 'tryon' },
   { path: '/clothes_catalog', name: 'catalog' },
   { path: '/outfit_article', name: 'knowledge' },
+  { path: '/my_wardrobe', name: 'wardrobe' },
   { path: '/my_favorites', name: 'favorites' },
   { path: '/my_preference', name: 'preferences', alias: '/my_profile' },
   { path: '/outfit-mbti', name: 'mbti' },

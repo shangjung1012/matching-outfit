@@ -8,8 +8,10 @@ import {
 import {
   clarifyRequirements,
   createQueryPlan,
+  getWardrobeItems,
   getRecommendations,
   refineQueryPlan,
+  uploadWardrobeItem,
 } from '../api'
 import OutfitCard from '../components/OutfitCard.vue'
 import QueryReview from '../components/QueryReview.vue'
@@ -27,6 +29,7 @@ import type {
   RequirementSummary,
   ShoeSpec,
   StylingGuide,
+  WardrobeItem,
 } from '../types'
 
 const props = defineProps<{ userKey: string }>()
@@ -93,6 +96,12 @@ const referenceImage = ref<File | null>(null)
 const referenceType = ref<'upper_body' | 'lower_body'>('upper_body')
 const referencePreviewUrl = ref('')
 const referencePickerOpen = ref(false)
+const referenceSource = ref<'wardrobe' | 'upload'>('wardrobe')
+const referenceWardrobeItems = ref<WardrobeItem[]>([])
+const referenceWardrobeLoading = ref(false)
+const selectedWardrobeItem = ref<WardrobeItem | null>(null)
+const referenceStyleNote = ref('')
+const referencePreparing = ref(false)
 let messageId = 2
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 let activeController: AbortController | null = null
@@ -136,15 +145,53 @@ const composerPlaceholder = computed(() => {
 function chooseReferenceImage(event: Event) {
   const input = event.target as HTMLInputElement
   const image = input.files?.[0] ?? null
-  if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
+  if (referencePreviewUrl.value.startsWith('blob:')) URL.revokeObjectURL(referencePreviewUrl.value)
   referenceImage.value = image
   referencePreviewUrl.value = image ? URL.createObjectURL(image) : ''
+  selectedWardrobeItem.value = null
+  input.value = ''
 }
 
 function clearReferenceImage() {
-  if (referencePreviewUrl.value) URL.revokeObjectURL(referencePreviewUrl.value)
+  if (referencePreviewUrl.value.startsWith('blob:')) URL.revokeObjectURL(referencePreviewUrl.value)
   referenceImage.value = null
   referencePreviewUrl.value = ''
+  selectedWardrobeItem.value = null
+}
+
+const matchingWardrobeItems = computed(() => referenceWardrobeItems.value.filter(
+  (item) => item.category === referenceType.value,
+))
+const referenceReady = computed(() => (
+  referenceSource.value === 'upload'
+    ? referenceImage.value !== null
+    : selectedWardrobeItem.value !== null
+))
+
+async function openReferencePicker() {
+  referencePickerOpen.value = true
+  referenceWardrobeLoading.value = true
+  try {
+    referenceWardrobeItems.value = await getWardrobeItems(props.userKey)
+  } catch (reason) {
+    showError(errorMessage(reason))
+  } finally {
+    referenceWardrobeLoading.value = false
+  }
+}
+
+function selectWardrobeReference(item: WardrobeItem) {
+  if (referencePreviewUrl.value.startsWith('blob:')) URL.revokeObjectURL(referencePreviewUrl.value)
+  selectedWardrobeItem.value = item
+  referenceImage.value = null
+  referencePreviewUrl.value = item.image_url
+}
+
+function setReferenceType(type: 'upper_body' | 'lower_body') {
+  referenceType.value = type
+  if (selectedWardrobeItem.value?.category !== type) {
+    clearReferenceImage()
+  }
 }
 
 function focusComposer() {
@@ -154,6 +201,52 @@ function focusComposer() {
 function requestedCatalogZones(): PlannerGarmentZone[] | null {
   if (!referenceImage.value) return null
   return [referenceType.value === 'upper_body' ? 'lower_body' : 'upper_body']
+}
+
+async function startReferenceSearch() {
+  if (!referenceReady.value || agentBusy.value || referencePreparing.value) return
+  referencePreparing.value = true
+  try {
+    if (referenceSource.value === 'wardrobe') {
+      const item = selectedWardrobeItem.value
+      if (!item) return
+      const response = await fetch(item.image_url)
+      if (!response.ok) throw new Error('無法讀取衣櫃圖片')
+      const blob = await response.blob()
+      const suffix = item.original_filename.split('.').pop() || 'jpg'
+      referenceImage.value = new File([blob], `${item.name}.${suffix}`, {
+        type: blob.type || 'image/jpeg',
+      })
+      referencePreviewUrl.value = item.image_url
+    } else {
+      const image = referenceImage.value
+      if (!image) return
+      const saved = await uploadWardrobeItem(props.userKey, referenceType.value, image)
+      referenceWardrobeItems.value = [saved, ...referenceWardrobeItems.value]
+      if (referencePreviewUrl.value.startsWith('blob:')) {
+        URL.revokeObjectURL(referencePreviewUrl.value)
+      }
+      selectedWardrobeItem.value = saved
+      referencePreviewUrl.value = saved.image_url
+      referenceSource.value = 'wardrobe'
+    }
+
+    referencePickerOpen.value = false
+    const baseRequest = referenceType.value === 'upper_body'
+      ? '請用這件上衣找適合搭配的下身，並結合我的偏好保持整體協調。'
+      : '請用這件下身找適合搭配的上衣，並結合我的偏好保持整體協調。'
+    const note = referenceStyleNote.value.trim()
+    const planningInput = note ? `${baseRequest} 補充需求：${note}` : baseRequest
+    addMessage('user', planningInput, true)
+    await requestPlanning(planningInput, requirements.value)
+    if (stage.value === 'review' && queries.value.length > 0) {
+      await searchOutfits()
+    }
+  } catch (reason) {
+    showError(errorMessage(reason))
+  } finally {
+    referencePreparing.value = false
+  }
 }
 
 type RequirementDisplayField = Exclude<
@@ -569,6 +662,8 @@ function startNewConversation() {
   knowledgeNote.value = ''
   clearReferenceImage()
   referencePickerOpen.value = false
+  referenceStyleNote.value = ''
+  referenceSource.value = 'wardrobe'
   missingFields.value = []
   readyToPlan.value = false
   originalRequest.value = ''
@@ -825,7 +920,7 @@ onBeforeUnmount(() => {
             <strong>描述穿搭需求</strong>
             <small>告訴我場合、風格或預算</small>
           </button>
-          <button type="button" :disabled="agentBusy" @click="referencePickerOpen = true">
+          <button type="button" :disabled="agentBusy" @click="openReferencePicker">
             <img v-if="referencePreviewUrl" :src="referencePreviewUrl" alt="你的單品" />
             <span v-else class="start-mode-icon"><Shirt :size="22" /></span>
             <strong>{{ referenceImage ? '已加入一件單品' : '從我的單品開始' }}</strong>
@@ -961,7 +1056,7 @@ onBeforeUnmount(() => {
     </main>
 
     <div v-if="referencePickerOpen" class="reference-picker-backdrop" @click.self="referencePickerOpen = false">
-      <section class="reference-picker" role="dialog" aria-modal="true" aria-labelledby="reference-picker-title">
+      <section class="reference-picker reference-source-picker" role="dialog" aria-modal="true" aria-labelledby="reference-picker-title">
         <header>
           <div>
             <span class="section-kicker">Start with an item</span>
@@ -970,18 +1065,56 @@ onBeforeUnmount(() => {
           <button class="icon-button" type="button" title="關閉" @click="referencePickerOpen = false"><X :size="18" /></button>
         </header>
         <div class="reference-type-control" aria-label="單品類型">
-          <button type="button" :class="{ active: referenceType === 'upper_body' }" @click="referenceType = 'upper_body'">上衣</button>
-          <button type="button" :class="{ active: referenceType === 'lower_body' }" @click="referenceType = 'lower_body'">下身</button>
+          <button type="button" :class="{ active: referenceType === 'upper_body' }" @click="setReferenceType('upper_body')">上衣</button>
+          <button type="button" :class="{ active: referenceType === 'lower_body' }" @click="setReferenceType('lower_body')">下身</button>
         </div>
-        <label class="reference-dropzone">
-          <img v-if="referencePreviewUrl" :src="referencePreviewUrl" alt="你的單品預覽" />
-          <span v-else><ImagePlus :size="28" /><strong>選擇單品照片</strong><small>JPG、PNG 或 WebP</small></span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="agentBusy" @change="chooseReferenceImage" />
+        <div class="reference-source-tabs" aria-label="圖片來源">
+          <button type="button" :class="{ active: referenceSource === 'wardrobe' }" @click="referenceSource = 'wardrobe'">從我的衣櫃挑</button>
+          <button type="button" :class="{ active: referenceSource === 'upload' }" @click="referenceSource = 'upload'">上傳新圖片</button>
+        </div>
+
+        <div v-if="referenceSource === 'wardrobe'" class="reference-wardrobe-panel">
+          <p v-if="referenceWardrobeLoading" class="loading-state">正在載入我的衣櫃…</p>
+          <div v-else-if="matchingWardrobeItems.length" class="reference-wardrobe-grid">
+            <button
+              v-for="item in matchingWardrobeItems"
+              :key="item.id"
+              type="button"
+              :class="{ selected: selectedWardrobeItem?.id === item.id }"
+              @click="selectWardrobeReference(item)"
+            >
+              <img :src="item.image_url" :alt="item.name" />
+              <span>{{ item.name }}</span>
+              <Check v-if="selectedWardrobeItem?.id === item.id" :size="16" />
+            </button>
+          </div>
+          <div v-else class="reference-wardrobe-empty">
+            <Shirt :size="28" />
+            <strong>衣櫃裡還沒有{{ referenceType === 'upper_body' ? '上裝' : '下裝' }}</strong>
+            <button type="button" class="mbti-text-button" @click="referenceSource = 'upload'">改為上傳新圖片</button>
+          </div>
+        </div>
+
+        <label v-else class="reference-dropzone">
+          <img v-if="referenceImage && referencePreviewUrl" :src="referencePreviewUrl" alt="你的單品預覽" />
+          <span v-else><ImagePlus :size="28" /><strong>選擇單品照片</strong><small>JPG、PNG 或 WebP；送出後也會加入我的衣櫃</small></span>
+          <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="agentBusy || referencePreparing" @change="chooseReferenceImage" />
+        </label>
+
+        <label class="reference-style-note">
+          <span>補充想要的場合或風格（選填）</span>
+          <textarea
+            v-model="referenceStyleNote"
+            rows="3"
+            placeholder="例如：週末約會、簡約俐落、不要裙子、希望適合拍照…"
+            :disabled="agentBusy || referencePreparing"
+          />
         </label>
         <footer>
-          <button v-if="referenceImage" class="mbti-text-button" type="button" @click="clearReferenceImage">移除照片</button>
-          <button class="primary-button" type="button" :disabled="!referenceImage" @click="referencePickerOpen = false">
-            {{ referenceType === 'upper_body' ? '用這件上衣找下身' : '用這件下身找上衣' }}
+          <button v-if="referenceSource === 'upload' && referenceImage" class="mbti-text-button" type="button" @click="clearReferenceImage">移除照片</button>
+          <span v-else />
+          <button class="primary-button" type="button" :disabled="!referenceReady || agentBusy || referencePreparing" @click="startReferenceSearch">
+            {{ (agentBusy || referencePreparing) ? '正在準備搭配…' : '送出並找搭配' }}
           </button>
         </footer>
       </section>

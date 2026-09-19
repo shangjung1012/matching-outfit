@@ -5,6 +5,7 @@ export type AppView =
   | 'knowledge'
   | 'similarity'
   | 'catalog'
+  | 'wardrobe'
   | 'favorites'
   | 'tryon'
   | 'preferences'
@@ -12,6 +13,18 @@ export type AppView =
 export type TryOnReferenceType = 'upper' | 'lower' | 'overall' | 'shoe' | 'bag'
 export type TryOnJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 export type Human3DJobStatus = TryOnJobStatus
+
+export type WardrobeCategory = 'upper_body' | 'lower_body' | 'shoes'
+
+export interface WardrobeItem {
+  id: number
+  name: string
+  category: WardrobeCategory
+  image_url: string
+  original_filename: string
+  is_favorite: boolean
+  created_at: string
+}
 
 export interface TryOnCapabilities {
   available: boolean
