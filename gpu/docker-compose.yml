@@ -94,6 +94,7 @@ services:
       HUMAN3D_MIXED_PRECISION: bf16
       HUMAN3D_PRETRAINED_DIR: /models/lhmpp/pretrained_models
       HF_HOME: /models/huggingface
+      TORCH_HOME: /models/torch
       MINIO_ENDPOINT: human3d-minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in gpu/.env}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in gpu/.env}

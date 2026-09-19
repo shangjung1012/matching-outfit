@@ -19,18 +19,27 @@ Blackwell. This image intentionally uses Python 3.10, PyTorch 2.8.0 + CUDA
 12.8, xFormers 0.0.32.post2, and gsplat 1.5.3. PyTorch 2.7 was the first release
 with Blackwell and CUDA 12.8 wheels; gsplat 1.4 predates `sm_120` support.
 PointOps, PyTorch3D, and diff-gaussian-rasterization are built from source with
-`TORCH_CUDA_ARCH_LIST=12.0`. `spconv`, `torch-scatter`, `simple-knn`, and
-flash-attn are not installed because the selected PixelShuffle inference/export
-path does not import or execute them. There is no CPU fallback.
+`TORCH_CUDA_ARCH_LIST=12.0`. LHM++'s Sonata encoder imports `spconv` and
+`torch-scatter` while building the selected PixelShuffle model, so the image
+also installs `addict`, `chumpy`, spconv 2.3.6's CUDA 12 wheel, and PyG's
+PyTorch 2.8/CUDA 12.8 torch-scatter wheel. The obsolete NumPy alias import in
+chumpy 0.70 is removed for NumPy 1.26 compatibility. spconv JIT-compiles
+kernels for GPU architectures that are not embedded in its wheel. `simple-knn`
+and flash-attn are not used by this inference/export path. There is no CPU
+fallback.
 
 Pinned extension sources:
 
 - PyTorch3D: `978cd99221b9e0a6a568f1d427854d73363265cf`
 - diff-gaussian-rasterization: `8829d14f814fccdaf840b7b0f3021a616583c0a1`
 - gsplat: `1.5.3`
+- addict: `2.4.0`
+- chumpy: `0.70` (NumPy 1.26 compatibility patch applied during image build)
+- spconv: `2.3.6` (`spconv-cu120` official wheel)
+- torch-scatter: `2.1.2+pt28cu128` (official PyG wheel)
 
 At startup the engine checks CUDA availability, device name/capability, and the
-five active extension imports. `/health` reports initialization failures rather
+nine required runtime imports. `/health` reports initialization failures rather
 than claiming the model is ready.
 
 ## Licenses

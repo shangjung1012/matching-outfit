@@ -54,6 +54,22 @@ RUN python3.10 -m pip install gsplat==1.5.3 \
         "git+https://github.com/ashawkey/diff-gaussian-rasterization.git@${DIFF_GAUSSIAN_COMMIT}" \
         --no-build-isolation
 
+# LHM++'s Sonata encoder imports both packages while the application model is
+# constructed. spconv's CUDA 12 wheel JIT-compiles kernels for newer GPUs.
+ARG ADDICT_VERSION=2.4.0
+ARG CHUMPY_VERSION=0.70
+ARG SPCONV_VERSION=2.3.6
+ARG TORCH_SCATTER_WHEEL=https://data.pyg.org/whl/torch-2.8.0%2Bcu128/torch_scatter-2.1.2%2Bpt28cu128-cp310-cp310-linux_x86_64.whl
+RUN uv pip install --system --no-cache --no-build-isolation \
+        "addict==${ADDICT_VERSION}" \
+        "chumpy==${CHUMPY_VERSION}" \
+        "spconv-cu120==${SPCONV_VERSION}" \
+        "${TORCH_SCATTER_WHEEL}" \
+    && sed -i \
+        's/from numpy import bool, int, float, complex, object, unicode, str, nan, inf/from numpy import nan, inf/' \
+        /usr/local/lib/python3.10/dist-packages/chumpy/__init__.py \
+    && python3.10 -c "import chumpy"
+
 COPY . .
 
 EXPOSE 9002

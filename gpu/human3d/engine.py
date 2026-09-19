@@ -35,11 +35,15 @@ def working_directory(path: Path) -> Iterator[None]:
 class LHMEngine:
     """Stable wrapper around the pinned official LHM++ PLY export path."""
 
-    REQUIRED_EXTENSIONS = (
+    REQUIRED_IMPORTS = (
+        "addict",
+        "chumpy",
         "diff_gaussian_rasterization",
         "gsplat",
         "pointops_cuda",
         "pytorch3d",
+        "spconv.pytorch",
+        "torch_scatter",
         "xformers",
     )
 
@@ -99,21 +103,27 @@ class LHMEngine:
         self._upstream = module
         return module
 
-    def _check_extensions(self) -> None:
-        missing = [
-            name for name in self.REQUIRED_EXTENSIONS
-            if importlib.util.find_spec(name) is None
-        ]
+    def _check_dependencies(self) -> None:
+        missing = []
+        for name in self.REQUIRED_IMPORTS:
+            try:
+                available = importlib.util.find_spec(name) is not None
+            except (ImportError, AttributeError, ValueError):
+                # find_spec("package.module") imports the parent package and
+                # raises when that parent is missing instead of returning None.
+                available = False
+            if not available:
+                missing.append(name)
         if missing:
             raise RuntimeError(
-                "Required CUDA extensions are unavailable: " + ", ".join(missing)
+                "Required Human3D dependencies are unavailable: " + ", ".join(missing)
             )
 
     def load(self) -> None:
         with self._lock:
             if self._model is not None:
                 return
-            self._check_extensions()
+            self._check_dependencies()
             upstream = self._import_upstream_export()
             os.environ.update(
                 {
