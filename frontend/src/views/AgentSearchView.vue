@@ -731,7 +731,7 @@ onBeforeUnmount(() => {
     <main class="agent-workspace">
       <div class="analysis-entry-toolbar">
         <button class="secondary-button" type="button" @click="emit('openAnalysis')">
-          <FileSearch :size="16" />詳細搭配分析
+          <FileSearch :size="16" />詳細搭配分析歷史報告
         </button>
       </div>
       <details v-if="planningKnowledge.length" class="agent-context-details">
