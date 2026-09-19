@@ -7,6 +7,7 @@ import {
   getFavorites,
   getPreferenceBundle,
   patchStylePreference,
+  saveSummary,
   updateFavoriteItems,
   updateFavoriteOutfit,
 } from '../api'
@@ -18,11 +19,13 @@ import type {
   StylePreferenceCreate,
   PreferenceType,
   RequirementSummary,
+  UserSummary,
 } from '../types'
 
 const favoriteItems = ref<FavoriteItem[]>([])
 const favoriteOutfits = ref<FavoriteOutfit[]>([])
 const stylePreferences = ref<StylePreference[]>([])
+const summary = ref<UserSummary | null>(null)
 const favoritesLoading = ref(false)
 const preferencesLoading = ref(false)
 
@@ -62,10 +65,17 @@ export function useUserLibrary(userKey: string) {
     try {
       const bundle = await getPreferenceBundle(userKey)
       stylePreferences.value = bundle.soft
+      summary.value = bundle.summary
       return bundle
     } finally {
       preferencesLoading.value = false
     }
+  }
+
+  async function saveUserSummary(text: string): Promise<UserSummary> {
+    const updated = await saveSummary(userKey, text)
+    summary.value = updated
+    return updated
   }
 
   async function loadLibrary(): Promise<void> {
@@ -161,6 +171,7 @@ export function useUserLibrary(userKey: string) {
     favoriteOutfits,
     favoritesLoading,
     stylePreferences,
+    summary,
     preferencesLoading,
     loadFavorites,
     loadPreferences,
@@ -175,5 +186,6 @@ export function useUserLibrary(userKey: string) {
     addOutfitReaction,
     patchPreference,
     removePreference,
+    saveUserSummary,
   }
 }

@@ -8,6 +8,7 @@ import type {
   PlannerGarmentZone,
   HardRules,
   PreferenceBundle,
+  UserSummary,
   QueryDraft,
   RequirementSummary,
   StylePreference,
@@ -273,6 +274,13 @@ export function saveHardRules(userKey: string, hard: HardRules) {
   return request<HardRules>(
     `${prefBase(userKey)}/hard`,
     json('PUT', { ...hard, user_key: userKey }),
+  )
+}
+
+export function saveSummary(userKey: string, summaryText: string) {
+  return request<UserSummary>(
+    `${prefBase(userKey)}/summary`,
+    json('PUT', { user_key: userKey, summary_text: summaryText }),
   )
 }
 

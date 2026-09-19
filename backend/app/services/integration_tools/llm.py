@@ -19,6 +19,7 @@ LLMStage = Literal[
     "query_planning",
     "query_repair",
     "aesthetic_review",
+    "user_summary",
 ]
 
 _STAGE_MODEL_SETTING = {
@@ -28,6 +29,7 @@ _STAGE_MODEL_SETTING = {
     "query_planning": "query_planner_model",
     "query_repair": "query_planner_model",
     "aesthetic_review": "aesthetic_review_model",
+    "user_summary": "user_summary_model",
 }
 
 

@@ -558,6 +558,19 @@ class HardRulesUpdate(HardRules):
     user_key: str = Field(min_length=1, max_length=120)
 
 
+class UserSummaryView(BaseModel):
+    user_key: str
+    summary_text: str = ""
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserSummaryUpdate(BaseModel):
+    user_key: str = Field(min_length=1, max_length=120)
+    summary_text: str = Field(default="", max_length=4000)
+
+
 class StylePreferenceBase(BaseModel):
     preference_text: str = Field(min_length=1, max_length=500)
     occasions: list[str] = Field(default_factory=list)
@@ -593,6 +606,7 @@ class StylePreferenceView(StylePreferenceCreate):
 class PreferenceBundle(BaseModel):
     hard: HardRulesView
     soft: list[StylePreferenceView] = Field(default_factory=list)
+    summary: UserSummaryView
 
 
 class StylePreferenceProposalRequest(BaseModel):

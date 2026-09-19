@@ -588,9 +588,16 @@ export interface StylePreference extends StylePreferenceCreate {
   created_at: string | null
 }
 
+export interface UserSummary {
+  user_key: string
+  summary_text: string
+  updated_at: string | null
+}
+
 export interface PreferenceBundle {
   hard: HardRules
   soft: StylePreference[]
+  summary: UserSummary
 }
 
 export interface OutfitPreferenceReaction {

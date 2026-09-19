@@ -56,6 +56,8 @@ from app.schemas.workflow import (
     UserProfileLoginRequest,
     UserProfileUpdate,
     UserProfileView,
+    UserSummaryUpdate,
+    UserSummaryView,
 )
 from app.schemas.try_on import (
     TryOnCapabilities,
@@ -126,6 +128,8 @@ __all__ = [
     "UserProfileLoginRequest",
     "UserProfileUpdate",
     "UserProfileView",
+    "UserSummaryUpdate",
+    "UserSummaryView",
     "TryOnCapabilities",
     "TryOnHistoryView",
     "TryOnReferenceType",

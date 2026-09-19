@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { Brain, Check, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-vue-next'
+import { Brain, Check, NotebookText, Pencil, Plus, Save, ShieldCheck, Trash2, UserRound, X } from 'lucide-vue-next'
 import {
   saveHardRules,
 } from '../api'
@@ -12,10 +12,12 @@ import type { HardRules, StylePreference } from '../types'
 const props = defineProps<{ userKey: string }>()
 const {
   stylePreferences: soft,
+  summary,
   loadPreferences,
   addPreference,
   patchPreference,
   removePreference,
+  saveUserSummary,
 } = useUserLibrary(props.userKey)
 const { showError, showSuccess } = useToast()
 
@@ -72,6 +74,8 @@ const editingId = ref<number | null>(null)
 const editingText = ref('')
 const loading = ref(false)
 const savingHard = ref(false)
+const summaryText = ref('')
+const savingSummary = ref(false)
 
 function applyHard(source: Partial<HardRules> | null | undefined): void {
   Object.assign(hard, emptyHard(), source ?? {})
@@ -87,11 +91,37 @@ async function load() {
     const bundle = await loadPreferences()
     applyHard(bundle?.hard)
     soft.value = Array.isArray(bundle?.soft) ? bundle.soft : []
+    summaryText.value = bundle?.summary?.summary_text ?? ''
   } catch (reason) {
     showError(reason instanceof Error ? reason.message : '無法載入偏好')
   } finally {
     loading.value = false
   }
+}
+
+async function saveSummarySection() {
+  savingSummary.value = true
+  try {
+    const updated = await saveUserSummary(summaryText.value)
+    summaryText.value = updated.summary_text
+    showSuccess('個人摘要已儲存')
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : '儲存摘要失敗')
+  } finally {
+    savingSummary.value = false
+  }
+}
+
+function formatSummaryUpdatedAt(value: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('zh-TW', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 async function saveHard() {
@@ -300,6 +330,27 @@ onMounted(load)
           <button class="secondary-button" :disabled="!newPreference.text.trim()" @click="addSoft">
             <Plus :size="16" />新增偏好
           </button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <header class="settings-section-heading">
+          <NotebookText :size="20" />
+          <h3>個人摘要</h3>
+        </header>
+
+        <div class="memory-create">
+          <label>系統會在每次找搭配完成後自動整理這裡的內容，你也可以直接編輯。
+            <textarea v-model="summaryText" rows="5" />
+          </label>
+          <div class="summary-save-row">
+            <span v-if="summary?.updated_at" class="summary-updated-hint">
+              最後更新於 {{ formatSummaryUpdatedAt(summary.updated_at) }}
+            </span>
+            <button class="secondary-button" :disabled="savingSummary" @click="saveSummarySection">
+              <Save :size="16" />{{ savingSummary ? '儲存中' : '儲存摘要' }}
+            </button>
+          </div>
         </div>
       </section>
 

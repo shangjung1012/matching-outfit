@@ -1069,6 +1069,8 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .memory-create > label, .memory-context-inputs label { display: grid; gap: 6px; color: #555e57; font-size: .7rem; font-weight: 700; }
 .memory-context-inputs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .memory-create .secondary-button { justify-self: end; }
+.summary-save-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.summary-updated-hint { color: #8a938c; font-size: .72rem; }
 .proposal-rows { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
 .proposal-rows li { display: flex; align-items: flex-start; gap: 7px; font-size: .73rem; line-height: 1.55; }
 
