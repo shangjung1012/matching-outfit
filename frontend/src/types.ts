@@ -460,7 +460,6 @@ export interface RecommendationDebug {
     }[]
   }
   stage_timings_ms: Record<string, number>
-  compatibility_note: string
   shoe_retrievals: {
     outfit_id: string
     original_query: string
@@ -537,6 +536,7 @@ export interface PreferenceBundle {
 export interface OutfitPreferenceReaction {
   user_key: string
   user_request: string
+  review_summary?: string
   outfit_item_ids: number[]
   preference_type: PreferenceType
   requirements: RequirementSummary | null

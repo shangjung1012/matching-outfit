@@ -126,20 +126,46 @@ def attach_post_review_shoes(
     # A-G direction. Search it verbatim after the reviewer selects the winners.
     original_specs = [spec for _, _, spec in indexed]
     prepared = original_specs
+    # Repeated direction queries should share one ranked candidate list.  This
+    # avoids running identical vector searches and lets later outfits advance
+    # to the next unused shoe in that same ranking.
+    unique_specs_by_query: dict[str, ShoeSpec] = {}
+    for spec in prepared:
+        unique_specs_by_query.setdefault(spec.shoe_query.strip().lower(), spec)
+    unique_specs = list(unique_specs_by_query.values())
     try:
-        candidate_groups = search_shoe_candidates(
-            db, prepared, audience=audience, hard=hard, top_k=5
+        unique_candidate_groups = search_shoe_candidates(
+            db,
+            unique_specs,
+            audience=audience,
+            hard=hard,
+            top_k=max(5, len(indexed)),
         )
     except Exception:
         # Shoes are an optional post-review enhancement, never a reason to
         # discard an otherwise valid clothing recommendation.
         return (outfits, []) if include_debug else outfits
+    candidates_by_query = {
+        spec.shoe_query.strip().lower(): candidates
+        for spec, candidates in zip(unique_specs, unique_candidate_groups, strict=True)
+    }
     updated = list(outfits)
     debug_rows: list[ShoeRetrievalDebug] = []
-    for ((index, outfit, _), original_spec, spec, candidates) in zip(
-        indexed, original_specs, prepared, candidate_groups, strict=True
+    used_shoe_ids: set[int] = set()
+    for ((index, outfit, _), original_spec, spec) in zip(
+        indexed, original_specs, prepared, strict=True
     ):
-        shoe = candidates[0] if candidates else None
+        candidates = candidates_by_query.get(spec.shoe_query.strip().lower(), [])
+        outfit_item_ids = {item.id for item in outfit.items}
+        shoe = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.id not in used_shoe_ids
+                and candidate.id not in outfit_item_ids
+            ),
+            None,
+        )
         debug_rows.append(ShoeRetrievalDebug(
             outfit_id=outfit.id,
             original_query=original_spec.shoe_query,
@@ -149,8 +175,9 @@ def attach_post_review_shoes(
             candidates=candidates,
             selected_item_id=shoe.id if shoe is not None else None,
         ))
-        if shoe is None or any(item.id == shoe.id for item in outfit.items):
+        if shoe is None:
             continue
+        used_shoe_ids.add(shoe.id)
         updated[index] = outfit.model_copy(update={
             "items": [*outfit.items, shoe],
             "shoe_suggestion": ShoeSuggestion(

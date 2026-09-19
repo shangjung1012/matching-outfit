@@ -127,10 +127,12 @@ export function useUserLibrary(userKey: string) {
     userRequest: string,
     requirements: RequirementSummary | null,
     preferenceType: PreferenceType,
+    reviewSummary = '',
   ): Promise<StylePreference> {
     const updated = await addOutfitPreferenceReaction(userKey, {
       user_key: userKey,
       user_request: userRequest,
+      review_summary: reviewSummary,
       outfit_item_ids: itemIds,
       preference_type: preferenceType,
       requirements,

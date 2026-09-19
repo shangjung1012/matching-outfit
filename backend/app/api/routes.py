@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import tempfile
 from time import perf_counter
 from typing import Literal
@@ -69,7 +70,6 @@ from app.services.clothes_similarity import find_similar_by_image
 from app.services.image_inputs.validation import validate_image
 from app.services.outfit_ranker import rank_outfits
 from app.services.post_review_shoes import attach_post_review_shoes
-from app.services.outfit_compatibility import rerank_outfits_by_compatibility
 from app.knowledge.store import FashionKnowledgeStore
 from app.knowledge.retrieval import infer_audience, retrieve_observations_from_db
 from app.services.query_planner import (
@@ -745,7 +745,14 @@ def outfit_reaction_preference(
     direction, since downstream matching (query planner) only reads that field.
     """
     is_avoid = payload.preference_type == "avoid"
-    if len(clothes) == 1:
+    review_summary = _positive_review_summary(payload.review_summary, clothes)
+    if review_summary and not is_avoid:
+        context = _preference_context(payload)
+        sentence = (
+            f"在「{context}」的情境與要求下，使用者認為「{review_summary}」"
+            "是符合個人偏好的搭配方向。"
+        )
+    elif len(clothes) == 1:
         cloth = clothes[0]
         attributes = [
             value.strip()
@@ -763,7 +770,7 @@ def outfit_reaction_preference(
         verb = "使用者想避免由" if is_avoid else "使用者喜歡由"
         sentence = f"{verb} {outfit_description} 組成的整套搭配。"
     user_request = (payload.user_request or "").strip()
-    if user_request:
+    if user_request and not review_summary:
         sentence = f"在「{user_request}」的需求下，{sentence}"
     if len(sentence) > 500:
         sentence = f"{sentence[:497]}..."
@@ -780,6 +787,58 @@ def outfit_reaction_preference(
         activities=payload.requirements.activities if payload.requirements else [],
         styles=payload.requirements.styles if payload.requirements else [],
     )
+
+
+_NEGATIVE_REVIEW_TERMS = (
+    "不符合", "不適合", "雜亂", "衝突", "缺點", "失敗", "顯胖", "廉價",
+    "明顯問題", "不足", "過於", "太過", "違和",
+)
+
+
+def _positive_review_summary(summary: str | None, clothes: list[Cloth]) -> str:
+    """Keep positive visual observations without another LLM call or product names."""
+    text = " ".join((summary or "").replace("**", "").split()).strip()
+    if not text:
+        return ""
+    for prefix in ("搭配與整體：", "搭配與整體:"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+    for cloth in clothes:
+        name = (cloth.product_display_name or "").strip()
+        if name:
+            text = text.replace(f"「{name}」", "").replace(name, "")
+    clauses = [
+        clause.strip(" ；;。")
+        for clause in re.split(r"(?<=[。！？!?；;])", text)
+        if clause.strip(" ；;。")
+        and not any(term in clause for term in _NEGATIVE_REVIEW_TERMS)
+    ]
+    positive = "".join(
+        clause if clause.endswith(("。", "！", "？")) else f"{clause}。"
+        for clause in clauses
+    ).strip()
+    return positive or "整體配色、輪廓與材質呈現協調且有重點的視覺效果。"
+
+
+def _preference_context(payload: StylePreferenceAddRequest) -> str:
+    user_request = (payload.user_request or "").strip()
+    if user_request:
+        return user_request
+    requirements = payload.requirements
+    if requirements is None:
+        return "這次穿搭"
+    tags = [
+        *requirements.occasions,
+        *requirements.seasons,
+        *requirements.times_of_day,
+        *requirements.climates,
+        *requirements.formalities,
+        *requirements.activities,
+        *requirements.styles,
+        *requirements.special_requirements,
+    ]
+    translated = [requirements.tag_translations.get(tag, tag) for tag in tags if tag]
+    return "、".join(dict.fromkeys(translated)) or requirements.search_brief or "這次穿搭"
 
 
 def planning_knowledge(db: Session, raw_text: str, requirements: RequirementSummary, audience: str | None):
@@ -1071,20 +1130,14 @@ def recommendations(
         outfit_budget_max=outfit_budget_max,
     )
     timings["outfit_ranker"] = round((perf_counter() - started_at) * 1000 - timings["catalog_search"], 1)
-    if settings.outfit_compatibility_enabled:
-        compatibility_ranked, compatibility_note = rerank_outfits_by_compatibility(ranked_pool)
-    else:
-        compatibility_ranked, compatibility_note = ranked_pool, "disabled"
-    timings["compatibility_rerank"] = round((perf_counter() - started_at) * 1000 - timings["catalog_search"] - timings["outfit_ranker"], 1)
-    shortlist = compatibility_ranked[:payload.shortlist_count]
+    shortlist = ranked_pool[:payload.shortlist_count]
     debug = (
         RecommendationDebug(
             search_results=groups,
             ranked_candidate_count=len(ranked_pool),
-            ranked_preview=compatibility_ranked[:30],
+            ranked_preview=ranked_pool[:30],
             shortlist_before_review=shortlist,
             stage_timings_ms=timings,
-            compatibility_note=compatibility_note,
         )
         if payload.include_debug
         else None

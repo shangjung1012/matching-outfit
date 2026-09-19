@@ -94,6 +94,73 @@ def test_shoe_debug_keeps_query_and_top_candidates(monkeypatch) -> None:
     assert traces[0].selected_item_id == 901
 
 
+def test_repeated_shoe_query_uses_next_unused_ranked_candidate(monkeypatch) -> None:
+    outfits = [
+        _outfit(_query()).model_copy(update={"id": f"outfit-{index}"})
+        for index in range(3)
+    ]
+    shoes = [
+        outfits[0].items[0].model_copy(update={
+            "id": 910 + index,
+            "product_display_name": f"Rank {index + 1} shoe",
+            "garment_zone": "accessory",
+            "similarity": 0.90 - index * 0.05,
+        })
+        for index in range(3)
+    ]
+    search_calls = []
+
+    def fake_search(_db, specs, **kwargs):
+        search_calls.append((specs, kwargs))
+        return [shoes]
+
+    monkeypatch.setattr(post_review_shoes, "search_shoe_candidates", fake_search)
+    shared_spec = ShoeSpec(
+        shoe_type="loafer",
+        shoe_query="black leather loafers clean low profile",
+    )
+
+    result, traces = post_review_shoes.attach_post_review_shoes(
+        object(),
+        outfits,
+        {outfit.id: shared_spec for outfit in outfits},
+        audience=None,
+        hard=None,
+        include_debug=True,
+    )
+
+    assert len(search_calls) == 1
+    assert len(search_calls[0][0]) == 1
+    assert [outfit.shoe_suggestion.item_id for outfit in result] == [910, 911, 912]
+    assert [trace.selected_item_id for trace in traces] == [910, 911, 912]
+
+
+def test_different_queries_also_never_reuse_a_selected_shoe(monkeypatch) -> None:
+    outfits = [
+        _outfit(_query()).model_copy(update={"id": f"outfit-{index}"})
+        for index in range(2)
+    ]
+    shared = outfits[0].items[0].model_copy(update={
+        "id": 920, "garment_zone": "accessory", "similarity": 0.95,
+    })
+    fallback = shared.model_copy(update={"id": 921, "similarity": 0.80})
+    monkeypatch.setattr(
+        post_review_shoes,
+        "search_shoe_candidates",
+        lambda *_args, **_kwargs: [[shared], [shared, fallback]],
+    )
+    specs = {
+        outfits[0].id: ShoeSpec(shoe_type="loafer", shoe_query="black loafers"),
+        outfits[1].id: ShoeSpec(shoe_type="pump", shoe_query="black pumps"),
+    }
+
+    result = post_review_shoes.attach_post_review_shoes(
+        object(), outfits, specs, audience=None, hard=None
+    )
+
+    assert [outfit.shoe_suggestion.item_id for outfit in result] == [920, 921]
+
+
 def test_conservative_shoe_colour_follows_formality_and_lower_outfit_colours() -> None:
     outfit = _outfit(_query())
     outfit.items = [

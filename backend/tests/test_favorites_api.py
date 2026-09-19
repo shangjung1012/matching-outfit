@@ -338,6 +338,32 @@ def test_outfit_reaction_is_saved_immediately_and_can_be_removed(client) -> None
         assert db.get(UserStylePreference, row["id"]) is None
 
 
+def test_outfit_review_summary_becomes_contextual_preference_without_product_names(client) -> None:
+    test_client, _ = client
+    created = test_client.post(
+        "/api/preferences/alice/soft/add",
+        json={
+            "user_key": "alice",
+            "user_request": "適合上班的簡約藍色穿搭",
+            "outfit_item_ids": [2, 1],
+            "preference_type": "prefer",
+            "review_summary": (
+                "搭配與整體：淡藍上衣和黑色寬褲形成清楚的上下對比，線條簡單且不顯厚重。"
+                "唯一小缺點是上衣略偏休閒。整體乾淨、輕盈，符合上班需求。"
+            ),
+        },
+    )
+
+    assert created.status_code == 201
+    sentence = created.json()["preference_text"]
+    assert "適合上班的簡約藍色穿搭" in sentence
+    assert "淡藍上衣和黑色寬褲形成清楚的上下對比" in sentence
+    assert "整體乾淨、輕盈" in sentence
+    assert "唯一小缺點" not in sentence
+    assert "White Shirt" not in sentence
+    assert "Black Casual Trousers" not in sentence
+
+
 def test_single_item_reaction_has_no_context_prefix_without_user_request(client) -> None:
     test_client, _ = client
     liked = test_client.post(

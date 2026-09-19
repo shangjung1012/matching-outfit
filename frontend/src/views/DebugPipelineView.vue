@@ -312,7 +312,6 @@ function downloadTrace() {
         <div v-if="trace.recommendation_debug" class="debug-panel">
           <p v-if="Object.keys(trace.recommendation_debug.stage_timings_ms || {}).length" class="debug-count-line">
             耗時：<span v-for="(milliseconds, stage) in trace.recommendation_debug.stage_timings_ms" :key="stage">{{ stage }} {{ milliseconds.toFixed(0) }}ms　</span>
-            <small>{{ trace.recommendation_debug.compatibility_note }}</small>
           </p>
           <p class="debug-count-line"><Database :size="16" />產生 {{ trace.recommendation_debug.ranked_candidate_count }} 套組合，shortlist {{ trace.recommendation_debug.shortlist_before_review.length }} 套。</p>
           <details>
