@@ -9,10 +9,23 @@ NEUTRAL_COLORS = {
     "navy blue", "navy", "brown", "tan",
 }
 CLASHING_COLOR_PAIRS = {
+    # 原本的規則
     frozenset(("orange", "green")),
     frozenset(("red", "green")),
     frozenset(("pink", "red")),
     frozenset(("purple", "orange")),
+
+    # 新增：高對比配色
+    frozenset(("blue", "orange")),
+    frozenset(("purple", "yellow")),
+    frozenset(("pink", "green")),
+    frozenset(("purple", "green")),
+
+    # 新增：雙高彩度組合
+    frozenset(("red", "yellow")),
+    frozenset(("green", "yellow")),
+    frozenset(("orange", "pink")),
+    frozenset(("red", "blue")),
 }
 STRICT_CONTEXT_TERMS = {
     "formal", "gala", "fine dining", "luxury restaurant", "wedding", "interview",
@@ -22,17 +35,34 @@ CASUAL_ARTICLE_TYPES = {"tshirts", "shorts", "track pants", "sweatshirts", "legg
 FORMAL_ARTICLE_TYPES = {"blazers", "shirts", "trousers", "dresses", "sarees", "waistcoat"}
 
 
+def parse_color(color: str | None) -> tuple[str, str]:
+    """Split a catalog colour label into its lightness modifier and base family."""
+    normalized = (color or "").strip().lower()
+    for modifier in ("light", "dark"):
+        prefix = f"{modifier} "
+        if normalized.startswith(prefix):
+            return modifier, normalized[len(prefix):].strip()
+    return "normal", normalized
+
+
 def _color_pair_score(first: str | None, second: str | None) -> float:
-    left = (first or "").strip().lower()
-    right = (second or "").strip().lower()
-    if not left or not right:
+    left_tone, left_family = parse_color(first)
+    right_tone, right_family = parse_color(second)
+    if not left_family or not right_family:
         return 0.65
-    if left == right:
+    if left_tone == right_tone and left_family == right_family:
         return 0.86
-    if left in NEUTRAL_COLORS or right in NEUTRAL_COLORS:
+    if left_family == right_family:
+        return 0.90
+    if left_family in NEUTRAL_COLORS or right_family in NEUTRAL_COLORS:
         return 0.95
-    if frozenset((left, right)) in CLASHING_COLOR_PAIRS:
-        return 0.35
+    if frozenset((left_family, right_family)) in CLASHING_COLOR_PAIRS:
+        modified_count = sum(tone != "normal" for tone in (left_tone, right_tone))
+        if modified_count == 0:
+            return 0.35
+        if modified_count == 1:
+            return 0.65
+        return 0.72
     return 0.72
 
 
@@ -150,8 +180,6 @@ def rank_outfits(
         for zone, pool in pooled_by_zone.items()
     }
     recommendations: list[OutfitRecommendation] = []
-    accessories = by_zone.get("accessory", [])[:3]
-    accessory_options: list[ClothResult | None] = accessories if accessories else [None]
     if reference_item is not None:
         counterpart_zone = (
             "lower_body" if reference_item.garment_zone == "upper_body" else "upper_body"
@@ -194,8 +222,8 @@ def rank_outfits(
             lowers = sorted(
                 pools["lower_body"].values(), key=lambda item: item.similarity, reverse=True
             )[:20]
-            for upper, lower, accessory in product(uppers, lowers, accessory_options):
-                items = [upper, lower, *([accessory] if accessory else [])]
+            for upper, lower in product(uppers, lowers):
+                items = [upper, lower]
                 recommendations.append(
                     _recommendation(
                         "separates",
@@ -207,18 +235,18 @@ def rank_outfits(
                 )
     else:
         # Backward-compatible fallback for manually edited or older query plans.
-        for upper, lower, accessory in product(
-            by_zone.get("upper_body", []), by_zone.get("lower_body", []), accessory_options
+        for upper, lower in product(
+            by_zone.get("upper_body", []), by_zone.get("lower_body", [])
         ):
-            items = [upper, lower, *([accessory] if accessory else [])]
+            items = [upper, lower]
             recommendations.append(
                 _recommendation(
                     "separates", items,
                     "Upper and lower body candidate coverage", user_context,
                 )
             )
-    for item, accessory in product(by_zone.get("one_piece", []), accessory_options):
-        items = [item, *([accessory] if accessory else [])]
+    for item in by_zone.get("one_piece", []):
+        items = [item]
         direction_id = one_piece_directions.get(item.id, (None, 0.0))[0]
         recommendations.append(
             _recommendation(

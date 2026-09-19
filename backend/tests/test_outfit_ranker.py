@@ -9,7 +9,7 @@ from app.schemas import (
     StylePreferenceProposalRequest,
 )
 from app.api.routes import effective_audience, outfit_memory_proposals
-from app.services.outfit_ranker import rank_outfits, select_diverse
+from app.services.outfit_ranker import _color_pair_score, parse_color, rank_outfits, select_diverse
 
 
 def cloth(identifier: int, zone: str, color: str, similarity: float) -> ClothResult:
@@ -45,6 +45,21 @@ def group(
             item.model_copy(update={"references": references or []}) for item in clothes
         ],
     )
+
+
+def test_parse_color_preserves_lightness_and_base_family() -> None:
+    assert parse_color("Light Blue") == ("light", "blue")
+    assert parse_color("Dark Green") == ("dark", "green")
+    assert parse_color("Blue") == ("normal", "blue")
+
+
+def test_color_pair_score_understands_tones_and_color_families() -> None:
+    assert _color_pair_score("Light Blue", "Light Blue") == 0.86
+    assert _color_pair_score("Light Blue", "Dark Blue") == 0.90
+    assert _color_pair_score("Light Beige", "Blue") == 0.95
+    assert _color_pair_score("Orange", "Green") == 0.35
+    assert _color_pair_score("Light Orange", "Green") == 0.65
+    assert _color_pair_score("Light Orange", "Light Green") == 0.72
 
 
 def test_ranker_only_combines_upper_and_lower_from_same_styling_direction() -> None:
@@ -197,7 +212,7 @@ def test_ranker_does_not_attach_query_stage_references() -> None:
     assert recommendations[0].references == []
 
 
-def test_ranker_includes_accessory_when_formula_requested_one() -> None:
+def test_ranker_ignores_accessory_query_results() -> None:
     groups = [
         group("upper_body", [cloth(1, "upper_body", "White", 0.9)]),
         group("lower_body", [cloth(2, "lower_body", "Beige", 0.9)]),
@@ -206,8 +221,10 @@ def test_ranker_includes_accessory_when_formula_requested_one() -> None:
 
     recommendations = rank_outfits(groups, limit=1)
 
-    assert len(recommendations[0].items) == 3
-    assert recommendations[0].items[-1].garment_zone == "accessory"
+    assert [item.garment_zone for item in recommendations[0].items] == [
+        "upper_body",
+        "lower_body",
+    ]
 
 
 def test_ranker_penalizes_casual_items_in_strict_formal_context() -> None:
